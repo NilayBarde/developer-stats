@@ -5,69 +5,12 @@ import VelocityChart from './VelocityChart';
 import ChartCard from './ChartCard';
 import BarChartCard from './BarChartCard';
 import PRList from './PRList';
-
-/**
- * Prepare issue type data for chart
- */
-function prepareIssueTypeData(byType) {
-  if (!byType) return [];
-  return Object.entries(byType).map(([type, data]) => ({
-    type,
-    total: data.total,
-    resolved: data.resolved
-  }));
-}
-
-/**
- * Prepare project data for chart
- */
-function prepareProjectData(byProject) {
-  if (!byProject) return [];
-  return Object.entries(byProject).map(([project, data]) => ({
-    project,
-    total: data.total,
-    resolved: data.resolved,
-    open: data.open
-  }));
-}
-
-/**
- * Render velocity charts by board
- */
-function renderVelocityCharts(velocity) {
-  if (!velocity) return null;
-  
-  if (velocity.byBoard) {
-    return Object.entries(velocity.byBoard).map(([boardName, boardData]) => {
-      if (!boardData.sprints || boardData.sprints.length === 0) return null;
-      return (
-        <VelocityChart 
-          key={boardName}
-          sprints={boardData.sprints} 
-          title={`${boardName} Velocity Over Time`}
-          showBenchmarks={false}
-        />
-      );
-    });
-  }
-  
-  if (velocity.sprints && velocity.sprints.length > 0) {
-    return <VelocityChart sprints={velocity.sprints} showBenchmarks={false} />;
-  }
-  
-  return (
-    <ChartCard title="Velocity Over Time">
-      <div className="no-data-message" style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
-        No sprint data available. Issues need to be assigned to sprints with start and end dates in Jira.
-      </div>
-    </ChartCard>
-  );
-}
+import { prepareProjectData } from '../utils/chartHelpers';
+import './JiraSection.css';
 
 function JiraSection({ stats }) {
   if (!stats || stats.error) return null;
 
-  const issueTypeData = prepareIssueTypeData(stats.byType);
   const projectData = prepareProjectData(stats.byProject);
 
   return (
@@ -120,18 +63,28 @@ function JiraSection({ stats }) {
 
 
       {/* Velocity Charts */}
-      {renderVelocityCharts(stats.velocity)}
-
-      {/* Issue Types Chart */}
-      <BarChartCard
-        title="Issues by Type"
-        data={issueTypeData}
-        xAxisKey="type"
-        bars={[
-          { dataKey: 'total', fill: '#667eea', name: 'Total' },
-          { dataKey: 'resolved', fill: '#48bb78', name: 'Resolved' }
-        ]}
-      />
+      {stats.velocity && stats.velocity.byBoard ? (
+        Object.entries(stats.velocity.byBoard).map(([boardName, boardData]) => {
+          if (!boardData.sprints || boardData.sprints.length === 0) return null;
+          return (
+            <VelocityChart 
+              key={boardName}
+              sprints={boardData.sprints} 
+              title={`${boardName} Velocity Over Time`}
+              showBenchmarks={false}
+              baseUrl={stats.baseUrl}
+            />
+          );
+        })
+      ) : stats.velocity && stats.velocity.sprints && stats.velocity.sprints.length > 0 ? (
+        <VelocityChart sprints={stats.velocity.sprints} showBenchmarks={false} baseUrl={stats.baseUrl} />
+      ) : stats.velocity ? (
+        <ChartCard title="Velocity Over Time">
+          <div className="no-data-message no-data-message-large">
+            No sprint data available. Issues need to be assigned to sprints with start and end dates in Jira.
+          </div>
+        </ChartCard>
+      ) : null}
 
       {/* Projects Chart */}
       <BarChartCard

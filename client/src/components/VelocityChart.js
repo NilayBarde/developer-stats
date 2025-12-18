@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
-  LineChart,
-  Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -11,6 +11,8 @@ import {
 } from 'recharts';
 import { format } from 'date-fns';
 import ChartCard from './ChartCard';
+import { extractSprintNum } from '../utils/velocityHelpers';
+import './VelocityChart.css';
 
 // Velocity benchmarks
 const VELOCITY_BENCHMARKS = {
@@ -18,26 +20,32 @@ const VELOCITY_BENCHMARKS = {
   TEAM_AVERAGE: 6.0
 };
 
-function VelocityChart({ sprints, title = "Velocity Over Time", showBenchmarks = false }) {
-  // Extract sprint number from sprint name (e.g., "Sprint 48" -> "48", "P2 Sprint 48" -> "48")
-  const extractSprintNumber = (sprintName) => {
-    if (!sprintName) return '';
-    const match = sprintName.match(/(\d+)/);
-    return match ? match[1] : sprintName;
-  };
+function VelocityChart({ sprints, title = "Velocity Over Time", showBenchmarks = false, baseUrl }) {
+  const [tooltipData, setTooltipData] = useState(null);
+  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+  const [isTooltipVisible, setIsTooltipVisible] = useState(false);
+  const tooltipRef = useRef(null);
+  const hideTimeoutRef = useRef(null);
 
   // Sprints are already sorted oldest to newest (left to right)
   const data = sprints.map((sprint, index) => {
     const startDate = sprint.startDate ? format(new Date(sprint.startDate), 'MMM dd') : '';
     const endDate = sprint.endDate ? format(new Date(sprint.endDate), 'MMM dd') : '';
     const dateRange = startDate && endDate ? `${startDate} - ${endDate}` : (endDate || startDate || '');
-    const sprintNumber = extractSprintNumber(sprint.name) || (index + 1).toString();
+    const sprintNum = extractSprintNum(sprint.name);
+    // Use very compact format: Sprint number + start date only
+    const sprintLabel = sprintNum 
+      ? `S${sprintNum} ${startDate || ''}`
+      : (startDate || `S${index + 1}`);
     
     const dataPoint = {
-      name: `Sprint ${sprintNumber}`,
+      name: sprintLabel,
       points: sprint.points,
       date: dateRange,
-      fullName: `Sprint ${sprintNumber} (${dateRange})`
+      fullName: sprint.name || `Sprint ${index + 1}`,
+      sprintName: sprint.name,
+      issueKeys: sprint.issueKeys || [],
+      baseUrl: baseUrl
     };
     
     // Only add benchmarks if showBenchmarks is true
@@ -49,70 +57,155 @@ function VelocityChart({ sprints, title = "Velocity Over Time", showBenchmarks =
     return dataPoint;
   });
 
+  const CustomTooltip = ({ active, payload, coordinate }) => {
+    useEffect(() => {
+      if (active && payload && payload.length) {
+        const data = payload[0].payload;
+        setTooltipData(data);
+        if (coordinate) {
+          setTooltipPosition({ x: coordinate.x, y: coordinate.y });
+        }
+        setIsTooltipVisible(true);
+        if (hideTimeoutRef.current) {
+          clearTimeout(hideTimeoutRef.current);
+        }
+      } else {
+        // Delay hiding to allow moving mouse to tooltip
+        hideTimeoutRef.current = setTimeout(() => {
+          if (!tooltipRef.current?.matches(':hover')) {
+            setIsTooltipVisible(false);
+          }
+        }, 100);
+      }
+    }, [active, payload, coordinate]);
+
+    return null;
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (tooltipRef.current && tooltipRef.current.contains(e.target)) {
+        if (hideTimeoutRef.current) {
+          clearTimeout(hideTimeoutRef.current);
+        }
+        setIsTooltipVisible(true);
+      }
+    };
+
+    const handleMouseLeave = () => {
+      hideTimeoutRef.current = setTimeout(() => {
+        setIsTooltipVisible(false);
+      }, 300);
+    };
+
+    if (isTooltipVisible && tooltipRef.current) {
+      tooltipRef.current.addEventListener('mouseleave', handleMouseLeave);
+      document.addEventListener('mousemove', handleMouseMove);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      if (tooltipRef.current) {
+        tooltipRef.current.removeEventListener('mouseleave', handleMouseLeave);
+      }
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current);
+      }
+    };
+  }, [isTooltipVisible]);
+
   return (
     <ChartCard title={title}>
-      <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis 
-            dataKey="name" 
-            angle={-45}
-            textAnchor="end"
-            height={80}
-          />
-          <YAxis />
-          <Tooltip 
-            formatter={(value, name) => {
-              if (name === 'FTE Avg' || name === 'P2 Avg') {
-                return [value, name];
-              }
-              return [value, 'Story Points'];
+      <div className="velocity-chart-container">
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart 
+            data={data}
+            margin={{ top: 5, right: 30, left: 20, bottom: 60 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis 
+              dataKey="name" 
+              angle={-45}
+              textAnchor="end"
+              height={70}
+              interval={0}
+              tick={{ fontSize: 11 }}
+            />
+            <YAxis />
+            <Tooltip 
+              content={<CustomTooltip />}
+              isAnimationActive={false}
+            />
+            <Bar
+              dataKey="points"
+              fill="#667eea"
+              name="Story Points"
+            />
+            <Legend />
+          </BarChart>
+        </ResponsiveContainer>
+        
+        {/* Custom persistent tooltip */}
+        {isTooltipVisible && tooltipData && (
+          <div
+            ref={tooltipRef}
+            className="velocity-tooltip"
+            style={{
+              left: `${tooltipPosition.x}px`,
+              top: `${tooltipPosition.y - 10}px`,
+              transform: 'translate(-50%, -100%)'
             }}
-            labelFormatter={(label, payload) => {
-              if (payload && payload[0]) {
-                return payload[0].payload.fullName || label;
+            onMouseEnter={() => {
+              if (hideTimeoutRef.current) {
+                clearTimeout(hideTimeoutRef.current);
               }
-              return label;
+              setIsTooltipVisible(true);
             }}
-          />
-          {/* Benchmark lines - only shown if showBenchmarks is true */}
-          {showBenchmarks && (
-            <>
-              <Line
-                type="monotone"
-                dataKey="teamAvg"
-                stroke="#48bb78"
-                strokeDasharray="5 5"
-                strokeWidth={2}
-                name={`FTE Avg: ${VELOCITY_BENCHMARKS.TEAM_AVERAGE}`}
-                dot={false}
-                activeDot={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="p2Avg"
-                stroke="#ed8936"
-                strokeDasharray="5 5"
-                strokeWidth={2}
-                name={`P2 Avg: ${VELOCITY_BENCHMARKS.P2_AVERAGE}`}
-                dot={false}
-                activeDot={false}
-              />
-            </>
-          )}
-          <Line
-            type="monotone"
-            dataKey="points"
-            stroke="#667eea"
-            strokeWidth={2}
-            name="Story Points"
-          />
-          <Legend />
-        </LineChart>
-      </ResponsiveContainer>
+            onMouseLeave={() => {
+              hideTimeoutRef.current = setTimeout(() => {
+                setIsTooltipVisible(false);
+              }, 200);
+            }}
+          >
+            <p className="velocity-tooltip-title">
+              {tooltipData.fullName || tooltipData.name}
+            </p>
+            <p className="velocity-tooltip-points">
+              Story Points: <strong>{tooltipData.points}</strong>
+            </p>
+            {tooltipData.date && (
+              <p className="velocity-tooltip-date">
+                {tooltipData.date}
+              </p>
+            )}
+            {tooltipData.issueKeys && tooltipData.issueKeys.length > 0 && (
+              <div className="velocity-tooltip-tickets">
+                <strong>Tickets ({tooltipData.issueKeys.length}):</strong>
+                <div className="velocity-tooltip-tickets-list">
+                  {tooltipData.issueKeys.map((key, idx) => (
+                    <div key={idx} className="velocity-tooltip-ticket-item">
+                      <a 
+                        href={`${tooltipData.baseUrl || baseUrl || 'https://jira.disney.com'}/browse/${key}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="velocity-tooltip-link"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.open(`${tooltipData.baseUrl || baseUrl || 'https://jira.disney.com'}/browse/${key}`, '_blank');
+                        }}
+                      >
+                        {key}
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </ChartCard>
   );
 }
 
 export default VelocityChart;
-

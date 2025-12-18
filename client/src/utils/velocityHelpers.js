@@ -6,6 +6,18 @@ const VELOCITY_BENCHMARKS = {
 /**
  * Format velocity comparison subtitle
  */
+/**
+ * Extract sprint number from sprint name
+ */
+export function extractSprintNum(name) {
+  if (!name) return '';
+  const match = name.match(/(\d+)/);
+  return match ? match[1] : '';
+}
+
+/**
+ * Format velocity subtitle with comparisons
+ */
 export function formatVelocitySubtitle(velocity, totalSprints) {
   if (!velocity || velocity === 0) return '';
   

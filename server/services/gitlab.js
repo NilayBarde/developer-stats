@@ -97,25 +97,32 @@ async function getMRComments(mr) {
 }
 
 async function getAllMRComments(mrs, dateRange = null) {
-  const allComments = [];
   const { filterByDateRange } = require('../utils/dateHelpers');
   
   // Filter MRs to date range first, then fetch comments for those MRs
   const filteredMRs = filterByDateRange(mrs, 'created_at', dateRange);
   const limit = Math.min(filteredMRs.length, 100);
+  const mrsToFetch = filteredMRs.slice(0, limit);
   
-  for (let i = 0; i < limit; i++) {
-    const mr = filteredMRs[i];
-    try {
-      const comments = await getMRComments(mr);
-      allComments.push(...comments);
-      
-      // Rate limiting: delay every 20 requests
-      if (i % 20 === 0 && i > 0) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-    } catch (error) {
-      console.error(`Error fetching comments for MR ${mr.iid}:`, error.message);
+  // Fetch comments in parallel batches to speed up
+  const batchSize = 15;
+  const allComments = [];
+  
+  for (let i = 0; i < mrsToFetch.length; i += batchSize) {
+    const batch = mrsToFetch.slice(i, i + batchSize);
+    const commentPromises = batch.map(mr => 
+      getMRComments(mr).catch(error => {
+        console.error(`Error fetching comments for MR ${mr.iid}:`, error.message);
+        return [];
+      })
+    );
+    
+    const batchComments = await Promise.all(commentPromises);
+    allComments.push(...batchComments.flat());
+    
+    // Small delay between batches to respect rate limits
+    if (i + batchSize < mrsToFetch.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
   
@@ -131,14 +138,9 @@ async function getStats(dateRange = null) {
     throw new Error('GitLab credentials not configured. Please set GITLAB_USERNAME, GITLAB_TOKEN, and GITLAB_BASE_URL environment variables.');
   }
 
-  console.log(`✅ Using real GitLab data for user: ${GITLAB_USERNAME}`);
-  const startTime = Date.now();
   try {
     const mrs = await getAllMergeRequests();
-    console.log(`✓ Fetched ${mrs.length} MRs in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
-    
     const comments = await getAllMRComments(mrs, dateRange);
-    console.log(`✓ Fetched ${mrs.length} MRs and ${comments.length} comments in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     
     const stats = calculatePRStats(mrs, comments, dateRange, {
       mergedField: 'merged_at',

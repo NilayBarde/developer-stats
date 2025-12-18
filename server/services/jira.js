@@ -53,12 +53,28 @@ async function getAllIssues(dateRange = null) {
     // Silently fail - will try alternative JQL queries
   }
 
+  // Don't filter by date in JQL - we want ALL issues to capture all sprints
+  // Sprint date filtering happens later in calculateVelocity based on sprint dates
+  // This ensures sprints from before the date range are included if they overlap
+  let dateFilter = '';
+
   // Try different JQL queries - API tokens may restrict currentUser() even if web UI allows it
-  const jqlQueries = [
-    `assignee = currentUser() ORDER BY created DESC`, // Try currentUser() first
-    userEmail ? `assignee = "${userEmail}" ORDER BY created DESC` : null, // Fallback to email
-    userAccountId ? `assignee = ${userAccountId} ORDER BY created DESC` : null // Try accountId if available
+  const baseQueries = [
+    `assignee = currentUser()`, // Try currentUser() first
+    userEmail ? `assignee = "${userEmail}"` : null, // Fallback to email
+    userAccountId ? `assignee = ${userAccountId}` : null // Try accountId if available
   ].filter(Boolean);
+  
+  const jqlQueries = baseQueries.map(base => `${base} ORDER BY created DESC`);
+
+  // Only fetch fields we actually need to reduce payload size
+  const requiredFields = [
+    'key', 'summary', 'status', 'created', 'updated', 'resolutiondate',
+    'issuetype', 'project', 'timespent', 'timeoriginalestimate',
+    'customfield_10105', 'customfield_10020', 'customfield_10007', 'customfield_10000', // Sprint fields
+    'customfield_10106', 'customfield_21766', 'customfield_10016', 'customfield_10021', // Story point fields
+    'customfield_10002', 'customfield_10004', 'customfield_10020'
+  ];
 
   let jqlIndex = 0;
 
@@ -69,7 +85,7 @@ async function getAllIssues(dateRange = null) {
           jql: jql,
           startAt: startAt,
           maxResults: maxResults,
-        fields: ['*all'],
+        fields: requiredFields,
         expand: ['names']
       });
 
@@ -368,18 +384,18 @@ function getBoardName(sprintName, rapidViewId) {
 function calculateVelocity(issues, dateRange = null) {
   const sprintsByBoard = {}; // Group sprints by board
   
-  // Filter issues by date range if provided
-  const filteredIssues = dateRange 
-    ? filterByDateRange(issues, 'fields.resolutiondate', dateRange)
-    : issues;
+  // Don't filter issues here - we want ALL issues that belong to sprints
+  // We'll filter sprints by their sprint dates later, not by issue dates
+  // This ensures sprints are included even if some issues were resolved outside the date range
   
   // Find sprint field ID - check multiple issues until we find one with sprint data
   let sprintFieldId = null;
-  const resolvedIssues = filteredIssues.filter(issue => issue.fields.resolutiondate);
+  // Check all issues to find sprint field
+  const issuesToCheck = issues;
   
   // Try up to 50 issues to find one with sprint data
-  for (let i = 0; i < Math.min(50, resolvedIssues.length); i++) {
-    const issue = resolvedIssues[i];
+  for (let i = 0; i < Math.min(50, issuesToCheck.length); i++) {
+    const issue = issuesToCheck[i];
     
     // Check common sprint fields first (customfield_10105 is Disney Jira sprint field)
     const commonSprintFields = ['customfield_10105', 'customfield_10020', 'customfield_10007', 'customfield_10000'];
@@ -427,9 +443,9 @@ function calculateVelocity(issues, dateRange = null) {
   }
   
   // Group issues by sprint - only use actual sprint data from Jira
+  // Include all issues (resolved and unresolved) to capture current sprint work
   let issuesWithoutSprint = 0;
-  filteredIssues.forEach(issue => {
-    if (!issue.fields.resolutiondate) return;
+  issues.forEach(issue => {
     
     const storyPoints = getStoryPoints(issue);
     
@@ -469,13 +485,17 @@ function calculateVelocity(issues, dateRange = null) {
         boardName: boardName,
         points: 0,
         issues: 0,
-        timeSpent: 0
+        timeSpent: 0,
+        issueKeys: [] // Track issue keys for linking
       };
     }
     
     sprintsByBoard[boardName][sprintKey].points += storyPoints;
     sprintsByBoard[boardName][sprintKey].issues += 1;
     sprintsByBoard[boardName][sprintKey].timeSpent += (issue.fields.timespent || 0) / 3600;
+    if (issue.key && !sprintsByBoard[boardName][sprintKey].issueKeys.includes(issue.key)) {
+      sprintsByBoard[boardName][sprintKey].issueKeys.push(issue.key);
+    }
   });
   
 
@@ -484,27 +504,75 @@ function calculateVelocity(issues, dateRange = null) {
   let allSprintVelocities = [];
   
   for (const [boardName, sprints] of Object.entries(sprintsByBoard)) {
-    const sprintArray = Object.values(sprints).sort((a, b) => {
+    let sprintArray = Object.values(sprints).sort((a, b) => {
       const dateA = a.endDate || a.startDate;
       const dateB = b.endDate || b.startDate;
       return dateA - dateB;
     });
     
+    // Filter sprints by date range if provided (based on sprint dates, not issue resolution dates)
+    if (dateRange) {
+      const { getDateRange, isInDateRange } = require('../utils/dateHelpers');
+      const range = getDateRange(dateRange);
+      
+      sprintArray = sprintArray.filter(sprint => {
+        // Include sprint if it overlaps with date range
+        // Check if sprint start or end date falls within range, or if sprint spans the range
+        if (range.start === null && range.end === null) return true;
+        
+        const sprintStart = sprint.startDate ? new Date(sprint.startDate) : null;
+        const sprintEnd = sprint.endDate ? new Date(sprint.endDate) : null;
+        
+        if (!sprintStart && !sprintEnd) return false;
+        
+        // Sprint overlaps if:
+        // - Sprint starts before range ends AND sprint ends after range starts
+        // - Or sprint start/end is within range
+        if (range.start && range.end) {
+          const rangeStart = new Date(range.start);
+          rangeStart.setHours(0, 0, 0, 0);
+          const rangeEnd = new Date(range.end);
+          rangeEnd.setHours(23, 59, 59, 999);
+          if (sprintStart && sprintEnd) {
+            // Sprint overlaps if it starts before range ends AND ends after range starts
+            return sprintStart <= rangeEnd && sprintEnd >= rangeStart;
+          }
+          if (sprintStart) return sprintStart <= rangeEnd && sprintStart >= rangeStart;
+          if (sprintEnd) return sprintEnd >= rangeStart && sprintEnd <= rangeEnd;
+        } else if (range.start) {
+          // Only start date specified (present) - include sprints that end on or after start date
+          const rangeStart = new Date(range.start);
+          rangeStart.setHours(0, 0, 0, 0);
+          if (sprintEnd) return sprintEnd >= rangeStart;
+          if (sprintStart) return sprintStart >= rangeStart;
+        } else if (range.end) {
+          // Only end date specified - include sprints that start before or on end date
+          const rangeEnd = new Date(range.end);
+          rangeEnd.setHours(23, 59, 59, 999);
+          if (sprintStart) return sprintStart <= rangeEnd;
+          if (sprintEnd) return sprintEnd <= rangeEnd;
+        }
+        
+        return false;
+      });
+    }
+    
+    // Calculate average velocity from sprints with points > 0
     const velocities = sprintArray
       .filter(sprint => sprint.points > 0)
       .map(sprint => sprint.points);
-  const avgVelocity = velocities.length > 0 
-    ? velocities.reduce((a, b) => a + b, 0) / velocities.length 
-    : 0;
+    const avgVelocity = velocities.length > 0 
+      ? velocities.reduce((a, b) => a + b, 0) / velocities.length 
+      : 0;
 
     allSprintVelocities.push(...velocities);
     
     boardResults[boardName] = {
-      sprints: sprintArray, // Show all sprints, not just last 10
-    averageVelocity: Math.round(avgVelocity * 10) / 10,
-    totalSprints: sprintArray.length
-  };
-}
+      sprints: sprintArray, // Show all sprints including those with 0 points
+      averageVelocity: Math.round(avgVelocity * 10) / 10,
+      totalSprints: sprintArray.length
+    };
+  }
 
   // Calculate combined average velocity (weighted by number of sprints per board)
   let combinedAvgVelocity = 0;

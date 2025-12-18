@@ -133,21 +133,28 @@ async function getPRComments(pr) {
 }
 
 async function getAllPRComments(prs) {
-  const allComments = [];
   const limit = Math.min(prs.length, 30);
+  const prsToFetch = prs.slice(0, limit);
   
-  for (let i = 0; i < limit; i++) {
-    const pr = prs[i];
-    try {
-      const comments = await getPRComments(pr);
-      allComments.push(...comments);
-      
-      // Rate limiting: delay every 10 requests
-      if (i % 10 === 0 && i > 0) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-    } catch (error) {
-      console.error(`Error fetching comments for PR ${pr.number}:`, error.message);
+  // Fetch comments in parallel batches to speed up
+  const batchSize = 10;
+  const allComments = [];
+  
+  for (let i = 0; i < prsToFetch.length; i += batchSize) {
+    const batch = prsToFetch.slice(i, i + batchSize);
+    const commentPromises = batch.map(pr => 
+      getPRComments(pr).catch(error => {
+        console.error(`Error fetching comments for PR ${pr.number}:`, error.message);
+        return [];
+      })
+    );
+    
+    const batchComments = await Promise.all(commentPromises);
+    allComments.push(...batchComments.flat());
+    
+    // Small delay between batches to respect rate limits
+    if (i + batchSize < prsToFetch.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
   
@@ -163,11 +170,9 @@ async function getStats(dateRange = null) {
     throw new Error('GitHub credentials not configured. Please set GITHUB_USERNAME and GITHUB_TOKEN environment variables.');
   }
 
-  console.log(`✅ Using real GitHub data for user: ${GITHUB_USERNAME}`);
   try {
     const prs = await getAllPRs();
     const comments = await getAllPRComments(prs);
-    console.log(`✓ Fetched ${prs.length} PRs and ${comments.length} comments`);
     
     const stats = calculatePRStats(prs, comments, dateRange, {
       mergedField: 'pull_request.merged_at',

@@ -1,0 +1,82 @@
+/* Keep tooltip open when hovering over it */
+.recharts-tooltip-wrapper {
+  pointer-events: auto !important;
+}
+
+.velocity-tooltip-content {
+  pointer-events: auto !important;
+}
+
+.velocity-tooltip-content a {
+  pointer-events: auto !important;
+  user-select: none;
+}
+
+.velocity-tooltip-content a:hover {
+  color: #5568d3 !important;
+}
+
+/* Prevent tooltip from closing when moving mouse to links */
+.recharts-tooltip-wrapper:hover {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.velocity-chart-container {
+  position: relative;
+}
+
+.velocity-tooltip {
+  position: absolute;
+  background-color: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 10px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  pointer-events: auto;
+  z-index: 1000;
+  min-width: 350px;
+  max-width: 400px;
+}
+
+.velocity-tooltip-title {
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.velocity-tooltip-points {
+  margin-bottom: 5px;
+}
+
+.velocity-tooltip-date {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 5px;
+}
+
+.velocity-tooltip-tickets {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.velocity-tooltip-tickets-list {
+  max-height: 150px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.velocity-tooltip-ticket-item {
+  margin-bottom: 2px;
+}
+
+.velocity-tooltip-link {
+  color: #667eea;
+  text-decoration: underline;
+  cursor: pointer;
+  display: block;
+  padding: 2px 0;
+}
+
+.velocity-tooltip-link:hover {
+  color: #5568d3;
+}

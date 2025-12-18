@@ -3,6 +3,7 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const cache = require('./utils/cache');
 const githubService = require('./services/github');
 const gitlabService = require('./services/gitlab');
 const jiraService = require('./services/jira');
@@ -60,6 +61,16 @@ app.get('/api/stats', async (req, res) => {
     }
   }
   
+  // Create cache key from date range
+  const cacheKey = `stats:${JSON.stringify(dateRange)}`;
+  
+  // Check cache first (cache for 2 minutes)
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    console.log(`✓ Stats served from cache`);
+    return res.json(cached);
+  }
+
   // Set a 2 minute timeout for the entire request
   const timeout = setTimeout(() => {
     if (!res.headersSent) {
@@ -82,6 +93,9 @@ app.get('/api/stats', async (req, res) => {
       jira: jiraStats.status === 'fulfilled' ? jiraStats.value : { error: jiraStats.reason?.message },
       timestamp: new Date().toISOString()
     };
+
+    // Cache the result for 2 minutes
+    cache.set(cacheKey, stats, 120);
 
     console.log(`✓ Stats fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     res.json(stats);
