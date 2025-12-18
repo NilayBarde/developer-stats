@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import './App.css';
-import SourceSection from './components/SourceSection';
+import GitSection from './components/GitSection';
 import JiraSection from './components/JiraSection';
 import DateFilter from './components/DateFilter';
 import { getCurrentWorkYearStart, formatWorkYearLabel } from './utils/dateHelpers';
-import { renderErrorSection, getSourceConfig } from './utils/sectionHelpers';
+import { renderErrorSection } from './utils/sectionHelpers';
 import CombinedOverview from './components/CombinedOverview';
 
 function App() {
@@ -101,21 +101,8 @@ function App() {
         <JiraSection stats={stats?.jira} />
         {renderErrorSection('jira', '📋', stats?.jira?.error)}
 
-        {/* GitLab Stats */}
-        <SourceSection 
-          stats={stats?.gitlab} 
-          source="gitlab" 
-          {...getSourceConfig('gitlab')}
-        />
-        {renderErrorSection('gitlab', '🔷', stats?.gitlab?.error)}
-
-        {/* GitHub Stats */}
-        <SourceSection 
-          stats={stats?.github} 
-          source="github" 
-          {...getSourceConfig('github')}
-        />
-        {renderErrorSection('github', '📦', stats?.github?.error)}
+        {/* Combined Git Stats (GitHub + GitLab) */}
+        <GitSection githubStats={stats?.github} gitlabStats={stats?.gitlab} />
 
       </div>
     </div>

@@ -8,6 +8,7 @@ export const BENCHMARKS = {
 
 /**
  * Combine monthly data from multiple sources
+ * Returns an object with month as key and combined count as value
  */
 export function combineMonthlyData(...sources) {
   const combined = {};
@@ -22,6 +23,15 @@ export function combineMonthlyData(...sources) {
     }
   });
   return combined;
+}
+
+/**
+ * Convert combined monthly object to array format
+ */
+export function monthlyObjectToArray(monthlyObj) {
+  return Object.entries(monthlyObj)
+    .map(([month, count]) => ({ month, count }))
+    .sort((a, b) => a.month.localeCompare(b.month));
 }
 
 /**
