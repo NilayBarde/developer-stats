@@ -1,0 +1,35 @@
+.date-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.date-filter label {
+  color: #333;
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.date-filter-select {
+  padding: 8px 12px;
+  border: 2px solid #667eea;
+  border-radius: 6px;
+  background: white;
+  color: #333;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 200px;
+}
+
+.date-filter-select:hover {
+  border-color: #764ba2;
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+}
+
+.date-filter-select:focus {
+  outline: none;
+  border-color: #764ba2;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
