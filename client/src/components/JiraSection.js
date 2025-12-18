@@ -35,7 +35,9 @@ function JiraSection({ stats }) {
         <StatsCard
           title="Avg Resolution Time"
           value={`${stats.avgResolutionTime || 0} days`}
-          subtitle="Average"
+          subtitle={stats.avgResolutionTimeCount !== undefined 
+            ? `In Progress → Ready for QA Release (${stats.avgResolutionTimeCount} issues)`
+            : "In Progress → Ready for QA Release"}
         />
         {stats.avgIssuesPerMonth !== undefined && (
           <StatsCard

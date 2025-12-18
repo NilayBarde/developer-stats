@@ -86,7 +86,7 @@ async function getAllIssues(dateRange = null) {
           startAt: startAt,
           maxResults: maxResults,
         fields: requiredFields,
-        expand: ['names']
+        expand: ['names', 'changelog']
       });
 
       if (response.data.issues.length === 0) {
@@ -157,6 +157,110 @@ function getStoryPoints(issue) {
   }
   
   return 0;
+}
+
+/**
+ * Get status transition time from changelog
+ * Returns the date when status changed to the target status, or null if not found
+ */
+function getStatusTransitionTime(issue, targetStatusName) {
+  // Changelog might be in issue.changelog or issue.changelog.histories
+  let histories = null;
+  
+  if (issue.changelog) {
+    if (Array.isArray(issue.changelog.histories)) {
+      histories = issue.changelog.histories;
+    } else if (issue.changelog.histories && Array.isArray(issue.changelog.histories.values)) {
+      histories = issue.changelog.histories.values;
+    }
+  }
+  
+  if (!histories || histories.length === 0) {
+    return null;
+  }
+
+  // Normalize status name for comparison (case-insensitive, trim whitespace)
+  const normalizedTarget = targetStatusName.toLowerCase().trim();
+  
+  // Sort by date ascending to find the first occurrence
+  const sortedHistories = [...histories].sort((a, b) => {
+    const dateA = new Date(a.created || 0);
+    const dateB = new Date(b.created || 0);
+    return dateA - dateB;
+  });
+  
+  for (const history of sortedHistories) {
+    if (!history.items) continue;
+    
+    for (const item of history.items) {
+      if (item.field === 'status' && item.toString) {
+        const toStatus = item.toString.toLowerCase().trim();
+        if (toStatus === normalizedTarget) {
+          return new Date(history.created);
+        }
+      }
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Calculate time from "In Progress" to "Ready for QA Release" (or similar QA-ready statuses)
+ * Returns time in days, or null if either status transition not found
+ */
+function calculateInProgressToQAReadyTime(issue) {
+  // Try multiple variations of "In Progress" status name
+  const inProgressVariations = [
+    'In Progress',
+    'In Progress',
+    'in progress',
+    'IN PROGRESS',
+    'InProgress'
+  ];
+  
+  // Try multiple variations of QA-ready status names
+  const qaReadyVariations = [
+    'Ready for QA Release',
+    'Ready for QA',
+    'QA Ready',
+    'Ready for QA Release',
+    'Ready for Testing',
+    'QA Release',
+    'Ready for QA Release'
+  ];
+  
+  let inProgressTime = null;
+  for (const statusName of inProgressVariations) {
+    inProgressTime = getStatusTransitionTime(issue, statusName);
+    if (inProgressTime) break;
+  }
+  
+  if (!inProgressTime) {
+    return null; // Can't calculate if we don't have "In Progress" transition
+  }
+  
+  let qaReadyTime = null;
+  for (const statusName of qaReadyVariations) {
+    qaReadyTime = getStatusTransitionTime(issue, statusName);
+    if (qaReadyTime) break;
+  }
+  
+  // If no QA-ready status found, use resolution date as fallback
+  if (!qaReadyTime && issue.fields?.resolutiondate) {
+    qaReadyTime = new Date(issue.fields.resolutiondate);
+  }
+  
+  if (!qaReadyTime) {
+    return null; // Can't calculate if we don't have end time
+  }
+  
+  // Ensure QA-ready time is after in-progress time
+  if (qaReadyTime < inProgressTime) {
+    return null;
+  }
+  
+  return (qaReadyTime - inProgressTime) / (1000 * 60 * 60 * 24); // days
 }
 
 function parseSprintString(sprintString) {
@@ -608,7 +712,7 @@ function calculateVelocity(issues, dateRange = null) {
 
 // Removed fallback sprint calculation functions - we only use actual sprint data from Jira
 
-function calculateStats(issues, dateRange = null) {
+async function calculateStats(issues, dateRange = null) {
   const now = new Date();
   
   // Filter issues by date range
@@ -629,16 +733,39 @@ function calculateStats(issues, dateRange = null) {
     issue.fields.status.name === 'Closed'
   ).length;
 
-  // Calculate average resolution time
+  // Calculate average resolution time (from In Progress to Ready for QA Release)
+  // Note: This tracks time from when ticket goes to "In Progress" to "Ready for QA Release"
   const resolvedIssues = filteredIssues.filter(issue => issue.fields.resolutiondate);
   let avgResolutionTime = 0;
+  let resolutionTimeCount = 0;
   if (resolvedIssues.length > 0) {
-    const resolutionTimes = resolvedIssues.map(issue => {
-      const created = new Date(issue.fields.created);
-      const resolved = new Date(issue.fields.resolutiondate);
-      return (resolved - created) / (1000 * 60 * 60 * 24); // days
+    // Fetch changelog for resolved issues that don't have it
+    const issuesNeedingChangelog = resolvedIssues.filter(issue => !issue.changelog);
+    
+    // Fetch changelog in parallel (limit to avoid overwhelming the API)
+    const changelogPromises = issuesNeedingChangelog.slice(0, 50).map(async (issue) => {
+      try {
+        const response = await jiraApi.get(`/rest/api/2/issue/${issue.key}`, {
+          params: { expand: 'changelog' }
+        });
+        issue.changelog = response.data.changelog;
+      } catch (error) {
+        // Silently fail - will use null for this issue's calculation
+      }
+      return issue;
     });
-    avgResolutionTime = resolutionTimes.reduce((a, b) => a + b, 0) / resolutionTimes.length;
+    
+    // Wait for changelog fetches to complete
+    await Promise.all(changelogPromises);
+    
+    const resolutionTimes = resolvedIssues
+      .map(issue => calculateInProgressToQAReadyTime(issue))
+      .filter(time => time !== null); // Only include issues where we can calculate the time
+    
+    resolutionTimeCount = resolutionTimes.length;
+    if (resolutionTimes.length > 0) {
+      avgResolutionTime = resolutionTimes.reduce((a, b) => a + b, 0) / resolutionTimes.length;
+    }
   }
 
   // Group by issue type
@@ -699,6 +826,7 @@ function calculateStats(issues, dateRange = null) {
     inProgress,
     done,
     avgResolutionTime: Math.round(avgResolutionTime * 10) / 10,
+    avgResolutionTimeCount: resolutionTimeCount, // Track how many issues were used in calculation
     byType: byType,
     byProject: byProject,
     velocity: velocity,
@@ -716,7 +844,7 @@ async function getStats(dateRange = null) {
 
   try {
     const issues = await getAllIssues(dateRange);
-    const stats = calculateStats(issues, dateRange);
+    const stats = await calculateStats(issues, dateRange);
     
     let userEmail = null;
     try {
