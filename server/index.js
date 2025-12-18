@@ -5,6 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const githubService = require('./services/github');
 const gitlabService = require('./services/gitlab');
+const jiraService = require('./services/jira');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -25,6 +26,8 @@ app.get('/api/debug/env', (req, res) => {
     GITLAB_BASE_URL: process.env.GITLAB_BASE_URL || 'not set',
     GITHUB_USERNAME: process.env.GITHUB_USERNAME ? 'set' : 'not set',
     GITHUB_TOKEN: process.env.GITHUB_TOKEN ? 'set' : 'not set',
+    JIRA_PAT: process.env.JIRA_PAT ? 'set' : 'not set',
+    JIRA_BASE_URL: process.env.JIRA_BASE_URL || 'not set',
   });
 });
 
@@ -65,9 +68,10 @@ app.get('/api/stats', async (req, res) => {
   }, 120000); // 2 minutes
   
   try {
-    const [githubStats, gitlabStats] = await Promise.allSettled([
+    const [githubStats, gitlabStats, jiraStats] = await Promise.allSettled([
       githubService.getStats(dateRange),
-      gitlabService.getStats(dateRange)
+      gitlabService.getStats(dateRange),
+      jiraService.getStats(dateRange)
     ]);
 
     clearTimeout(timeout);
@@ -75,6 +79,7 @@ app.get('/api/stats', async (req, res) => {
     const stats = {
       github: githubStats.status === 'fulfilled' ? githubStats.value : { error: githubStats.reason?.message },
       gitlab: gitlabStats.status === 'fulfilled' ? gitlabStats.value : { error: gitlabStats.reason?.message },
+      jira: jiraStats.status === 'fulfilled' ? jiraStats.value : { error: jiraStats.reason?.message },
       timestamp: new Date().toISOString()
     };
 
@@ -105,6 +110,17 @@ app.get('/api/stats/gitlab', async (req, res) => {
     res.json(stats);
   } catch (error) {
     console.error('Error fetching GitLab stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get Jira stats only
+app.get('/api/stats/jira', async (req, res) => {
+  try {
+    const stats = await jiraService.getStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching Jira stats:', error);
     res.status(500).json({ error: error.message });
   }
 });

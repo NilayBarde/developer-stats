@@ -80,16 +80,6 @@
   border-left: 4px solid #ffc107;
 }
 
-.mock-badge {
-  font-size: 0.6em;
-  background: #ffc107;
-  color: #856404;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-weight: normal;
-  margin-left: 10px;
-}
-
 .no-data-message {
   padding: 20px;
   text-align: center;

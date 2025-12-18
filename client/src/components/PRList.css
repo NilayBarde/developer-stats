@@ -44,6 +44,22 @@
   min-width: 200px;
 }
 
+.pr-title-link {
+  text-decoration: none;
+  color: inherit;
+  flex: 1;
+  min-width: 200px;
+}
+
+.pr-title-link:hover {
+  text-decoration: underline;
+  color: #667eea;
+}
+
+.pr-title-link .pr-title {
+  color: inherit;
+}
+
 .pr-status {
   padding: 4px 12px;
   border-radius: 12px;

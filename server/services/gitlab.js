@@ -122,89 +122,13 @@ async function getAllMRComments(mrs, dateRange = null) {
   return allComments;
 }
 
-function generateMockData() {
-  const mrs = [];
-  const comments = [];
-  const { DEFAULT_START, DEFAULT_END } = require('../utils/dateHelpers');
-  
-  let monthIndex = 0;
-  let monthIter = new Date(DEFAULT_START);
-  const end = new Date(DEFAULT_END);
-  const currentMonth = new Date(end.getFullYear(), end.getMonth(), 1);
-  
-  while (monthIter <= currentMonth) {
-    const monthDate = new Date(monthIter.getFullYear(), monthIter.getMonth(), 1);
-    const mrsThisMonth = Math.floor(Math.random() * 6) + 2;
-    
-    for (let j = 0; j < mrsThisMonth; j++) {
-      const day = Math.floor(Math.random() * 28) + 1;
-      const createdDate = new Date(monthDate.getFullYear(), monthDate.getMonth(), day);
-      const mergedDate = new Date(createdDate.getTime() + Math.random() * 5 * 24 * 60 * 60 * 1000);
-      
-      const state = Math.random() > 0.4 ? 'merged' : (Math.random() > 0.5 ? 'opened' : 'closed');
-      
-      mrs.push({
-        id: `mr-${monthIndex}-${j}`,
-        iid: 500 + monthIndex * 10 + j,
-        title: `feat: Implement ${['API endpoint', 'database migration', 'UI component', 'test suite', 'bug fix'][Math.floor(Math.random() * 5)]}`,
-        state: state,
-        created_at: createdDate.toISOString(),
-        merged_at: state === 'merged' ? mergedDate.toISOString() : null,
-        project_id: Math.floor(Math.random() * 3) + 1,
-        references: { full: `group/project-${Math.floor(Math.random() * 3) + 1}` },
-        source_branch: `feature/branch-${monthIndex}-${j}`
-      });
-      
-      if (Math.random() > 0.4) {
-        const commentCount = Math.floor(Math.random() * 4) + 1;
-        for (let k = 0; k < commentCount; k++) {
-          const commentDate = new Date(createdDate.getTime() + Math.random() * (mergedDate - createdDate));
-          comments.push({
-            id: `comment-${monthIndex}-${j}-${k}`,
-            created_at: commentDate.toISOString(),
-            author: { username: 'mock-user' },
-            system: false
-          });
-        }
-      }
-    }
-    
-    monthIndex++;
-    monthIter.setMonth(monthIter.getMonth() + 1);
-  }
-  
-  return { mrs, comments };
-}
-
 async function getStats(dateRange = null) {
   const hasCredentials = GITLAB_USERNAME && GITLAB_TOKEN && 
                          GITLAB_USERNAME.trim() !== '' && 
                          GITLAB_TOKEN.trim() !== '';
   
   if (!hasCredentials) {
-    console.log('⚠️  Using mock GitLab data - credentials not configured');
-    const { mrs, comments } = generateMockData();
-    const stats = calculatePRStats(mrs, comments, dateRange, {
-      mergedField: 'merged_at',
-      getState: (mr) => mr.state,
-      isMerged: (mr) => mr.state === 'merged',
-      isOpen: (mr) => mr.state === 'opened',
-      isClosed: (mr) => mr.state === 'closed',
-      groupByKey: (mr) => mr.project_id || 'unknown'
-    });
-    
-    return {
-      ...stats,
-      source: 'gitlab',
-      username: 'mock-user',
-      isMock: true,
-      byProject: stats.grouped,
-      mrs: stats.items,
-      monthlyMRs: stats.monthlyMRs || [],
-      monthlyComments: stats.monthlyComments || [],
-      avgMRsPerMonth: stats.avgMRsPerMonth || 0,
-      avgCommentsPerMonth: stats.avgCommentsPerMonth || 0
-    };
+    throw new Error('GitLab credentials not configured. Please set GITLAB_USERNAME, GITLAB_TOKEN, and GITLAB_BASE_URL environment variables.');
   }
 
   console.log(`✅ Using real GitLab data for user: ${GITLAB_USERNAME}`);
@@ -229,7 +153,6 @@ async function getStats(dateRange = null) {
       ...stats,
       source: 'gitlab',
       username: GITLAB_USERNAME,
-      isMock: false,
       byProject: stats.grouped,
       mrs: stats.items,
       monthlyMRs: stats.monthlyMRs || [],
@@ -239,30 +162,7 @@ async function getStats(dateRange = null) {
     };
   } catch (error) {
     console.error('❌ Error fetching GitLab stats:', error.message);
-    console.error('   Falling back to mock data');
-    const { mrs, comments } = generateMockData();
-    const stats = calculatePRStats(mrs, comments, dateRange, {
-      mergedField: 'merged_at',
-      getState: (mr) => mr.state,
-      isMerged: (mr) => mr.state === 'merged',
-      isOpen: (mr) => mr.state === 'opened',
-      isClosed: (mr) => mr.state === 'closed',
-      groupByKey: (mr) => mr.project_id || 'unknown'
-    });
-    
-    return {
-      ...stats,
-      source: 'gitlab',
-      username: GITLAB_USERNAME,
-      isMock: true,
-      error: error.message,
-      byProject: stats.grouped,
-      mrs: stats.items,
-      monthlyMRs: stats.monthlyMRs,
-      monthlyComments: stats.monthlyComments,
-      avgMRsPerMonth: stats.avgMRsPerMonth,
-      avgCommentsPerMonth: stats.avgCommentsPerMonth
-    };
+    throw error;
   }
 }
 

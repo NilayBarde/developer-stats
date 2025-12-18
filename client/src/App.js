@@ -1,40 +1,45 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import './App.css';
-import StatsCard from './components/StatsCard';
 import SourceSection from './components/SourceSection';
+import JiraSection from './components/JiraSection';
 import DateFilter from './components/DateFilter';
-import { calculateCombinedStats, getPRComparison, getCommentsComparison } from './utils/combinedStats';
+import { getCurrentWorkYearStart, formatWorkYearLabel } from './utils/dateHelpers';
+import { renderErrorSection, getSourceConfig } from './utils/sectionHelpers';
+import CombinedOverview from './components/CombinedOverview';
 
 function App() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  
+  const workYearStart = getCurrentWorkYearStart();
   const [dateRange, setDateRange] = useState({
-    label: 'July 2025 - Present',
-    start: '2025-07-01',
+    label: formatWorkYearLabel(workYearStart),
+    start: workYearStart,
     end: null,
     type: 'custom'
   });
 
+  const buildApiUrl = useCallback((dateRange) => {
+    const params = new URLSearchParams();
+    
+    if (dateRange.type === 'dynamic') {
+      params.append('range', dateRange.range);
+    } else {
+      if (dateRange.start) params.append('start', dateRange.start);
+      if (dateRange.end) params.append('end', dateRange.end);
+    }
+    
+    const queryString = params.toString();
+    return queryString ? `/api/stats?${queryString}` : '/api/stats';
+  }, []);
+
   const fetchStats = useCallback(async () => {
     try {
       setLoading(true);
-      let url = '/api/stats';
-      const params = new URLSearchParams();
-      
-      if (dateRange.type === 'dynamic') {
-        params.append('range', dateRange.range);
-      } else {
-        if (dateRange.start) params.append('start', dateRange.start);
-        if (dateRange.end) params.append('end', dateRange.end);
-      }
-      
-      if (params.toString()) {
-        url += '?' + params.toString();
-      }
-      
+      const url = buildApiUrl(dateRange);
       const response = await axios.get(url);
       setStats(response.data);
       setLastUpdated(new Date());
@@ -45,7 +50,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [dateRange]);
+  }, [dateRange, buildApiUrl]);
 
   useEffect(() => {
     fetchStats();
@@ -67,7 +72,7 @@ function App() {
       <header className="app-header">
         <div>
           <h1>🚀 Engineering Stats Dashboard</h1>
-          {stats && (stats.github?.dateRange || stats.gitlab?.dateRange) && (
+          {stats && (stats.github?.dateRange || stats.gitlab?.dateRange || stats.jira?.dateRange) && (
             <p className="work-year">
               {dateRange.label}
             </p>
@@ -89,75 +94,28 @@ function App() {
       {error && <div className="error-banner">{error}</div>}
 
       <div className="stats-grid">
-        {/* Combined Stats */}
-        {stats && (!stats.github?.error || !stats.gitlab?.error) && (() => {
-          const combined = calculateCombinedStats(stats.github, stats.gitlab);
-          const totalCommentsCombined = (stats.github?.totalComments || 0) + (stats.gitlab?.totalComments || 0);
-          
-          return (
-            <div className="source-section combined">
-              <h2>📊 Combined Overview</h2>
-              <div className="cards-grid">
-                <StatsCard
-                  title="Total PRs/MRs"
-                  value={combined.totalPRs}
-                  subtitle={`${(stats.github?.total || 0)} GitHub, ${(stats.gitlab?.total || 0)} GitLab`}
-                />
-                <StatsCard
-                  title="Avg PRs/MRs per Month"
-                  value={combined.avgPRsPerMonth}
-                  subtitle={getPRComparison(combined.avgPRsPerMonth)}
-                />
-                <StatsCard
-                  title="Total Comments"
-                  value={totalCommentsCombined}
-                  subtitle={`Avg: ${combined.avgCommentsPerMonth}/month`}
-                />
-                <StatsCard
-                  title="Avg Comments per Month"
-                  value={combined.avgCommentsPerMonth}
-                  subtitle={getCommentsComparison(combined.avgCommentsPerMonth)}
-                />
-              </div>
-            </div>
-          );
-        })()}
+        {/* Combined Overview */}
+        {stats && <CombinedOverview githubStats={stats.github} gitlabStats={stats.gitlab} jiraStats={stats.jira} />}
 
-        {/* GitHub Stats */}
-        <SourceSection 
-          stats={stats?.github} 
-          source="github" 
-          icon="📦"
-          prLabel="PRs"
-          monthlyPRsField="monthlyPRs"
-          monthlyCommentsField="monthlyComments"
-          avgPerMonthField="avgPRsPerMonth"
-        />
-
-        {stats?.github?.error && (
-          <div className="source-section error">
-            <h2>📦 GitHub</h2>
-            <p className="error-message">{stats.github.error}</p>
-          </div>
-        )}
+        {/* Jira Stats */}
+        <JiraSection stats={stats?.jira} />
+        {renderErrorSection('jira', '📋', stats?.jira?.error)}
 
         {/* GitLab Stats */}
         <SourceSection 
           stats={stats?.gitlab} 
           source="gitlab" 
-          icon="🔷"
-          mrLabel="MRs"
-          monthlyPRsField="monthlyMRs"
-          monthlyCommentsField="monthlyComments"
-          avgPerMonthField="avgMRsPerMonth"
+          {...getSourceConfig('gitlab')}
         />
+        {renderErrorSection('gitlab', '🔷', stats?.gitlab?.error)}
 
-        {stats?.gitlab?.error && (
-          <div className="source-section error">
-            <h2>🔷 GitLab</h2>
-            <p className="error-message">{stats.gitlab.error}</p>
-          </div>
-        )}
+        {/* GitHub Stats */}
+        <SourceSection 
+          stats={stats?.github} 
+          source="github" 
+          {...getSourceConfig('github')}
+        />
+        {renderErrorSection('github', '📦', stats?.github?.error)}
 
       </div>
     </div>

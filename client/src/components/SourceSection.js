@@ -1,6 +1,6 @@
 import React from 'react';
 import StatsCard from './StatsCard';
-import MonthlyChart from './MonthlyChart';
+import ChartWithFallback from './ChartWithFallback';
 import PRList from './PRList';
 
 function SourceSection({ 
@@ -12,10 +12,8 @@ function SourceSection({
   prsField = 'prs',
   mrsField = 'mrs',
   monthlyPRsField = 'monthlyPRs',
-  monthlyMRsField = 'monthlyMRs',
   monthlyCommentsField = 'monthlyComments',
-  avgPerMonthField = 'avgPRsPerMonth',
-  avgMRsPerMonthField = 'avgMRsPerMonth'
+  avgPerMonthField = 'avgPRsPerMonth'
 }) {
   if (!stats || stats.error) return null;
   
@@ -26,15 +24,7 @@ function SourceSection({
   
   return (
     <div className="source-section">
-      <h2>
-        {icon} {source === 'github' ? 'GitHub' : 'GitLab'} 
-        {stats.isMock && <span className="mock-badge">(Mock Data)</span>}
-      </h2>
-      {stats.error && (
-        <div className="warning-banner">
-          ⚠️ Using mock data due to error: {stats.error}
-        </div>
-      )}
+      <h2>{icon} {source === 'github' ? 'GitHub' : 'GitLab'}</h2>
       <div className="cards-grid">
         <StatsCard
           title={`Total ${label}`}
@@ -66,24 +56,16 @@ function SourceSection({
           />
         )}
       </div>
-      {monthlyItems && monthlyItems.length > 0 && (
-        <MonthlyChart 
-          monthlyData={monthlyItems} 
-          title={`${label} per Month`}
-        />
-      )}
-      {(!monthlyItems || monthlyItems.length === 0) && (
-        <div className="no-data-message">No {label.toLowerCase()} data available for the selected date range</div>
-      )}
-      {stats[monthlyCommentsField] && stats[monthlyCommentsField].length > 0 && (
-        <MonthlyChart 
-          monthlyData={stats[monthlyCommentsField]} 
-          title={`${label} Comments per Month`}
-        />
-      )}
-      {(!stats[monthlyCommentsField] || stats[monthlyCommentsField].length === 0) && (
-        <div className="no-data-message">No comment data available for the selected date range</div>
-      )}
+      <ChartWithFallback
+        data={monthlyItems}
+        title={`${label} per Month`}
+        emptyMessage={`No ${label.toLowerCase()} data available for the selected date range`}
+      />
+      <ChartWithFallback
+        data={stats[monthlyCommentsField]}
+        title={`${label} Comments per Month`}
+        emptyMessage="No comment data available for the selected date range"
+      />
       {items && items.length > 0 && (
         <PRList prs={items} source={source} />
       )}

@@ -154,82 +154,13 @@ async function getAllPRComments(prs) {
   return allComments;
 }
 
-function generateMockData() {
-  const prs = [];
-  const comments = [];
-  const { DEFAULT_START, DEFAULT_END } = require('../utils/dateHelpers');
-  
-  let monthIndex = 0;
-  let monthIter = new Date(DEFAULT_START);
-  const end = new Date(DEFAULT_END);
-  const currentMonth = new Date(end.getFullYear(), end.getMonth(), 1);
-  
-  while (monthIter <= currentMonth) {
-    const monthDate = new Date(monthIter.getFullYear(), monthIter.getMonth(), 1);
-    const prsThisMonth = Math.floor(Math.random() * 8) + 3;
-    
-    for (let j = 0; j < prsThisMonth; j++) {
-      const day = Math.floor(Math.random() * 28) + 1;
-      const createdDate = new Date(monthDate.getFullYear(), monthDate.getMonth(), day);
-      const mergedDate = new Date(createdDate.getTime() + Math.random() * 7 * 24 * 60 * 60 * 1000);
-      
-      const state = Math.random() > 0.3 ? 'closed' : 'open';
-      const merged = state === 'closed' && Math.random() > 0.2;
-      
-      prs.push({
-        id: `pr-${monthIndex}-${j}`,
-        number: 1000 + monthIndex * 10 + j,
-        title: `Feature: Add ${['authentication', 'caching', 'logging', 'testing', 'documentation'][Math.floor(Math.random() * 5)]} module`,
-        state: state,
-        created_at: createdDate.toISOString(),
-        pull_request: merged ? { merged_at: mergedDate.toISOString() } : {},
-        repository_url: `https://api.github.com/repos/example/repo-${Math.floor(Math.random() * 3) + 1}`
-      });
-      
-      if (Math.random() > 0.5) {
-        const commentCount = Math.floor(Math.random() * 5) + 1;
-        for (let k = 0; k < commentCount; k++) {
-          const commentDate = new Date(createdDate.getTime() + Math.random() * (mergedDate - createdDate));
-          comments.push({
-            id: `comment-${monthIndex}-${j}-${k}`,
-            created_at: commentDate.toISOString(),
-            user: { login: 'mock-user' }
-          });
-        }
-      }
-    }
-    
-    monthIndex++;
-    monthIter.setMonth(monthIter.getMonth() + 1);
-  }
-  
-  return { prs, comments };
-}
-
 async function getStats(dateRange = null) {
   const hasCredentials = GITHUB_USERNAME && GITHUB_TOKEN && 
                          GITHUB_USERNAME.trim() !== '' && 
                          GITHUB_TOKEN.trim() !== '';
   
   if (!hasCredentials) {
-    console.log('⚠️  Using mock GitHub data - credentials not configured');
-    const { prs, comments } = generateMockData();
-    const stats = calculatePRStats(prs, comments, dateRange, {
-      mergedField: 'pull_request.merged_at',
-      getState: (pr) => pr.state,
-      isMerged: (pr) => pr.state === 'closed' && pr.pull_request?.merged_at,
-      isOpen: (pr) => pr.state === 'open',
-      isClosed: (pr) => pr.state === 'closed' && !pr.pull_request?.merged_at,
-      groupByKey: (pr) => pr.repository_url.split('/repos/')[1] || 'unknown'
-    });
-    
-    return {
-      ...stats,
-      source: 'github',
-      username: 'mock-user',
-      isMock: true,
-      byRepository: stats.grouped
-    };
+    throw new Error('GitHub credentials not configured. Please set GITHUB_USERNAME and GITHUB_TOKEN environment variables.');
   }
 
   console.log(`✅ Using real GitHub data for user: ${GITHUB_USERNAME}`);
@@ -251,32 +182,12 @@ async function getStats(dateRange = null) {
       ...stats,
       source: 'github',
       username: GITHUB_USERNAME,
-      isMock: false,
       byRepository: stats.grouped,
       prs: stats.items
     };
   } catch (error) {
     console.error('❌ Error fetching GitHub stats:', error.message);
-    console.error('   Falling back to mock data');
-    const { prs, comments } = generateMockData();
-    const stats = calculatePRStats(prs, comments, dateRange, {
-      mergedField: 'pull_request.merged_at',
-      getState: (pr) => pr.state,
-      isMerged: (pr) => pr.state === 'closed' && pr.pull_request?.merged_at,
-      isOpen: (pr) => pr.state === 'open',
-      isClosed: (pr) => pr.state === 'closed' && !pr.pull_request?.merged_at,
-      groupByKey: (pr) => pr.repository_url.split('/repos/')[1] || 'unknown'
-    });
-    
-    return {
-      ...stats,
-      source: 'github',
-      username: GITHUB_USERNAME,
-      isMock: true,
-      error: error.message,
-      byRepository: stats.grouped,
-      prs: stats.items
-    };
+    throw error;
   }
 }
 

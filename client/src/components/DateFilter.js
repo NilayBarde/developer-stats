@@ -1,35 +1,64 @@
 import React from 'react';
 import './DateFilter.css';
+import { getCurrentWorkYearStart, formatWorkYearLabel } from '../utils/dateHelpers';
 
-const DATE_RANGES = [
-  {
-    label: 'July 2025 - Present',
-    start: '2025-07-01',
-    end: null // null means "present"
-  },
-  {
-    label: 'August 2024 - July 2025',
-    start: '2024-08-01',
-    end: '2025-07-31'
-  },
-  {
-    label: 'Last 6 Months',
-    start: null, // null means calculate dynamically
-    end: null
-  },
-  {
-    label: 'Last 12 Months',
-    start: null,
-    end: null
-  },
-  {
-    label: 'All Time',
-    start: null,
-    end: null
-  }
-];
+function getWorkYearRanges() {
+  const currentWorkYearStart = new Date(getCurrentWorkYearStart());
+  const previousWorkYearStart = new Date(currentWorkYearStart.getFullYear() - 1, 9, 1);
+  const previousWorkYearEnd = new Date(currentWorkYearStart.getFullYear(), 8, 30); // September 30
+  
+  return {
+    current: {
+      label: formatWorkYearLabel(getCurrentWorkYearStart()),
+      start: getCurrentWorkYearStart(),
+      end: null // Present
+    },
+    previous: {
+      label: `Previous Work Year (${previousWorkYearStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} - ${previousWorkYearEnd.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })})`,
+      start: previousWorkYearStart.toISOString().split('T')[0],
+      end: previousWorkYearEnd.toISOString().split('T')[0]
+    }
+  };
+}
 
 function DateFilter({ value, onChange }) {
+  const workYearRanges = getWorkYearRanges();
+  
+  const DATE_RANGES = [
+    {
+      label: workYearRanges.current.label,
+      start: workYearRanges.current.start,
+      end: workYearRanges.current.end,
+      type: 'custom'
+    },
+    {
+      label: workYearRanges.previous.label,
+      start: workYearRanges.previous.start,
+      end: workYearRanges.previous.end,
+      type: 'custom'
+    },
+    {
+      label: 'Last 6 Months',
+      start: null,
+      end: null,
+      type: 'dynamic',
+      range: 'last6months'
+    },
+    {
+      label: 'Last 12 Months',
+      start: null,
+      end: null,
+      type: 'dynamic',
+      range: 'last12months'
+    },
+    {
+      label: 'All Time',
+      start: null,
+      end: null,
+      type: 'dynamic',
+      range: 'alltime'
+    }
+  ];
   const handleChange = (e) => {
     const selectedIndex = parseInt(e.target.value);
     const selectedRange = DATE_RANGES[selectedIndex];
@@ -39,15 +68,23 @@ function DateFilter({ value, onChange }) {
   const getCurrentValue = () => {
     if (!value) return 0;
     
-    return DATE_RANGES.findIndex(range => {
+    const index = DATE_RANGES.findIndex(range => {
       if (range.type === 'dynamic' && value.range === range.range) {
         return true;
       }
-      if (range.type === 'custom' && value.start === range.start && value.end === range.end) {
-        return true;
+      if (range.type === 'custom') {
+        // For custom ranges, compare start dates (end can be null for "present")
+        if (value.start === range.start) {
+          // If both have null end or both have same end, it's a match
+          if ((!value.end && !range.end) || value.end === range.end) {
+            return true;
+          }
+        }
       }
       return false;
     });
+    
+    return index >= 0 ? index : 0;
   };
 
   return (

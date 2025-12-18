@@ -53,13 +53,25 @@ function getMonthKey(date) {
 }
 
 /**
+ * Get nested property value using dot notation (e.g., 'fields.created')
+ */
+function getNestedValue(obj, path) {
+  return path.split('.').reduce((current, prop) => current?.[prop], obj);
+}
+
+/**
  * Filter items by date range
  */
 function filterByDateRange(items, dateField = 'created_at', dateRange = null) {
   if (!dateRange || (dateRange.start === null && dateRange.end === null)) {
     return items; // All time - no filtering
   }
-  return items.filter(item => isInDateRange(item[dateField], dateRange));
+  return items.filter(item => {
+    const dateValue = dateField.includes('.') 
+      ? getNestedValue(item, dateField)
+      : item[dateField];
+    return isInDateRange(dateValue, dateRange);
+  });
 }
 
 /**
@@ -71,7 +83,9 @@ function calculateMonthlyStats(items, dateField = 'created_at', dateRange = null
   
   // Filter items to date range and calculate monthly stats
   items.forEach(item => {
-    const dateStr = item[dateField];
+    const dateStr = dateField.includes('.') 
+      ? getNestedValue(item, dateField)
+      : item[dateField];
     if (!dateStr) return;
     
     const date = new Date(dateStr);
@@ -166,8 +180,18 @@ function calculateTimePeriodStats(items, dateField = 'created_at') {
   const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
   return {
-    last30Days: items.filter(item => new Date(item[dateField]) >= thirtyDaysAgo).length,
-    last90Days: items.filter(item => new Date(item[dateField]) >= ninetyDaysAgo).length
+    last30Days: items.filter(item => {
+      const dateValue = dateField.includes('.') 
+        ? getNestedValue(item, dateField)
+        : item[dateField];
+      return new Date(dateValue) >= thirtyDaysAgo;
+    }).length,
+    last90Days: items.filter(item => {
+      const dateValue = dateField.includes('.') 
+        ? getNestedValue(item, dateField)
+        : item[dateField];
+      return new Date(dateValue) >= ninetyDaysAgo;
+    }).length
   };
 }
 
