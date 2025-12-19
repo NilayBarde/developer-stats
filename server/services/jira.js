@@ -37,20 +37,39 @@ async function getCurrentUser() {
 }
 
 async function getAllIssues(dateRange = null) {
+  // Check cache for raw issues (cache for 5 minutes - issues don't change that often)
+  const cache = require('../utils/cache');
+  const cacheKey = `all-issues:${JSON.stringify(dateRange)}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    console.log('✓ Raw issues served from cache');
+    return cached;
+  }
+  
   const issues = [];
   let startAt = 0;
   const maxResults = 100;
   let hasMore = true;
   
   // Get current user info first to use their accountId or email
+  // Cache user info for 10 minutes (rarely changes)
+  const userCacheKey = 'jira-user';
+  let cachedUser = cache.get(userCacheKey);
   let userAccountId = null;
   let userEmail = null;
-  try {
-    const user = await getCurrentUser();
-    userAccountId = user.accountId;
-    userEmail = user.emailAddress;
-  } catch (error) {
-    // Silently fail - will try alternative JQL queries
+  
+  if (cachedUser) {
+    userAccountId = cachedUser.accountId;
+    userEmail = cachedUser.emailAddress;
+  } else {
+    try {
+      const user = await getCurrentUser();
+      userAccountId = user.accountId;
+      userEmail = user.emailAddress;
+      cache.set(userCacheKey, { accountId: userAccountId, emailAddress: userEmail }, 600); // 10 minutes
+    } catch (error) {
+      // Silently fail - will try alternative JQL queries
+    }
   }
 
   // Don't filter by date in JQL - we want ALL issues to capture all sprints
@@ -119,6 +138,8 @@ async function getAllIssues(dateRange = null) {
     }
   }
 
+  // Cache raw issues for 5 minutes
+  cache.set(cacheKey, issues, 300);
   return issues;
 }
 
@@ -971,24 +992,47 @@ async function getStats(dateRange = null) {
     throw new Error('Jira credentials not configured. Please set JIRA_PAT and JIRA_BASE_URL environment variables.');
   }
 
+  // Check cache for stats (cache for 2 minutes)
+  const cache = require('../utils/cache');
+  const statsCacheKey = `jira-stats:${JSON.stringify(dateRange)}`;
+  const cachedStats = cache.get(statsCacheKey);
+  if (cachedStats) {
+    console.log('✓ Jira stats served from cache');
+    return cachedStats;
+  }
+
   try {
     const issues = await getAllIssues(dateRange);
     const stats = await calculateStats(issues, dateRange);
     
+    // Get user email from cache if available
+    const userCacheKey = 'jira-user';
+    const cachedUser = cache.get(userCacheKey);
     let userEmail = null;
-    try {
-      const user = await getCurrentUser();
-      userEmail = user.emailAddress;
-    } catch (error) {
-      // User fetch failed, but we can still return stats
+    
+    if (cachedUser) {
+      userEmail = cachedUser.emailAddress;
+    } else {
+      try {
+        const user = await getCurrentUser();
+        userEmail = user.emailAddress;
+        cache.set(userCacheKey, { accountId: user.accountId, emailAddress: userEmail }, 600); // 10 minutes
+      } catch (error) {
+        // User fetch failed, but we can still return stats
+      }
     }
     
-    return {
+    const result = {
       ...stats,
       source: 'jira',
       email: userEmail,
       baseUrl: normalizedBaseURL
     };
+    
+    // Cache stats for 2 minutes
+    cache.set(statsCacheKey, result, 120);
+    
+    return result;
   } catch (error) {
     console.error('❌ Error fetching Jira stats:', error.message);
     throw error;

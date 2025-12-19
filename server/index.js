@@ -68,6 +68,9 @@ app.get('/api/stats', async (req, res) => {
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log(`✓ Stats served from cache`);
+    // Set cache headers for browser caching
+    res.set('Cache-Control', 'public, max-age=60'); // Browser cache for 1 minute
+    res.set('X-Cache', 'HIT');
     return res.json(cached);
   }
 
@@ -98,6 +101,9 @@ app.get('/api/stats', async (req, res) => {
     cache.set(cacheKey, stats, 120);
 
     console.log(`✓ Stats fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    // Set cache headers for browser caching
+    res.set('Cache-Control', 'public, max-age=60'); // Browser cache for 1 minute
+    res.set('X-Cache', 'MISS');
     res.json(stats);
   } catch (error) {
     clearTimeout(timeout);
@@ -166,12 +172,29 @@ app.get('/api/issues', async (req, res) => {
       }
     }
     
+    // Create cache key for issues endpoint
+    const issuesCacheKey = `issues:${JSON.stringify(dateRange)}`;
+    const cachedIssues = cache.get(issuesCacheKey);
+    if (cachedIssues) {
+      console.log(`✓ Issues page served from cache`);
+      res.set('Cache-Control', 'public, max-age=60'); // Browser cache for 1 minute
+      res.set('X-Cache', 'HIT');
+      return res.json(cachedIssues);
+    }
+    
     const startTime = Date.now();
     const issues = await jiraService.getAllIssuesForPage(dateRange);
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`✓ Issues page fetched in ${duration}s (${issues.length} issues)`);
     
-    res.json({ issues, baseUrl: process.env.JIRA_BASE_URL?.replace(/\/$/, '') });
+    const response = { issues, baseUrl: process.env.JIRA_BASE_URL?.replace(/\/$/, '') };
+    
+    // Cache issues response for 2 minutes
+    cache.set(issuesCacheKey, response, 120);
+    
+    res.set('Cache-Control', 'public, max-age=60'); // Browser cache for 1 minute
+    res.set('X-Cache', 'MISS');
+    res.json(response);
   } catch (error) {
     console.error('Error fetching Jira issues:', error);
     res.status(500).json({ error: error.message });

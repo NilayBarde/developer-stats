@@ -40,6 +40,15 @@ const githubApi = axios.create({
 });
 
 async function getAllPRs() {
+  // Check cache for raw PRs (cache for 5 minutes)
+  const cache = require('../utils/cache');
+  const cacheKey = 'github-all-prs';
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    console.log('✓ GitHub PRs served from cache');
+    return cached;
+  }
+  
   const prs = [];
   let page = 1;
   let hasMore = true;
@@ -83,6 +92,8 @@ async function getAllPRs() {
     }
   }
 
+  // Cache PRs for 5 minutes
+  cache.set(cacheKey, prs, 300);
   return prs;
 }
 
@@ -170,6 +181,15 @@ async function getStats(dateRange = null) {
     throw new Error('GitHub credentials not configured. Please set GITHUB_USERNAME and GITHUB_TOKEN environment variables.');
   }
 
+  // Check cache for stats (cache for 2 minutes)
+  const cache = require('../utils/cache');
+  const statsCacheKey = `github-stats:${JSON.stringify(dateRange)}`;
+  const cachedStats = cache.get(statsCacheKey);
+  if (cachedStats) {
+    console.log('✓ GitHub stats served from cache');
+    return cachedStats;
+  }
+
   try {
     const prs = await getAllPRs();
     const comments = await getAllPRComments(prs);
@@ -183,13 +203,18 @@ async function getStats(dateRange = null) {
       groupByKey: (pr) => pr.repository_url.split('/repos/')[1] || 'unknown'
     });
     
-    return {
+    const result = {
       ...stats,
       source: 'github',
       username: GITHUB_USERNAME,
       byRepository: stats.grouped,
       prs: stats.items
     };
+    
+    // Cache stats for 2 minutes
+    cache.set(statsCacheKey, result, 120);
+    
+    return result;
   } catch (error) {
     console.error('❌ Error fetching GitHub stats:', error.message);
     throw error;

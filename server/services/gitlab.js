@@ -19,6 +19,15 @@ const gitlabApi = axios.create({
 });
 
 async function getAllMergeRequests() {
+  // Check cache for raw MRs (cache for 5 minutes)
+  const cache = require('../utils/cache');
+  const cacheKey = 'gitlab-all-mrs';
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    console.log('✓ GitLab MRs served from cache');
+    return cached;
+  }
+  
   const mrs = [];
   let page = 1;
   let hasMore = true;
@@ -52,6 +61,8 @@ async function getAllMergeRequests() {
     }
   }
 
+  // Cache MRs for 5 minutes
+  cache.set(cacheKey, mrs, 300);
   return mrs;
 }
 
@@ -138,6 +149,15 @@ async function getStats(dateRange = null) {
     throw new Error('GitLab credentials not configured. Please set GITLAB_USERNAME, GITLAB_TOKEN, and GITLAB_BASE_URL environment variables.');
   }
 
+  // Check cache for stats (cache for 2 minutes)
+  const cache = require('../utils/cache');
+  const statsCacheKey = `gitlab-stats:${JSON.stringify(dateRange)}`;
+  const cachedStats = cache.get(statsCacheKey);
+  if (cachedStats) {
+    console.log('✓ GitLab stats served from cache');
+    return cachedStats;
+  }
+
   try {
     const mrs = await getAllMergeRequests();
     const comments = await getAllMRComments(mrs, dateRange);
@@ -151,7 +171,7 @@ async function getStats(dateRange = null) {
       groupByKey: (mr) => mr.project_id || 'unknown'
     });
     
-    return {
+    const result = {
       ...stats,
       source: 'gitlab',
       username: GITLAB_USERNAME,
@@ -162,6 +182,11 @@ async function getStats(dateRange = null) {
       avgMRsPerMonth: stats.avgMRsPerMonth,
       avgCommentsPerMonth: stats.avgCommentsPerMonth
     };
+    
+    // Cache stats for 2 minutes
+    cache.set(statsCacheKey, result, 120);
+    
+    return result;
   } catch (error) {
     console.error('❌ Error fetching GitLab stats:', error.message);
     throw error;
