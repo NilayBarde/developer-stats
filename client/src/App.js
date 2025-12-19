@@ -9,6 +9,7 @@ import { getCurrentWorkYearStart, formatWorkYearLabel } from './utils/dateHelper
 import { renderErrorSection } from './utils/sectionHelpers';
 import CombinedOverview from './components/CombinedOverview';
 import IssuesPage from './pages/IssuesPage';
+import PRsPage from './pages/PRsPage';
 
 function App() {
   const location = useLocation();
@@ -77,11 +78,15 @@ function App() {
           Dashboard
         </Link>
         <Link to="/issues" className={location.pathname === '/issues' ? 'active' : ''}>
-          All Issues
+          Jira Issues
+        </Link>
+        <Link to="/prs" className={location.pathname === '/prs' ? 'active' : ''}>
+          PRs/MRs
         </Link>
       </nav>
       <Routes>
         <Route path="/issues" element={<IssuesPage />} />
+        <Route path="/prs" element={<PRsPage />} />
         <Route path="/" element={
           <>
             <header className="app-header">

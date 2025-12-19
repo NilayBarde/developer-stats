@@ -155,6 +155,29 @@
   color: #721c24;
 }
 
+.status-merged {
+  background: #cce5ff;
+  color: #004085;
+}
+
+.source-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: 600;
+  display: inline-block;
+}
+
+.source-github {
+  background: #24292e;
+  color: white;
+}
+
+.source-gitlab {
+  background: #fc6d26;
+  color: white;
+}
+
 .no-issues {
   text-align: center;
   padding: 40px;

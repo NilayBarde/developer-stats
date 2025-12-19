@@ -36,11 +36,6 @@ function SourceSection({
           value={stats.merged}
           subtitle={`${stats.open} open`}
         />
-        <StatsCard
-          title="Avg Time to Merge"
-          value={`${stats.avgTimeToMerge} days`}
-          subtitle="Average"
-        />
         {avgPerMonth !== undefined && (
           <StatsCard
             title={`Avg ${label} per Month`}

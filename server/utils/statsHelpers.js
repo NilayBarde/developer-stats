@@ -73,6 +73,20 @@ function calculatePRStats(items, comments, dateRange, config) {
   // Filter to date range
   const filteredItems = filterByDateRange(items, dateField, dateRange);
   const filteredComments = filterByDateRange(comments, dateField, dateRange);
+  
+  // Debug logging for comments
+  if (dateRange && dateRange.start && comments.length > 0) {
+    const commentsByMonthAfter = {};
+    filteredComments.forEach(comment => {
+      if (comment.created_at) {
+        const date = new Date(comment.created_at);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        commentsByMonthAfter[monthKey] = (commentsByMonthAfter[monthKey] || 0) + 1;
+      }
+    });
+    console.log(`📊 Comments after date filtering: ${filteredComments.length} of ${comments.length} total`);
+    console.log('📊 Comments by month (after date filtering):', commentsByMonthAfter);
+  }
 
   // Basic stats
   const timePeriodStats = calculateTimePeriodStats(filteredItems, dateField);
@@ -92,6 +106,40 @@ function calculatePRStats(items, comments, dateRange, config) {
         else if (isOpen(item)) group.open++;
       })
     : {};
+
+  // Calculate repo breakdown (repos where user authored PRs/MRs)
+  const reposAuthored = new Set();
+  const repoBreakdown = {};
+  
+  filteredItems.forEach(item => {
+    let repoKey = null;
+    if (groupByKey) {
+      repoKey = groupByKey(item);
+    } else if (item.repository_url) {
+      // GitHub: extract repo from repository_url
+      const match = item.repository_url.match(/repos\/(.+)$/);
+      repoKey = match ? match[1] : null;
+    } else if (item.project_id) {
+      // GitLab: use project_id
+      repoKey = item.project_id.toString();
+    }
+    
+    if (repoKey) {
+      reposAuthored.add(repoKey);
+      if (!repoBreakdown[repoKey]) {
+        repoBreakdown[repoKey] = {
+          total: 0,
+          merged: 0,
+          open: 0,
+          closed: 0
+        };
+      }
+      repoBreakdown[repoKey].total++;
+      if (isMerged(item)) repoBreakdown[repoKey].merged++;
+      else if (isOpen(item)) repoBreakdown[repoKey].open++;
+      else if (isClosed(item)) repoBreakdown[repoKey].closed++;
+    }
+  });
 
   // Helper function to sort items by date descending
   const sortByDateDesc = (a, b) => {
@@ -132,6 +180,10 @@ function calculatePRStats(items, comments, dateRange, config) {
     monthlyComments: monthlyComments.monthly,
     avgCommentsPerMonth: monthlyComments.averagePerMonth,
     grouped,
+    reposAuthored: reposAuthored.size,
+    repoBreakdown: Object.entries(repoBreakdown)
+      .map(([repo, stats]) => ({ repo, ...stats }))
+      .sort((a, b) => b.total - a.total), // Sort by total descending
     items: itemsToReturn,
     dateRange: formatDateRangeForResponse(dateRange)
   };

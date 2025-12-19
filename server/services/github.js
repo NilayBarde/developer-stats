@@ -49,12 +49,13 @@ async function getAllPRs() {
     return cached;
   }
   
-  const prs = [];
+  const prsMap = new Map(); // Use Map to deduplicate PRs by ID
+  
+  // Fetch PRs authored by user
   let page = 1;
   let hasMore = true;
-  const maxPages = 20; // Limit to 2000 PRs max
-
-  while (hasMore && page <= maxPages) {
+  console.log('📦 Fetching PRs authored by user...');
+  while (hasMore) {
     try {
       const response = await githubApi.get('/search/issues', {
         params: {
@@ -69,29 +70,63 @@ async function getAllPRs() {
       if (response.data.items.length === 0) {
         hasMore = false;
       } else {
-        prs.push(...response.data.items);
+        response.data.items.forEach(pr => prsMap.set(pr.id, pr));
         page++;
         if (response.data.items.length < 100) {
+          hasMore = false;
+        }
+        if (response.data.total && prsMap.size >= response.data.total) {
           hasMore = false;
         }
       }
     } catch (error) {
       if (error.response?.status === 401) {
         console.error('❌ GitHub authentication failed (401 Unauthorized)');
-        console.error('   Please check:');
-        console.error('   1. Your GITHUB_TOKEN is correct and not expired');
-        console.error('   2. Token has "repo" scope (or "public_repo" for public repos only)');
-        console.error('   3. GITHUB_USERNAME matches your GitHub username exactly');
-        if (error.response?.data?.message) {
-          console.error(`   GitHub says: ${error.response.data.message}`);
-        }
       } else {
-        console.error('Error fetching GitHub PRs:', error.message);
+        console.error('Error fetching authored PRs:', error.message);
       }
       hasMore = false;
     }
   }
+  console.log(`  ✓ Found ${prsMap.size} PRs authored by user`);
+  
+  // Fetch PRs where user commented
+  page = 1;
+  hasMore = true;
+  console.log('📦 Fetching PRs where user commented...');
+  while (hasMore) {
+    try {
+      const response = await githubApi.get('/search/issues', {
+        params: {
+          q: `commenter:${GITHUB_USERNAME} type:pr`,
+          per_page: 100,
+          page: page,
+          sort: 'created',
+          order: 'desc'
+        }
+      });
 
+      if (response.data.items.length === 0) {
+        hasMore = false;
+      } else {
+        response.data.items.forEach(pr => prsMap.set(pr.id, pr)); // Deduplicate
+        page++;
+        if (response.data.items.length < 100) {
+          hasMore = false;
+        }
+        if (response.data.total && response.data.items.length < 100) {
+          hasMore = false;
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching PRs with comments:', error.message);
+      hasMore = false;
+    }
+  }
+  console.log(`  ✓ Found ${prsMap.size} total PRs (authored + commented)`);
+
+  const prs = Array.from(prsMap.values());
+  
   // Cache PRs for 5 minutes
   cache.set(cacheKey, prs, 300);
   return prs;
@@ -105,10 +140,11 @@ async function getPRComments(pr) {
 
     const [owner, repo] = repoMatch[1].split('/');
     const prNumber = pr.number;
-    const comments = [];
+    const allComments = [];
+    
+    // Fetch PR review comments (code comments on diffs)
     let page = 1;
     let hasMore = true;
-
     while (hasMore) {
       try {
         const response = await githubApi.get(`/repos/${owner}/${repo}/pulls/${prNumber}/comments`, {
@@ -121,31 +157,74 @@ async function getPRComments(pr) {
         if (response.data.length === 0) {
           hasMore = false;
         } else {
-          const userComments = response.data.filter(comment => 
-            comment.user?.login?.toLowerCase() === GITHUB_USERNAME.toLowerCase()
-          );
-          comments.push(...userComments);
+          const userComments = response.data.filter(comment => {
+            const matches = comment.user?.login?.toLowerCase() === GITHUB_USERNAME.toLowerCase();
+            if (!matches && comment.user?.login && allComments.length < 10) {
+              console.log(`  ⚠️ Review comment author mismatch: "${comment.user.login}" vs "${GITHUB_USERNAME}"`);
+            }
+            return matches;
+          });
+          allComments.push(...userComments);
           page++;
           if (response.data.length < 100) {
             hasMore = false;
           }
         }
       } catch (error) {
-        console.error(`Error fetching PR comments for ${prNumber}:`, error.message);
+        console.error(`Error fetching PR review comments for ${prNumber}:`, error.message);
+        hasMore = false;
+      }
+    }
+    
+    // Fetch PR issue comments (general discussion comments)
+    // PRs are also issues, so we use the issue comments endpoint
+    page = 1;
+    hasMore = true;
+    while (hasMore) {
+      try {
+        const response = await githubApi.get(`/repos/${owner}/${repo}/issues/${prNumber}/comments`, {
+          params: {
+            per_page: 100,
+            page: page
+          }
+        });
+
+        if (response.data.length === 0) {
+          hasMore = false;
+        } else {
+          const userComments = response.data.filter(comment => {
+            const matches = comment.user?.login?.toLowerCase() === GITHUB_USERNAME.toLowerCase();
+            if (!matches && comment.user?.login && allComments.length < 10) {
+              console.log(`  ⚠️ Issue comment author mismatch: "${comment.user.login}" vs "${GITHUB_USERNAME}"`);
+            }
+            return matches;
+          });
+          allComments.push(...userComments);
+          page++;
+          if (response.data.length < 100) {
+            hasMore = false;
+          }
+        }
+      } catch (error) {
+        console.error(`Error fetching PR issue comments for ${prNumber}:`, error.message);
         hasMore = false;
       }
     }
 
-    return comments;
+    return allComments;
   } catch (error) {
     console.error(`Error fetching PR comments for ${pr.number}:`, error.message);
     return [];
   }
 }
 
-async function getAllPRComments(prs) {
-  const limit = Math.min(prs.length, 30);
-  const prsToFetch = prs.slice(0, limit);
+async function getAllPRComments(prs, dateRange = null) {
+  // Fetch comments for ALL PRs (no limit)
+  // Comments will be filtered by their creation date in calculatePRStats
+  // This ensures we capture comments made on any PR that fall within the date range
+  // We need to check all PRs because comments can be added to old PRs
+  const prsToFetch = prs; // Fetch comments for all PRs
+  console.log(`📦 Fetching comments for ${prsToFetch.length} PRs...`);
   
   // Fetch comments in parallel batches to speed up
   const batchSize = 10;
@@ -161,7 +240,9 @@ async function getAllPRComments(prs) {
     );
     
     const batchComments = await Promise.all(commentPromises);
+    const batchTotal = batchComments.flat().length;
     allComments.push(...batchComments.flat());
+    console.log(`  ✓ Batch ${Math.floor(i / batchSize) + 1}: ${batchTotal} comments from ${batch.length} PRs`);
     
     // Small delay between batches to respect rate limits
     if (i + batchSize < prsToFetch.length) {
@@ -169,6 +250,7 @@ async function getAllPRComments(prs) {
     }
   }
   
+  console.log(`📝 Total comments fetched: ${allComments.length} from ${prsToFetch.length} PRs`);
   return allComments;
 }
 
@@ -192,7 +274,23 @@ async function getStats(dateRange = null) {
 
   try {
     const prs = await getAllPRs();
-    const comments = await getAllPRComments(prs);
+    console.log(`📦 Fetching comments for ${prs.length} PRs...`);
+    const comments = await getAllPRComments(prs, dateRange);
+    
+    // Debug: Log comment counts by month BEFORE filtering
+    const commentsByMonthBefore = {};
+    comments.forEach(comment => {
+      if (comment.created_at) {
+        const date = new Date(comment.created_at);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        commentsByMonthBefore[monthKey] = (commentsByMonthBefore[monthKey] || 0) + 1;
+      }
+    });
+    console.log(`📝 Total comments fetched: ${comments.length} from ${prs.length} PRs`);
+    console.log('📝 Comments by month (before date filtering):', commentsByMonthBefore);
+    if (dateRange) {
+      console.log('📅 Date range filter:', dateRange);
+    }
     
     const stats = calculatePRStats(prs, comments, dateRange, {
       mergedField: 'pull_request.merged_at',
@@ -221,6 +319,28 @@ async function getStats(dateRange = null) {
   }
 }
 
+async function getAllPRsForPage(dateRange = null) {
+  const { filterByDateRange } = require('../utils/dateHelpers');
+  
+  // Get all PRs (from cache if available)
+  const prs = await getAllPRs();
+  
+  // Filter by date range if provided
+  let filteredPRs = dateRange 
+    ? filterByDateRange(prs, 'created_at', dateRange)
+    : prs;
+  
+  // Sort by updated date descending (most recent first)
+  filteredPRs.sort((a, b) => {
+    const dateA = new Date(a.updated_at || a.created_at || 0);
+    const dateB = new Date(b.updated_at || b.created_at || 0);
+    return dateB - dateA;
+  });
+  
+  return filteredPRs;
+}
+
 module.exports = {
-  getStats
+  getStats,
+  getAllPRsForPage
 };

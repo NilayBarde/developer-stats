@@ -838,10 +838,9 @@ async function calculateStats(issues, dateRange = null) {
   if (dateRange && dateRange.start) {
     const rangeStart = new Date(dateRange.start);
     
-    // Fetch changelog for a sample of issues to get "In Progress" dates
-    // Limit to first 100 issues to avoid performance issues
-    const issuesToCheck = filteredIssues.slice(0, 100);
-    const issuesNeedingChangelog = issuesToCheck.filter(issue => !issue.changelog);
+    // Fetch changelog for all issues to get "In Progress" dates
+    // This ensures accurate filtering by In Progress date
+    const issuesNeedingChangelog = filteredIssues.filter(issue => !issue.changelog);
     
     // Fetch changelog in batches
     const batchSize = 20;
@@ -889,11 +888,11 @@ async function calculateStats(issues, dateRange = null) {
   let avgResolutionTime = 0;
   let resolutionTimeCount = 0;
   if (resolvedIssues.length > 0) {
-    // Fetch changelog for resolved issues that don't have it
+    // Fetch changelog for all resolved issues that don't have it
     const issuesNeedingChangelog = resolvedIssues.filter(issue => !issue.changelog);
     
-    // Fetch changelog in parallel (limit to avoid overwhelming the API)
-    const changelogPromises = issuesNeedingChangelog.slice(0, 50).map(async (issue) => {
+    // Fetch changelog in parallel (fetch for all resolved issues for accurate stats)
+    const changelogPromises = issuesNeedingChangelog.map(async (issue) => {
       try {
         const response = await jiraApi.get(`/rest/api/2/issue/${issue.key}`, {
           params: { expand: 'changelog' }
@@ -1481,13 +1480,8 @@ async function getAllIssuesForPage(dateRange = null) {
     }
     
     // Fetch changelog for all issues to get accurate status transition dates
-    // Limit to first 200 issues to avoid timeout (changelog fetching is expensive)
-    const maxIssuesForChangelog = 200;
-    const issuesToProcess = filteredIssues.slice(0, maxIssuesForChangelog);
-    const issuesBeyondLimit = filteredIssues.slice(maxIssuesForChangelog);
-    
-    // Fetch changelog for all issues in the first batch (they all need status transition dates)
-    const issuesNeedingChangelog = issuesToProcess;
+    // This ensures all issues have In Progress and QA Ready dates
+    const issuesNeedingChangelog = filteredIssues.filter(issue => !issue.changelog);
     
     // Do this in batches to avoid overwhelming the API
     const batchSize = 20;
@@ -1510,10 +1504,8 @@ async function getAllIssuesForPage(dateRange = null) {
       }));
     }
     
-    // Enrich issues with sprint and status transition data
-    // Process issues that had changelog fetched, then add the rest without changelog processing
-    let enrichedIssues = [
-      ...issuesToProcess.map(issue => {
+    // Enrich all issues with sprint and status transition data
+    let enrichedIssues = filteredIssues.map(issue => {
       const sprintName = getSprintName(issue);
       const inProgressDate = getInProgressDate(issue);
       const qaReadyDate = getQAReadyDate(issue);
@@ -1529,20 +1521,7 @@ async function getAllIssuesForPage(dateRange = null) {
       };
       
       return responseIssue;
-      }),
-      // Add remaining issues without changelog processing (for performance)
-      ...issuesBeyondLimit.map(issue => {
-        const sprintName = getSprintName(issue);
-        return {
-          key: issue.key,
-          self: issue.self,
-          fields: issue.fields,
-          _sprintName: sprintName,
-          _inProgressDate: null,
-          _qaReadyDate: null
-        };
-      })
-    ];
+    });
     
     // Filter by "In Progress" date if date range is specified
     // This ensures we only show issues where work began during the date range

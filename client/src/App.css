@@ -166,6 +166,97 @@
   color: white;
 }
 
+.repo-breakdown {
+  margin-top: 30px;
+  padding-top: 30px;
+  border-top: 2px solid #e0e0e0;
+}
+
+.repo-breakdown h3 {
+  color: #333;
+  font-size: 1.5em;
+  margin-bottom: 20px;
+}
+
+.repo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.repo-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+  transition: background 0.2s;
+}
+
+.repo-item:hover {
+  background: #f0f0f0;
+}
+
+.repo-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  color: #333;
+  font-size: 1em;
+}
+
+.repo-stats {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.repo-stat {
+  font-size: 0.9em;
+  color: #666;
+  padding: 4px 10px;
+  background: white;
+  border-radius: 4px;
+}
+
+.repo-stat.merged {
+  color: #28a745;
+  background: #d4edda;
+}
+
+.repo-stat.open {
+  color: #007bff;
+  background: #d1ecf1;
+}
+
+.repo-more {
+  text-align: center;
+  padding: 10px;
+  color: #666;
+  font-style: italic;
+}
+
+.source-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-weight: 500;
+}
+
+.source-badge.source-github {
+  background: #f6f8fa;
+  color: #24292e;
+}
+
+.source-badge.source-gitlab {
+  background: #fca326;
+  color: white;
+}
+
 @media (max-width: 768px) {
   .app-header {
     flex-direction: column;
@@ -178,6 +269,16 @@
 
   .cards-grid {
     grid-template-columns: 1fr;
+  }
+
+  .repo-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .repo-stats {
+    flex-wrap: wrap;
   }
 }
 
