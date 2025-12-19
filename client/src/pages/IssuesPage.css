@@ -1,0 +1,207 @@
+.issues-page {
+  background: white;
+  padding: 30px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.issues-filters {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  padding-bottom: 20px;
+  border-bottom: 2px solid #eee;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-group label {
+  font-weight: 600;
+  color: #333;
+  font-size: 0.9em;
+}
+
+.filter-group select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.9em;
+  background: white;
+  cursor: pointer;
+  min-width: 150px;
+}
+
+.filter-group select:hover {
+  border-color: #667eea;
+}
+
+.issues-count {
+  margin-left: auto;
+  font-weight: 600;
+  color: #666;
+  font-size: 0.9em;
+}
+
+.issues-table-container {
+  overflow-x: auto;
+}
+
+.issues-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.issues-table thead {
+  background: #f8f9fa;
+  border-bottom: 2px solid #667eea;
+}
+
+.issues-table th {
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+}
+
+/* Make key column wider */
+.issues-table th:nth-child(1),
+.issues-table td:nth-child(1) {
+  min-width: 140px;
+  width: 140px;
+}
+
+/* Make sprint column wider */
+.issues-table th:nth-child(6),
+.issues-table td:nth-child(6) {
+  min-width: 150px;
+  width: 150px;
+}
+
+.issues-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.issues-table th.sortable:hover {
+  background: #e9ecef;
+}
+
+.issues-table td {
+  padding: 12px;
+  border-bottom: 1px solid #eee;
+}
+
+.issues-table tbody tr:hover {
+  background: #f8f9fa;
+}
+
+.issue-link {
+  color: #667eea;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.issue-link:hover {
+  text-decoration: underline;
+}
+
+.issue-summary {
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: 600;
+  text-transform: uppercase;
+  display: inline-block;
+}
+
+.status-done,
+.status-closed,
+.status-resolved {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-in-progress,
+.status-in-progress {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.status-open,
+.status-to-do,
+.status-backlog {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.status-blocked {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.no-issues {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+  font-style: italic;
+}
+
+.back-btn {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 1em;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.back-btn:hover {
+  background: #5a6268;
+}
+
+@media (max-width: 768px) {
+  .issues-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .filter-group {
+    width: 100%;
+  }
+  
+  .filter-group select {
+    width: 100%;
+  }
+  
+  .issues-count {
+    margin-left: 0;
+  }
+  
+  .issues-table {
+    font-size: 0.8em;
+  }
+  
+  .issues-table th,
+  .issues-table td {
+    padding: 8px;
+  }
+}
+

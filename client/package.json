@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "axios": "^1.6.2",
+    "date-fns": "^2.30.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-router-dom": "^7.11.0",
     "react-scripts": "5.0.1",
-    "axios": "^1.6.2",
-    "recharts": "^2.10.3",
-    "date-fns": "^2.30.0"
+    "recharts": "^2.10.3"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -35,4 +36,3 @@
   },
   "proxy": "http://localhost:3001"
 }
-

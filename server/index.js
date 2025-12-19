@@ -139,6 +139,45 @@ app.get('/api/stats/jira', async (req, res) => {
   }
 });
 
+// Get all Jira issues for the issues page
+app.get('/api/issues', async (req, res) => {
+  try {
+    // Parse date range from query params
+    let dateRange = null;
+    if (req.query.start || req.query.end) {
+      dateRange = {
+        start: req.query.start || null,
+        end: req.query.end || null
+      };
+    } else if (req.query.range) {
+      const now = new Date();
+      switch(req.query.range) {
+        case 'last6months':
+          const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+          dateRange = { start: sixMonthsAgo.toISOString().split('T')[0], end: null };
+          break;
+        case 'last12months':
+          const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+          dateRange = { start: twelveMonthsAgo.toISOString().split('T')[0], end: null };
+          break;
+        case 'alltime':
+          dateRange = { start: null, end: null };
+          break;
+      }
+    }
+    
+    const startTime = Date.now();
+    const issues = await jiraService.getAllIssuesForPage(dateRange);
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`✓ Issues page fetched in ${duration}s (${issues.length} issues)`);
+    
+    res.json({ issues, baseUrl: process.env.JIRA_BASE_URL?.replace(/\/$/, '') });
+  } catch (error) {
+    console.error('Error fetching Jira issues:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);

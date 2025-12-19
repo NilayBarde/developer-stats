@@ -12,6 +12,15 @@
   box-shadow: 0 8px 12px rgba(0, 0, 0, 0.15);
 }
 
+.stats-card-clickable {
+  cursor: pointer;
+}
+
+.stats-card-clickable:hover .stats-card {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 12px rgba(0, 0, 0, 0.15);
+}
+
 .stats-card-title {
   font-size: 0.9em;
   opacity: 0.9;

@@ -4,8 +4,8 @@ import { getCurrentWorkYearStart, formatWorkYearLabel } from '../utils/dateHelpe
 
 function getWorkYearRanges() {
   const currentWorkYearStart = new Date(getCurrentWorkYearStart());
-  const previousWorkYearStart = new Date(currentWorkYearStart.getFullYear() - 1, 9, 1);
-  const previousWorkYearEnd = new Date(currentWorkYearStart.getFullYear(), 8, 30); // September 30
+  const previousWorkYearStart = new Date(currentWorkYearStart.getFullYear() - 1, 8, 1); // September 1
+  const previousWorkYearEnd = new Date(currentWorkYearStart.getFullYear(), 7, 31); // August 31
   
   return {
     current: {

@@ -71,6 +71,7 @@ async function getAllIssues(dateRange = null) {
   const requiredFields = [
     'key', 'summary', 'status', 'created', 'updated', 'resolutiondate',
     'issuetype', 'project', 'timespent', 'timeoriginalestimate',
+    'assignee', 'reporter', 'priority', 'description',
     'customfield_10105', 'customfield_10020', 'customfield_10007', 'customfield_10000', // Sprint fields
     'customfield_10106', 'customfield_21766', 'customfield_10016', 'customfield_10021', // Story point fields
     'customfield_10002', 'customfield_10004', 'customfield_10020'
@@ -548,6 +549,7 @@ function calculateVelocity(issues, dateRange = null) {
   
   // Group issues by sprint - only use actual sprint data from Jira
   // Include all issues (resolved and unresolved) to capture current sprint work
+  // If issue is in multiple sprints, assign all points to the first sprint (earliest by start date)
   let issuesWithoutSprint = 0;
   issues.forEach(issue => {
     
@@ -603,25 +605,21 @@ function calculateVelocity(issues, dateRange = null) {
   });
   
 
-  // Process each board separately
-  const boardResults = {};
-  let allSprintVelocities = [];
-  
+  // Collect all sprints from all boards
+  const allSprints = [];
   for (const [boardName, sprints] of Object.entries(sprintsByBoard)) {
-    let sprintArray = Object.values(sprints).sort((a, b) => {
-      const dateA = a.endDate || a.startDate;
-      const dateB = b.endDate || b.startDate;
-      return dateA - dateB;
-    });
-    
-    // Filter sprints by date range if provided (based on sprint dates, not issue resolution dates)
+    for (const sprint of Object.values(sprints)) {
+      allSprints.push(sprint);
+    }
+  }
+  
+  // Filter sprints by date range if provided
+  let filteredSprints = allSprints;
     if (dateRange) {
-      const { getDateRange, isInDateRange } = require('../utils/dateHelpers');
+    const { getDateRange } = require('../utils/dateHelpers');
       const range = getDateRange(dateRange);
       
-      sprintArray = sprintArray.filter(sprint => {
-        // Include sprint if it overlaps with date range
-        // Check if sprint start or end date falls within range, or if sprint spans the range
+    filteredSprints = allSprints.filter(sprint => {
         if (range.start === null && range.end === null) return true;
         
         const sprintStart = sprint.startDate ? new Date(sprint.startDate) : null;
@@ -629,28 +627,22 @@ function calculateVelocity(issues, dateRange = null) {
         
         if (!sprintStart && !sprintEnd) return false;
         
-        // Sprint overlaps if:
-        // - Sprint starts before range ends AND sprint ends after range starts
-        // - Or sprint start/end is within range
         if (range.start && range.end) {
           const rangeStart = new Date(range.start);
           rangeStart.setHours(0, 0, 0, 0);
           const rangeEnd = new Date(range.end);
           rangeEnd.setHours(23, 59, 59, 999);
           if (sprintStart && sprintEnd) {
-            // Sprint overlaps if it starts before range ends AND ends after range starts
             return sprintStart <= rangeEnd && sprintEnd >= rangeStart;
           }
           if (sprintStart) return sprintStart <= rangeEnd && sprintStart >= rangeStart;
           if (sprintEnd) return sprintEnd >= rangeStart && sprintEnd <= rangeEnd;
         } else if (range.start) {
-          // Only start date specified (present) - include sprints that end on or after start date
           const rangeStart = new Date(range.start);
           rangeStart.setHours(0, 0, 0, 0);
           if (sprintEnd) return sprintEnd >= rangeStart;
           if (sprintStart) return sprintStart >= rangeStart;
         } else if (range.end) {
-          // Only end date specified - include sprints that start before or on end date
           const rangeEnd = new Date(range.end);
           rangeEnd.setHours(23, 59, 59, 999);
           if (sprintStart) return sprintStart <= rangeEnd;
@@ -661,41 +653,140 @@ function calculateVelocity(issues, dateRange = null) {
       });
     }
     
-    // Calculate average velocity from sprints with points > 0
-    const velocities = sprintArray
-      .filter(sprint => sprint.points > 0)
-      .map(sprint => sprint.points);
-    const avgVelocity = velocities.length > 0 
-      ? velocities.reduce((a, b) => a + b, 0) / velocities.length 
-      : 0;
-
-    allSprintVelocities.push(...velocities);
+  // Group sprints by overlapping time periods
+  // Sprints that overlap in time are grouped together for averaging
+  // Uses transitive closure: if A overlaps B and B overlaps C, then A, B, C are all grouped together
+  const sprintGroups = [];
+  const sprintToGroup = new Map(); // Maps sprint ID to group index
+  
+  // Helper function to check if two sprints overlap
+  function sprintsOverlap(sprint1, sprint2) {
+    const start1 = sprint1.startDate ? new Date(sprint1.startDate) : null;
+    const end1 = sprint1.endDate ? new Date(sprint1.endDate) : null;
+    const start2 = sprint2.startDate ? new Date(sprint2.startDate) : null;
+    const end2 = sprint2.endDate ? new Date(sprint2.endDate) : null;
     
-    boardResults[boardName] = {
-      sprints: sprintArray, // Show all sprints including those with 0 points
-      averageVelocity: Math.round(avgVelocity * 10) / 10,
-      totalSprints: sprintArray.length
-    };
+    if (!start1 || !end1 || !start2 || !end2) return false;
+    
+    // Sprints overlap if one starts before the other ends and vice versa
+    return start1 <= end2 && end1 >= start2;
   }
-
-  // Calculate combined average velocity (weighted by number of sprints per board)
-  let combinedAvgVelocity = 0;
-  if (Object.keys(boardResults).length > 0) {
-    const boardAverages = Object.values(boardResults)
-      .filter(board => board.totalSprints > 0)
-      .map(board => ({
-        avg: board.averageVelocity,
-        weight: board.totalSprints
-      }));
+  
+  // Build groups using transitive closure
+  for (const sprint of filteredSprints) {
+    let assignedGroup = null;
     
-    if (boardAverages.length > 0) {
-      const totalWeight = boardAverages.reduce((sum, b) => sum + b.weight, 0);
-      const weightedSum = boardAverages.reduce((sum, b) => sum + (b.avg * b.weight), 0);
-      combinedAvgVelocity = totalWeight > 0 
-        ? Math.round((weightedSum / totalWeight) * 10) / 10
-        : 0;
+    // Check if this sprint overlaps with any existing group
+    for (let i = 0; i < sprintGroups.length; i++) {
+      const group = sprintGroups[i];
+      // If sprint overlaps with any sprint in this group, add it to the group
+      if (group.some(existingSprint => sprintsOverlap(sprint, existingSprint))) {
+        group.push(sprint);
+        sprintToGroup.set(sprint.id, i);
+        assignedGroup = i;
+        break;
+      }
+    }
+    
+    // If no overlap found, create a new group
+    if (assignedGroup === null) {
+      sprintGroups.push([sprint]);
+      sprintToGroup.set(sprint.id, sprintGroups.length - 1);
     }
   }
+  
+  // Merge groups that have transitive overlaps
+  // If group A has a sprint that overlaps with group B, merge them
+  let merged = true;
+  while (merged) {
+    merged = false;
+    for (let i = 0; i < sprintGroups.length; i++) {
+      for (let j = i + 1; j < sprintGroups.length; j++) {
+        const groupI = sprintGroups[i];
+        const groupJ = sprintGroups[j];
+        
+        // Check if any sprint in group I overlaps with any sprint in group J
+        const hasOverlap = groupI.some(sprintI => 
+          groupJ.some(sprintJ => sprintsOverlap(sprintI, sprintJ))
+        );
+        
+        if (hasOverlap) {
+          // Merge group J into group I
+          sprintGroups[i] = [...groupI, ...groupJ];
+          sprintGroups.splice(j, 1);
+          merged = true;
+          break;
+        }
+      }
+      if (merged) break;
+    }
+  }
+  
+  // Calculate velocities for overlapping sprint groups
+  // For overlapping sprints, SUM their points (since work happens concurrently)
+  // Then calculate average velocity per time period
+  const boardResults = {};
+  const combinedSprintVelocities = []; // Store combined velocities for overlapping groups
+  
+  for (const group of sprintGroups) {
+    // Sort group by date
+    group.sort((a, b) => {
+      const dateA = a.endDate || a.startDate;
+      const dateB = b.endDate || b.startDate;
+      return dateA - dateB;
+    });
+    
+    // For overlapping sprints, SUM their points (work happens concurrently)
+    const combinedPoints = group.reduce((sum, sprint) => sum + (sprint.points || 0), 0);
+    
+    // Only count groups with points > 0
+    if (combinedPoints > 0) {
+      combinedSprintVelocities.push(combinedPoints);
+    }
+    
+    // Group sprints by board for display
+    for (const sprint of group) {
+      const boardName = sprint.boardName || 'Unknown';
+      if (!boardResults[boardName]) {
+        boardResults[boardName] = {
+          sprints: [],
+          averageVelocity: 0,
+          totalSprints: 0
+        };
+      }
+      boardResults[boardName].sprints.push(sprint);
+    }
+  }
+  
+  // Calculate overall average velocity from combined sprint velocities
+  // Each overlapping group counts as one sprint with summed points
+  const overallAvgVelocity = combinedSprintVelocities.length > 0
+    ? combinedSprintVelocities.reduce((a, b) => a + b, 0) / combinedSprintVelocities.length
+    : 0;
+  
+  // For each board, calculate its average (for display purposes)
+  for (const [boardName, boardData] of Object.entries(boardResults)) {
+    const boardVelocities = boardData.sprints
+      .filter(sprint => sprint.points > 0)
+      .map(sprint => sprint.points);
+    
+    const boardAvgVelocity = boardVelocities.length > 0
+      ? boardVelocities.reduce((a, b) => a + b, 0) / boardVelocities.length
+      : 0;
+    
+    boardResults[boardName] = {
+      sprints: boardData.sprints.sort((a, b) => {
+        const dateA = a.endDate || a.startDate;
+        const dateB = b.endDate || b.startDate;
+        return dateA - dateB;
+      }),
+      averageVelocity: Math.round(boardAvgVelocity * 10) / 10,
+      totalSprints: boardData.sprints.length
+    };
+  }
+  
+  // Combined average velocity (overlapping sprints are summed, then averaged)
+  const combinedAvgVelocity = Math.round(overallAvgVelocity * 10) / 10;
 
   return {
     byBoard: boardResults,
@@ -715,13 +806,51 @@ function calculateVelocity(issues, dateRange = null) {
 async function calculateStats(issues, dateRange = null) {
   const now = new Date();
   
-  // Filter issues by date range
-  const filteredIssues = dateRange 
-    ? filterByDateRange(issues, 'fields.created', dateRange)
+  // Filter issues by date range - use 'updated' to match issues page filtering
+  // This shows issues the user worked on during the date range
+  let filteredIssues = dateRange 
+    ? filterByDateRange(issues, 'fields.updated', dateRange)
     : issues;
 
-  // Basic stats
-  const timePeriodStats = calculateTimePeriodStats(filteredIssues, 'fields.created');
+  // Further filter by "In Progress" date if available (to match issues page logic)
+  // Fetch changelog for issues that need it to get "In Progress" dates
+  if (dateRange && dateRange.start) {
+    const rangeStart = new Date(dateRange.start);
+    
+    // Fetch changelog for a sample of issues to get "In Progress" dates
+    // Limit to first 100 issues to avoid performance issues
+    const issuesToCheck = filteredIssues.slice(0, 100);
+    const issuesNeedingChangelog = issuesToCheck.filter(issue => !issue.changelog);
+    
+    // Fetch changelog in batches
+    const batchSize = 20;
+    for (let i = 0; i < issuesNeedingChangelog.length; i += batchSize) {
+      const batch = issuesNeedingChangelog.slice(i, i + batchSize);
+      await Promise.all(batch.map(async (issue) => {
+        try {
+          const response = await jiraApi.get(`/rest/api/2/issue/${issue.key}`, {
+            params: { expand: 'changelog' }
+          });
+          issue.changelog = response.data.changelog;
+        } catch (error) {
+          // Silently fail
+        }
+      }));
+    }
+    
+    // Filter by "In Progress" date for issues that have it
+    filteredIssues = filteredIssues.filter(issue => {
+      const inProgressDate = getInProgressDate(issue);
+      if (inProgressDate) {
+        return inProgressDate >= rangeStart;
+      }
+      // If no "In Progress" date, use updated date (already filtered above)
+      return true;
+    });
+  }
+
+  // Basic stats - use 'updated' for time period stats to match filtering
+  const timePeriodStats = calculateTimePeriodStats(filteredIssues, 'fields.updated');
   
   const resolved = filteredIssues.filter(issue => issue.fields.resolutiondate).length;
   const inProgress = filteredIssues.filter(issue => 
@@ -799,8 +928,8 @@ async function calculateStats(issues, dateRange = null) {
   // Calculate velocity
   const velocity = calculateVelocity(filteredIssues, dateRange);
 
-  // Monthly stats
-  const monthlyIssues = calculateMonthlyStats(filteredIssues, 'fields.created', dateRange);
+  // Monthly stats - use 'updated' to match filtering logic
+  const monthlyIssues = calculateMonthlyStats(filteredIssues, 'fields.updated', dateRange);
 
   // Helper function to sort issues by last updated date descending
   const sortByUpdatedDesc = (a, b) => {
@@ -866,7 +995,544 @@ async function getStats(dateRange = null) {
   }
 }
 
+/**
+ * Get all sprints from issue
+ */
+function getAllSprints(issue) {
+  const sprintFieldId = findSprintField(issue);
+  if (!sprintFieldId) return [];
+  
+  const sprintField = issue.fields[sprintFieldId];
+  if (!sprintField) return [];
+  
+  const sprints = [];
+  
+  // Handle string representation
+  if (typeof sprintField === 'string' && sprintField.includes('com.atlassian.greenhopper.service.sprint.Sprint')) {
+    const sprintData = parseSprintString(sprintField);
+    if (sprintData && sprintData.id) {
+      sprints.push({
+        id: sprintData.id,
+        name: sprintData.name || `Sprint ${sprintData.id}`,
+        startDate: sprintData.startDate ? new Date(sprintData.startDate) : null,
+        endDate: sprintData.endDate ? new Date(sprintData.endDate) : null,
+        rapidViewId: sprintData.rapidViewId
+      });
+    }
+  }
+  // Handle array of sprint strings
+  else if (Array.isArray(sprintField) && sprintField.length > 0) {
+    if (typeof sprintField[0] === 'string' && sprintField[0].includes('com.atlassian.greenhopper.service.sprint.Sprint')) {
+      sprintField.forEach(s => {
+        const sprintData = parseSprintString(s);
+        if (sprintData && sprintData.id) {
+          sprints.push({
+            id: sprintData.id,
+            name: sprintData.name || `Sprint ${sprintData.id}`,
+            startDate: sprintData.startDate ? new Date(sprintData.startDate) : null,
+            endDate: sprintData.endDate ? new Date(sprintData.endDate) : null,
+            rapidViewId: sprintData.rapidViewId
+          });
+        }
+      });
+    } else {
+      // Handle array of sprint objects
+      sprintField.forEach(sprint => {
+        if (typeof sprint === 'object' && sprint !== null) {
+          sprints.push({
+            id: sprint.id || sprint.sprintId,
+            name: sprint.name || sprint.value || `Sprint ${sprint.id || sprint.sprintId}`,
+            startDate: sprint.startDate ? new Date(sprint.startDate) : null,
+            endDate: sprint.endDate ? new Date(sprint.endDate) : null,
+            rapidViewId: sprint.rapidViewId
+          });
+        }
+      });
+    }
+  }
+  // Handle single sprint object
+  else if (typeof sprintField === 'object' && sprintField !== null && !Array.isArray(sprintField)) {
+    sprints.push({
+      id: sprintField.id || sprintField.sprintId,
+      name: sprintField.name || sprintField.value || `Sprint ${sprintField.id || sprintField.sprintId}`,
+      startDate: sprintField.startDate ? new Date(sprintField.startDate) : null,
+      endDate: sprintField.endDate ? new Date(sprintField.endDate) : null,
+      rapidViewId: sprintField.rapidViewId
+    });
+  }
+  
+  return sprints;
+}
+
+/**
+ * Get the best sprint for an issue (the sprint that overlaps with "In Progress" date, or most recent)
+ */
+function getBestSprintForIssue(issue) {
+  const sprints = getAllSprints(issue);
+  if (sprints.length === 0) return null;
+  if (sprints.length === 1) return sprints[0];
+  
+  // Get "In Progress" date if available
+  const inProgressDate = getInProgressDate(issue);
+  
+  if (inProgressDate) {
+    // Find sprint that overlaps with "In Progress" date
+    for (const sprint of sprints) {
+      if (sprint.startDate && sprint.endDate) {
+        const sprintStart = new Date(sprint.startDate);
+        const sprintEnd = new Date(sprint.endDate);
+        // Check if "In Progress" date falls within sprint dates
+        if (inProgressDate >= sprintStart && inProgressDate <= sprintEnd) {
+          return sprint;
+        }
+      }
+    }
+    
+    // If no sprint overlaps, find the sprint that started closest to "In Progress" date
+    let closestSprint = null;
+    let minDiff = Infinity;
+    for (const sprint of sprints) {
+      if (sprint.startDate) {
+        const sprintStart = new Date(sprint.startDate);
+        const diff = Math.abs(inProgressDate - sprintStart);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestSprint = sprint;
+        }
+      }
+    }
+    if (closestSprint) return closestSprint;
+  }
+  
+  // Fall back to most recent sprint (by end date, or start date if no end date)
+  sprints.sort((a, b) => {
+    const dateA = a.endDate ? new Date(a.endDate) : (a.startDate ? new Date(a.startDate) : new Date(0));
+    const dateB = b.endDate ? new Date(b.endDate) : (b.startDate ? new Date(b.startDate) : new Date(0));
+    return dateB - dateA; // Most recent first
+  });
+  
+  return sprints[0];
+}
+
+/**
+ * Get sprint name from issue (using best sprint selection)
+ */
+function getSprintName(issue) {
+  const sprint = getBestSprintForIssue(issue);
+  return sprint ? sprint.name : null;
+}
+
+/**
+ * Get board IDs from issues (extract unique rapidViewIds)
+ */
+function getBoardIdsFromIssues(issues) {
+  const boardIds = new Set();
+  
+  for (const issue of issues) {
+    const sprintFieldId = findSprintField(issue);
+    if (!sprintFieldId) continue;
+    
+    const sprintInfo = extractSprintInfo(issue.fields[sprintFieldId], issue.fields?.resolutiondate, issue.key);
+    if (sprintInfo && sprintInfo.rapidViewId) {
+      boardIds.add(sprintInfo.rapidViewId);
+    }
+  }
+  
+  return Array.from(boardIds);
+}
+
+/**
+ * Fetch future sprints from Jira Agile API
+ */
+async function getFutureSprints(boardIds) {
+  const futureSprints = [];
+  
+  for (const boardId of boardIds) {
+    try {
+      // Try Agile API endpoint (Jira Software Cloud/Server)
+      const response = await jiraApi.get(`/rest/agile/1.0/board/${boardId}/sprint`, {
+        params: {
+          state: 'future',
+          maxResults: 10 // Limit to next 10 future sprints
+        }
+      });
+      
+      if (response.data && response.data.values) {
+        futureSprints.push(...response.data.values.map(sprint => ({
+          id: sprint.id,
+          name: sprint.name,
+          state: sprint.state,
+          startDate: sprint.startDate ? new Date(sprint.startDate) : null,
+          endDate: sprint.endDate ? new Date(sprint.endDate) : null,
+          rapidViewId: boardId
+        })));
+      }
+    } catch (error) {
+      // If Agile API doesn't work, try GreenHopper API (older Jira versions)
+      try {
+        const response = await jiraApi.get(`/rest/greenhopper/1.0/sprintquery/${boardId}`, {
+          params: {
+            includeFutureSprints: true
+          }
+        });
+        
+        if (response.data && response.data.sprints) {
+          const future = response.data.sprints.filter(s => s.state === 'future');
+          futureSprints.push(...future.map(sprint => ({
+            id: sprint.id,
+            name: sprint.name,
+            state: sprint.state,
+            startDate: sprint.startDate ? new Date(sprint.startDate) : null,
+            endDate: sprint.endDate ? new Date(sprint.endDate) : null,
+            rapidViewId: boardId
+          })));
+        }
+      } catch (ghError) {
+        // Silently fail - board might not support future sprints or API might not be available
+        console.log(`Could not fetch future sprints for board ${boardId}`);
+      }
+    }
+  }
+  
+  return futureSprints;
+}
+
+/**
+ * Get "In Progress" transition date
+ * Tries multiple status name variations and also checks for partial matches
+ */
+function getInProgressDate(issue) {
+  // First try exact matches with common variations
+  const inProgressVariations = [
+    'In Progress',
+    'in progress',
+    'IN PROGRESS',
+    'InProgress',
+    'In-Progress',
+    'in-progress'
+  ];
+  
+  for (const statusName of inProgressVariations) {
+    const date = getStatusTransitionTime(issue, statusName);
+    if (date) return date;
+  }
+  
+  // If exact match fails, try to find any status transition that contains "progress"
+  // This handles cases where the status name might be slightly different
+  if (issue.changelog) {
+    let histories = null;
+    if (Array.isArray(issue.changelog.histories)) {
+      histories = issue.changelog.histories;
+    } else if (issue.changelog.histories && Array.isArray(issue.changelog.histories.values)) {
+      histories = issue.changelog.histories.values;
+    }
+    
+    if (histories && histories.length > 0) {
+      const sortedHistories = [...histories].sort((a, b) => {
+        const dateA = new Date(a.created || 0);
+        const dateB = new Date(b.created || 0);
+        return dateA - dateB;
+      });
+      
+      for (const history of sortedHistories) {
+        if (!history.items) continue;
+        
+        for (const item of history.items) {
+          if (item.field === 'status' && item.toString) {
+            const toStatus = item.toString.toLowerCase().trim();
+            // Check if status name contains "progress" (case-insensitive)
+            if (toStatus.includes('progress')) {
+              return new Date(history.created);
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Get "Ready for QA Release" transition date
+ */
+function getQAReadyDate(issue) {
+  const qaReadyVariations = [
+    'Ready for QA Release',
+    'Ready for QA',
+    'QA Ready',
+    'Ready for Testing',
+    'QA Release'
+  ];
+  
+  for (const statusName of qaReadyVariations) {
+    const date = getStatusTransitionTime(issue, statusName);
+    if (date) return date;
+  }
+  
+  return null;
+}
+
+/**
+ * Optimized function to get issues for the issues page
+ * - Adds date filtering to JQL query to reduce data fetched
+ * - Fetches changelog only when needed (lazy loading)
+ * - Uses caching for better performance
+ */
+async function getAllIssuesForPage(dateRange = null) {
+  if (!JIRA_PAT || !JIRA_BASE_URL) {
+    throw new Error('Jira credentials not configured. Please set JIRA_PAT and JIRA_BASE_URL environment variables.');
+  }
+
+  // Create cache key
+  const cache = require('../utils/cache');
+  const cacheKey = `issues-page:${JSON.stringify(dateRange)}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    console.log('✓ Issues page served from cache');
+    return cached;
+  }
+
+  try {
+    const issues = [];
+    let startAt = 0;
+    const maxResults = 100;
+    let hasMore = true;
+    
+    // Get current user info first
+    let userAccountId = null;
+    let userEmail = null;
+    try {
+      const user = await getCurrentUser();
+      userAccountId = user.accountId;
+      userEmail = user.emailAddress;
+    } catch (error) {
+      // Silently fail
+    }
+
+    // Build JQL query with date filtering for better performance
+    // Use 'updated' instead of 'created' to show issues the user worked on during the date range
+    let dateFilter = '';
+    if (dateRange && dateRange.start) {
+      dateFilter = ` AND updated >= "${dateRange.start}"`;
+    }
+    if (dateRange && dateRange.end) {
+      dateFilter += ` AND updated <= "${dateRange.end}"`;
+    }
+
+    const baseQueries = [
+      `assignee = currentUser()${dateFilter}`,
+      userEmail ? `assignee = "${userEmail}"${dateFilter}` : null,
+      userAccountId ? `assignee = ${userAccountId}${dateFilter}` : null
+    ].filter(Boolean);
+    
+    const jqlQueries = baseQueries.map(base => `${base} ORDER BY updated DESC`);
+
+    // Only fetch fields we need - NO changelog initially (much faster)
+    const requiredFields = [
+      'key', 'summary', 'status', 'created', 'updated', 'resolutiondate',
+      'issuetype', 'project', 'timespent', 'timeoriginalestimate',
+      'assignee', 'reporter', 'priority',
+      'customfield_10105', 'customfield_10020', 'customfield_10007', 'customfield_10000', // Sprint fields
+      'customfield_10106', 'customfield_21766', 'customfield_10016', 'customfield_10021', // Story point fields
+      'customfield_10002', 'customfield_10004'
+    ];
+
+    let jqlIndex = 0;
+
+    while (hasMore && jqlIndex < jqlQueries.length) {
+      try {
+        const jql = jqlQueries[jqlIndex];
+        const response = await jiraApi.post('/rest/api/2/search', {
+          jql: jql,
+          startAt: startAt,
+          maxResults: maxResults,
+          fields: requiredFields,
+          expand: ['names'] // NO changelog - fetch only when needed
+        });
+
+        if (response.data.issues.length === 0) {
+          hasMore = false;
+        } else {
+          issues.push(...response.data.issues);
+          startAt += maxResults;
+          
+          if (response.data.issues.length < maxResults || issues.length >= response.data.total) {
+            hasMore = false;
+          }
+        }
+      } catch (error) {
+        if (error.response?.status === 403 && jqlIndex < jqlQueries.length - 1) {
+          jqlIndex++;
+          startAt = 0;
+          continue;
+        }
+        
+        if (error.response?.status === 401) {
+          console.error('❌ Jira authentication failed (401 Unauthorized). Check JIRA_PAT and JIRA_BASE_URL.');
+        } else if (error.response?.status === 403) {
+          console.error('❌ Jira permission denied (403 Forbidden). Check API token permissions.');
+        } else {
+          console.error('Error fetching Jira issues:', error.message);
+        }
+        hasMore = false;
+      }
+    }
+
+    // Filter issues by date range (in case JQL date filter wasn't perfect)
+    // Use 'updated' to show issues the user worked on during the date range
+    let filteredIssues = dateRange 
+      ? filterByDateRange(issues, 'fields.updated', dateRange)
+      : issues;
+    
+    // Get board IDs from existing issues to fetch future sprints
+    const boardIds = getBoardIdsFromIssues(filteredIssues.length > 0 ? filteredIssues : issues);
+    
+    // Fetch future sprints and get issues assigned to them
+    if (boardIds.length > 0) {
+      try {
+        const futureSprints = await getFutureSprints(boardIds);
+        
+        // Query for issues in future sprints (limit to next 2 future sprints for performance)
+        const sprintsToQuery = futureSprints.slice(0, 2);
+        
+        for (const sprint of sprintsToQuery) {
+          try {
+            // Build JQL query for issues in this future sprint
+            const sprintJqlQueries = [
+              `assignee = currentUser() AND Sprint = ${sprint.id}`,
+              userEmail ? `assignee = "${userEmail}" AND Sprint = ${sprint.id}` : null,
+              userAccountId ? `assignee = ${userAccountId} AND Sprint = ${sprint.id}` : null
+            ].filter(Boolean);
+            
+            for (const jql of sprintJqlQueries) {
+              try {
+                const response = await jiraApi.post('/rest/api/2/search', {
+                  jql: jql,
+                  startAt: 0,
+                  maxResults: 100,
+                  fields: requiredFields,
+                  expand: ['names']
+                });
+                
+                if (response.data.issues && response.data.issues.length > 0) {
+                  // Add future sprint issues to the list (they won't be filtered by date range)
+                  filteredIssues.push(...response.data.issues);
+                  break; // Successfully fetched, move to next sprint
+                }
+              } catch (error) {
+                // Try next query variation
+                continue;
+              }
+            }
+          } catch (error) {
+            // Silently fail for individual sprint queries
+            continue;
+          }
+        }
+      } catch (error) {
+        // Silently fail if future sprint fetching doesn't work
+        console.log('Could not fetch future sprint issues:', error.message);
+      }
+    }
+    
+    // Fetch changelog for all issues to get accurate status transition dates
+    // Limit to first 200 issues to avoid timeout (changelog fetching is expensive)
+    const maxIssuesForChangelog = 200;
+    const issuesToProcess = filteredIssues.slice(0, maxIssuesForChangelog);
+    const issuesBeyondLimit = filteredIssues.slice(maxIssuesForChangelog);
+    
+    // Fetch changelog for all issues in the first batch (they all need status transition dates)
+    const issuesNeedingChangelog = issuesToProcess;
+    
+    // Do this in batches to avoid overwhelming the API
+    const batchSize = 20;
+
+    // Fetch changelog in parallel batches
+    for (let i = 0; i < issuesNeedingChangelog.length; i += batchSize) {
+      const batch = issuesNeedingChangelog.slice(i, i + batchSize);
+      await Promise.all(batch.map(async (issue) => {
+        try {
+          const response = await jiraApi.get(`/rest/api/2/issue/${issue.key}`, {
+            params: { 
+              expand: 'changelog',
+              fields: ['changelog'] // Only fetch changelog, not all fields
+            }
+          });
+          issue.changelog = response.data.changelog;
+        } catch (error) {
+          // Silently fail - will use null for status transitions
+        }
+      }));
+    }
+    
+    // Enrich issues with sprint and status transition data
+    // Process issues that had changelog fetched, then add the rest without changelog processing
+    let enrichedIssues = [
+      ...issuesToProcess.map(issue => {
+      const sprintName = getSprintName(issue);
+      const inProgressDate = getInProgressDate(issue);
+      const qaReadyDate = getQAReadyDate(issue);
+      
+      // Create response object without changelog to reduce payload size
+      const responseIssue = {
+        key: issue.key,
+        self: issue.self,
+        fields: issue.fields,
+        _sprintName: sprintName,
+        _inProgressDate: inProgressDate ? inProgressDate.toISOString() : null,
+        _qaReadyDate: qaReadyDate ? qaReadyDate.toISOString() : null
+      };
+      
+      return responseIssue;
+      }),
+      // Add remaining issues without changelog processing (for performance)
+      ...issuesBeyondLimit.map(issue => {
+        const sprintName = getSprintName(issue);
+        return {
+          key: issue.key,
+          self: issue.self,
+          fields: issue.fields,
+          _sprintName: sprintName,
+          _inProgressDate: null,
+          _qaReadyDate: null
+        };
+      })
+    ];
+    
+    // Filter by "In Progress" date if date range is specified
+    // This ensures we only show issues where work began during the date range
+    if (dateRange && dateRange.start) {
+      const rangeStart = new Date(dateRange.start);
+      enrichedIssues = enrichedIssues.filter(issue => {
+        // If issue has an "In Progress" date, use that for filtering
+        if (issue._inProgressDate) {
+          const inProgressDate = new Date(issue._inProgressDate);
+          return inProgressDate >= rangeStart;
+        }
+        // If no "In Progress" date, fall back to updated date (for issues that might not have gone through "In Progress")
+        // This handles edge cases where issues were resolved without going to "In Progress"
+        const updatedDate = issue.fields?.updated ? new Date(issue.fields.updated) : null;
+        if (updatedDate) {
+          return updatedDate >= rangeStart;
+        }
+        // If no dates at all, exclude it
+        return false;
+      });
+    }
+    
+    // Cache for 2 minutes
+    cache.set(cacheKey, enrichedIssues, 120);
+    
+    return enrichedIssues;
+  } catch (error) {
+    console.error('❌ Error fetching Jira issues for page:', error.message);
+    throw error;
+  }
+}
+
 module.exports = {
-  getStats
+  getStats,
+  getAllIssuesForPage
 };
 
