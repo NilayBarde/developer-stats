@@ -3,6 +3,18 @@
   padding: 30px;
   border-radius: 12px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  margin-top: 30px;
+}
+
+.table-loading {
+  padding: 60px 40px;
+  text-align: center;
+}
+
+.table-loading p {
+  margin-top: 15px;
+  color: #666;
+  font-size: 1em;
 }
 
 .issues-filters {

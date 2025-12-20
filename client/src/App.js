@@ -63,14 +63,6 @@ function App() {
     return () => clearInterval(interval);
   }, [fetchStats]);
 
-  if (loading && !stats) {
-    return (
-      <div className="app">
-        <div className="loading">Loading stats...</div>
-      </div>
-    );
-  }
-
   return (
     <div className="app">
       <nav className="main-nav">
@@ -114,16 +106,37 @@ function App() {
           {error && <div className="error-banner">{error}</div>}
 
           <div className="stats-grid">
-            {/* Combined Overview */}
-            {stats && <CombinedOverview githubStats={stats.github} gitlabStats={stats.gitlab} jiraStats={stats.jira} />}
+            {loading && !stats ? (
+              <>
+                {/* Combined Overview Loading */}
+                <div className="stats-loading">
+                  <div className="loading-spinner"></div>
+                  <p>Loading overview...</p>
+                </div>
+                {/* Jira Stats Loading */}
+                <div className="stats-loading">
+                  <div className="loading-spinner"></div>
+                  <p>Loading Jira stats...</p>
+                </div>
+                {/* Git Stats Loading */}
+                <div className="stats-loading">
+                  <div className="loading-spinner"></div>
+                  <p>Loading Git stats...</p>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Combined Overview */}
+                {stats && <CombinedOverview githubStats={stats.github} gitlabStats={stats.gitlab} jiraStats={stats.jira} />}
 
-            {/* Jira Stats */}
-            <JiraSection stats={stats?.jira} />
-            {renderErrorSection('jira', '📋', stats?.jira?.error)}
+                {/* Jira Stats */}
+                <JiraSection stats={stats?.jira} />
+                {renderErrorSection('jira', '📋', stats?.jira?.error)}
 
-            {/* Combined Git Stats (GitHub + GitLab) */}
-            <GitSection githubStats={stats?.github} gitlabStats={stats?.gitlab} />
-
+                {/* Combined Git Stats (GitHub + GitLab) */}
+                <GitSection githubStats={stats?.github} gitlabStats={stats?.gitlab} />
+              </>
+            )}
           </div>
           </>
         } />

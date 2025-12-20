@@ -67,7 +67,8 @@ function PRsPage() {
     }
     
     const queryString = params.toString();
-    return queryString ? `/api/stats?${queryString}` : '/api/stats';
+    // Only fetch Git stats (GitHub + GitLab) since this page only needs Git data
+    return queryString ? `/api/stats/git?${queryString}` : '/api/stats/git';
   }, []);
 
   const fetchPRs = useCallback(async () => {
@@ -353,14 +354,6 @@ function PRsPage() {
     return '#';
   };
 
-  if (loading) {
-    return (
-      <div className="app">
-        <div className="loading">Loading PRs/MRs...</div>
-      </div>
-    );
-  }
-
   return (
     <div className="app">
       <header className="app-header">
@@ -376,7 +369,12 @@ function PRsPage() {
       {error && <div className="error-banner">{error}</div>}
 
       {/* Git Stats */}
-      {!statsLoading && displayStats && (
+      {statsLoading ? (
+        <div className="stats-loading">
+          <div className="loading-spinner"></div>
+          <p>Loading stats...</p>
+        </div>
+      ) : displayStats ? (
         <div className="stats-grid">
           <GitSection githubStats={displayStats.github} gitlabStats={displayStats.gitlab} compact={true} />
           {displayStats.github?.error && renderErrorSection('github', '📦', displayStats.github.error)}
@@ -412,10 +410,17 @@ function PRsPage() {
             </div>
           )}
         </div>
-      )}
+      ) : null}
 
       {!error && (
         <div className="issues-page">
+          {loading ? (
+            <div className="table-loading">
+              <div className="loading-spinner"></div>
+              <p>Loading PRs/MRs...</p>
+            </div>
+          ) : (
+            <>
           {/* Filters */}
           <div className="issues-filters">
             <div className="filter-group">
@@ -522,6 +527,8 @@ function PRsPage() {
               </tbody>
             </table>
           </div>
+            </>
+          )}
         </div>
       )}
     </div>

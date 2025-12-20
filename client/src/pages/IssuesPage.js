@@ -55,7 +55,8 @@ function IssuesPage() {
     }
     
     const queryString = params.toString();
-    return queryString ? `/api/stats?${queryString}` : '/api/stats';
+    // Only fetch Jira stats since this page only needs Jira data
+    return queryString ? `/api/stats/jira?${queryString}` : '/api/stats/jira';
   }, []);
 
   const fetchIssues = useCallback(async () => {
@@ -177,13 +178,14 @@ function IssuesPage() {
   const filteredStats = calculateFilteredStats(filteredIssues);
 
   // Merge filtered stats with API stats (keep velocity from API)
-  const displayStats = stats?.jira ? {
-    ...stats.jira,
+  // stats is now directly the Jira stats object (not wrapped in .jira)
+  const displayStats = stats ? {
+    ...stats,
     ...filteredStats,
     // Keep velocity from API since it's sprint-based and complex
-    velocity: stats.jira.velocity,
+    velocity: stats.velocity,
     // Keep baseUrl from API
-    baseUrl: stats.jira.baseUrl
+    baseUrl: stats.baseUrl
   } : null;
 
   // Filter and sort issues
@@ -239,14 +241,6 @@ function IssuesPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="app">
-        <div className="loading">Loading issues...</div>
-      </div>
-    );
-  }
-
   return (
     <div className="app">
       <header className="app-header">
@@ -262,15 +256,27 @@ function IssuesPage() {
       {error && <div className="error-banner">{error}</div>}
 
       {/* Jira Stats */}
-      {!statsLoading && displayStats && (
+      {statsLoading ? (
+        <div className="stats-loading">
+          <div className="loading-spinner"></div>
+          <p>Loading stats...</p>
+        </div>
+      ) : displayStats ? (
         <div className="stats-grid">
           <JiraSection stats={displayStats} compact={true} />
           {renderErrorSection('jira', '📋', displayStats?.error)}
         </div>
-      )}
+      ) : null}
 
       {!error && (
         <div className="issues-page">
+          {loading ? (
+            <div className="table-loading">
+              <div className="loading-spinner"></div>
+              <p>Loading issues...</p>
+            </div>
+          ) : (
+            <>
           {/* Filters */}
           <div className="issues-filters">
             <div className="filter-group">
@@ -393,6 +399,8 @@ function IssuesPage() {
               </tbody>
             </table>
           </div>
+            </>
+          )}
         </div>
       )}
     </div>

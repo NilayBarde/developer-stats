@@ -129,7 +129,31 @@ app.get('/api/stats', async (req, res) => {
 // Get GitHub stats only
 app.get('/api/stats/github', async (req, res) => {
   try {
-    const stats = await githubService.getStats();
+    // Parse date range from query params
+    let dateRange = null;
+    if (req.query.start || req.query.end) {
+      dateRange = {
+        start: req.query.start || null,
+        end: req.query.end || null
+      };
+    } else if (req.query.range) {
+      const now = new Date();
+      switch(req.query.range) {
+        case 'last6months':
+          const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+          dateRange = { start: sixMonthsAgo.toISOString().split('T')[0], end: null };
+          break;
+        case 'last12months':
+          const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+          dateRange = { start: twelveMonthsAgo.toISOString().split('T')[0], end: null };
+          break;
+        case 'alltime':
+          dateRange = { start: null, end: null };
+          break;
+      }
+    }
+    
+    const stats = await githubService.getStats(dateRange);
     res.json(stats);
   } catch (error) {
     console.error('Error fetching GitHub stats:', error);
@@ -140,7 +164,31 @@ app.get('/api/stats/github', async (req, res) => {
 // Get GitLab stats only
 app.get('/api/stats/gitlab', async (req, res) => {
   try {
-    const stats = await gitlabService.getStats();
+    // Parse date range from query params
+    let dateRange = null;
+    if (req.query.start || req.query.end) {
+      dateRange = {
+        start: req.query.start || null,
+        end: req.query.end || null
+      };
+    } else if (req.query.range) {
+      const now = new Date();
+      switch(req.query.range) {
+        case 'last6months':
+          const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+          dateRange = { start: sixMonthsAgo.toISOString().split('T')[0], end: null };
+          break;
+        case 'last12months':
+          const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+          dateRange = { start: twelveMonthsAgo.toISOString().split('T')[0], end: null };
+          break;
+        case 'alltime':
+          dateRange = { start: null, end: null };
+          break;
+      }
+    }
+    
+    const stats = await gitlabService.getStats(dateRange);
     res.json(stats);
   } catch (error) {
     console.error('Error fetching GitLab stats:', error);
@@ -148,10 +196,79 @@ app.get('/api/stats/gitlab', async (req, res) => {
   }
 });
 
+// Get Git stats (GitHub + GitLab combined)
+app.get('/api/stats/git', async (req, res) => {
+  try {
+    // Parse date range from query params
+    let dateRange = null;
+    if (req.query.start || req.query.end) {
+      dateRange = {
+        start: req.query.start || null,
+        end: req.query.end || null
+      };
+    } else if (req.query.range) {
+      const now = new Date();
+      switch(req.query.range) {
+        case 'last6months':
+          const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+          dateRange = { start: sixMonthsAgo.toISOString().split('T')[0], end: null };
+          break;
+        case 'last12months':
+          const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+          dateRange = { start: twelveMonthsAgo.toISOString().split('T')[0], end: null };
+          break;
+        case 'alltime':
+          dateRange = { start: null, end: null };
+          break;
+      }
+    }
+    
+    const [githubStats, gitlabStats] = await Promise.allSettled([
+      githubService.getStats(dateRange),
+      gitlabService.getStats(dateRange)
+    ]);
+    
+    const stats = {
+      github: githubStats.status === 'fulfilled' ? githubStats.value : { error: githubStats.reason?.message },
+      gitlab: gitlabStats.status === 'fulfilled' ? gitlabStats.value : { error: gitlabStats.reason?.message },
+      timestamp: new Date().toISOString()
+    };
+    
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching Git stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get Jira stats only
 app.get('/api/stats/jira', async (req, res) => {
   try {
-    const stats = await jiraService.getStats();
+    // Parse date range from query params
+    let dateRange = null;
+    if (req.query.start || req.query.end) {
+      dateRange = {
+        start: req.query.start || null,
+        end: req.query.end || null
+      };
+    } else if (req.query.range) {
+      const now = new Date();
+      switch(req.query.range) {
+        case 'last6months':
+          const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+          dateRange = { start: sixMonthsAgo.toISOString().split('T')[0], end: null };
+          break;
+        case 'last12months':
+          const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+          dateRange = { start: twelveMonthsAgo.toISOString().split('T')[0], end: null };
+          break;
+        case 'alltime':
+          dateRange = { start: null, end: null };
+          break;
+      }
+    }
+    
+    const stats = await jiraService.getStats(dateRange);
     res.json(stats);
   } catch (error) {
     console.error('Error fetching Jira stats:', error);
