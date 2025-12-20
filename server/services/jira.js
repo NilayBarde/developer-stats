@@ -871,6 +871,20 @@ async function calculateStats(issues, dateRange = null) {
     });
   }
 
+  // Exclude closed unassigned tickets (cancelled/no work needed)
+  filteredIssues = filteredIssues.filter(issue => {
+    const statusName = issue.fields?.status?.name || '';
+    const isClosed = ['Done', 'Closed', 'Resolved'].includes(statusName);
+    const isUnassigned = !issue.fields?.assignee;
+    
+    // Exclude closed unassigned tickets
+    if (isClosed && isUnassigned) {
+      return false;
+    }
+    
+    return true;
+  });
+
   // Basic stats - use 'updated' for time period stats to match filtering
   const timePeriodStats = calculateTimePeriodStats(filteredIssues, 'fields.updated');
   
@@ -1432,6 +1446,20 @@ async function getAllIssuesForPage(dateRange = null) {
     let filteredIssues = dateRange 
       ? filterByDateRange(issues, 'fields.updated', dateRange)
       : issues;
+    
+    // Exclude closed unassigned tickets (cancelled/no work needed)
+    filteredIssues = filteredIssues.filter(issue => {
+      const statusName = issue.fields?.status?.name || '';
+      const isClosed = ['Done', 'Closed', 'Resolved'].includes(statusName);
+      const isUnassigned = !issue.fields?.assignee;
+      
+      // Exclude closed unassigned tickets
+      if (isClosed && isUnassigned) {
+        return false;
+      }
+      
+      return true;
+    });
     
     // Get board IDs from existing issues to fetch future sprints
     const boardIds = getBoardIdsFromIssues(filteredIssues.length > 0 ? filteredIssues : issues);
@@ -2043,10 +2071,24 @@ async function getProjectsByEpic(dateRange = null) {
         return false;
       }
       
-      // Filter out User Story type issues (they shouldn't be counted)
+      // Filter out User Story type issues and closed unassigned tickets (they shouldn't be counted)
       const issuesToCount = allEpicIssues.filter(issue => {
         const issueType = issue.fields?.issuetype?.name || '';
-        return issueType !== 'User Story';
+        const statusName = issue.fields?.status?.name || '';
+        const isClosed = ['Done', 'Closed', 'Resolved'].includes(statusName);
+        const isUnassigned = !issue.fields?.assignee;
+        
+        // Exclude User Stories
+        if (issueType === 'User Story') {
+          return false;
+        }
+        
+        // Exclude closed unassigned tickets (cancelled/no work needed)
+        if (isClosed && isUnassigned) {
+          return false;
+        }
+        
+        return true;
       });
       
       // Calculate metrics from issues (excluding User Stories)
