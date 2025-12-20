@@ -2,22 +2,8 @@ import React from 'react';
 import StatsCard from './StatsCard';
 import ChartWithFallback from './ChartWithFallback';
 import PRList from './PRList';
-import { calculateCombinedStats, combineMonthlyData } from '../utils/combinedStats';
+import { calculateCombinedStats, combineMonthlyData, combinePRLists } from '../utils/combinedStats';
 import { renderErrorSection } from '../utils/sectionHelpers';
-
-/**
- * Combine PRs/MRs lists from GitHub and GitLab
- */
-function combinePRLists(githubPRs = [], gitlabMRs = []) {
-  const combined = [...(githubPRs || []), ...(gitlabMRs || [])];
-  // Sort by updated date (most recent first)
-  return combined.sort((a, b) => {
-    // GitHub uses updated_at, GitLab uses updated_at, fallback to created_at
-    const dateA = new Date(a.updated_at || a.created_at || 0);
-    const dateB = new Date(b.updated_at || b.created_at || 0);
-    return dateB.getTime() - dateA.getTime();
-  });
-}
 
 function GitSection({ githubStats, gitlabStats, compact = false }) {
   // Determine if we're showing single source or combined

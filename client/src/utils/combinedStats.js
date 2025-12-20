@@ -50,6 +50,24 @@ export function getPRComparison(avgPRs) {
 }
 
 /**
+ * Combine PR/MR lists from multiple sources
+ */
+export function combinePRLists(...sources) {
+  const combined = [];
+  sources.forEach(source => {
+    if (Array.isArray(source)) {
+      combined.push(...source);
+    }
+  });
+  // Sort by updated date (most recent first)
+  return combined.sort((a, b) => {
+    const dateA = new Date(a.updated_at || a.created_at || 0);
+    const dateB = new Date(b.updated_at || b.created_at || 0);
+    return dateB.getTime() - dateA.getTime();
+  });
+}
+
+/**
  * Calculate combined stats from GitHub and GitLab data
  */
 export function calculateCombinedStats(githubStats, gitlabStats) {

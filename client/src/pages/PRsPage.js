@@ -1,11 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { format } from 'date-fns';
 import DateFilter from '../components/DateFilter';
 import { getCurrentWorkYearStart, formatWorkYearLabel } from '../utils/dateHelpers';
+import { buildApiUrl, getStatusClasses } from '../utils/apiHelpers';
+import { getItemStatus, getItemRepo, getItemUrl, getMergedDate } from '../utils/prItemHelpers';
+import { createFilter, createSorter, extractFilterOptions } from '../utils/filterHelpers';
+import clientCache from '../utils/clientCache';
 import GitSection from '../components/GitSection';
 import { renderErrorSection } from '../utils/sectionHelpers';
-import './IssuesPage.css';
+import './PRsPage.css';
 
 function PRsPage() {
   const [prs, setPRs] = useState([]);
@@ -14,11 +18,8 @@ function PRsPage() {
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterSource, setFilterSource] = useState('all'); // 'all', 'github', 'gitlab'
-  const [filterRepo, setFilterRepo] = useState('all');
-  const [sortBy, setSortBy] = useState('updated');
-  const [sortOrder, setSortOrder] = useState('desc');
+  const [filters, setFilters] = useState({ status: 'all', source: 'all', repo: 'all' });
+  const [sort, setSort] = useState({ by: 'updated', order: 'desc' });
   
   const workYearStart = getCurrentWorkYearStart();
   const [dateRange, setDateRange] = useState({
@@ -28,339 +29,160 @@ function PRsPage() {
     type: 'custom'
   });
 
-  const buildPRsApiUrl = useCallback((dateRange) => {
-    const params = new URLSearchParams();
-    
-    if (dateRange.type === 'dynamic') {
-      params.append('range', dateRange.range);
-    } else {
-      if (dateRange.start) params.append('start', dateRange.start);
-      if (dateRange.end) params.append('end', dateRange.end);
-    }
-    
-    const queryString = params.toString();
-    return queryString ? `/api/prs?${queryString}` : '/api/prs';
-  }, []);
-
-  const buildMRsApiUrl = useCallback((dateRange) => {
-    const params = new URLSearchParams();
-    
-    if (dateRange.type === 'dynamic') {
-      params.append('range', dateRange.range);
-    } else {
-      if (dateRange.start) params.append('start', dateRange.start);
-      if (dateRange.end) params.append('end', dateRange.end);
-    }
-    
-    const queryString = params.toString();
-    return queryString ? `/api/mrs?${queryString}` : '/api/mrs';
-  }, []);
-
-  const buildStatsApiUrl = useCallback((dateRange) => {
-    const params = new URLSearchParams();
-    
-    if (dateRange.type === 'dynamic') {
-      params.append('range', dateRange.range);
-    } else {
-      if (dateRange.start) params.append('start', dateRange.start);
-      if (dateRange.end) params.append('end', dateRange.end);
-    }
-    
-    const queryString = params.toString();
-    // Only fetch Git stats (GitHub + GitLab) since this page only needs Git data
-    return queryString ? `/api/stats/git?${queryString}` : '/api/stats/git';
-  }, []);
-
-  const fetchPRs = useCallback(async () => {
-    try {
-      const url = buildPRsApiUrl(dateRange);
-      const response = await axios.get(url);
-      const prsData = response.data.prs || [];
-      // Add source indicator
-      return prsData.map(pr => ({ ...pr, _source: 'github' }));
-    } catch (err) {
-      console.error('Error fetching PRs:', err);
-      return [];
-    }
-  }, [dateRange, buildPRsApiUrl]);
-
-  const fetchMRs = useCallback(async () => {
-    try {
-      const url = buildMRsApiUrl(dateRange);
-      const response = await axios.get(url);
-      const mrsData = response.data.mrs || [];
-      // Add source indicator
-      return mrsData.map(mr => ({ ...mr, _source: 'gitlab' }));
-    } catch (err) {
-      console.error('Error fetching MRs:', err);
-      return [];
-    }
-  }, [dateRange, buildMRsApiUrl]);
-
+  // Fetch data
   const fetchData = useCallback(async () => {
+    // Check cache first
+    const cachedPRs = clientCache.get('/api/prs', dateRange);
+    const cachedMRs = clientCache.get('/api/mrs', dateRange);
+    
+    if (cachedPRs && cachedMRs) {
+      setPRs((cachedPRs.prs || []).map(pr => ({ ...pr, _source: 'github' })));
+      setMRs((cachedMRs.mrs || []).map(mr => ({ ...mr, _source: 'gitlab' })));
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
       
-      const [prsData, mrsData] = await Promise.all([
-        fetchPRs(),
-        fetchMRs()
+      const [prsRes, mrsRes] = await Promise.all([
+        axios.get(buildApiUrl('/api/prs', dateRange)),
+        axios.get(buildApiUrl('/api/mrs', dateRange))
       ]);
+      
+      const prsData = (prsRes.data.prs || []).map(pr => ({ ...pr, _source: 'github' }));
+      const mrsData = (mrsRes.data.mrs || []).map(mr => ({ ...mr, _source: 'gitlab' }));
       
       setPRs(prsData);
       setMRs(mrsData);
+      
+      // Cache the responses
+      clientCache.set('/api/prs', dateRange, prsRes.data);
+      clientCache.set('/api/mrs', dateRange, mrsRes.data);
     } catch (err) {
       setError('Failed to fetch PRs/MRs. Please check your API configuration.');
       console.error('Error fetching data:', err);
     } finally {
       setLoading(false);
     }
-  }, [fetchPRs, fetchMRs]);
+  }, [dateRange]);
 
   const fetchStats = useCallback(async () => {
+    // Check cache first
+    const cached = clientCache.get('/api/stats/git', dateRange);
+    if (cached) {
+      setStats(cached);
+      setStatsLoading(false);
+      return;
+    }
+
     try {
       setStatsLoading(true);
-      const url = buildStatsApiUrl(dateRange);
-      const response = await axios.get(url);
+      const response = await axios.get(buildApiUrl('/api/stats/git', dateRange));
       setStats(response.data);
+      clientCache.set('/api/stats/git', dateRange, response.data);
     } catch (err) {
       console.error('Error fetching stats:', err);
     } finally {
       setStatsLoading(false);
     }
-  }, [dateRange, buildStatsApiUrl]);
+  }, [dateRange]);
 
   useEffect(() => {
     fetchData();
     fetchStats();
   }, [fetchData, fetchStats]);
 
-  // Combine PRs and MRs
-  const allItems = [...prs, ...mrs];
+  // Combined items
+  const allItems = useMemo(() => [...prs, ...mrs], [prs, mrs]);
 
-  // Get unique statuses, sources, and repos for filters
-  const statuses = [...new Set(allItems.map(item => {
-    if (item._source === 'github') {
-      if (item.state === 'closed' && item.pull_request?.merged_at) return 'merged';
-      return item.state;
-    } else {
-      return item.state;
-    }
-  }).filter(Boolean))].sort();
-  
-  const sources = [...new Set(allItems.map(item => item._source).filter(Boolean))].sort();
-  
-  const repos = [...new Set(allItems.map(item => {
-    if (item._source === 'github') {
-      if (item.repository_url) {
-        const match = item.repository_url.match(/repos\/(.+)$/);
-        return match ? match[1] : null;
-      }
-    } else {
-      return item._projectName || item.project?.path_with_namespace || item.project?.name || item.project_id?.toString() || null;
-    }
-    return null;
-  }).filter(Boolean))].sort();
+  // Filter configuration (stable reference)
+  const filterConfig = useMemo(() => ({
+    status: getItemStatus,
+    source: (item) => item._source,
+    repo: getItemRepo
+  }), []);
 
-  // Filter items
-  const filteredItems = allItems.filter(item => {
-    if (filterStatus !== 'all') {
-      const itemStatus = item._source === 'github'
-        ? (item.state === 'closed' && item.pull_request?.merged_at ? 'merged' : item.state)
-        : item.state;
-      if (itemStatus !== filterStatus) return false;
-    }
-    if (filterSource !== 'all' && item._source !== filterSource) return false;
-    if (filterRepo !== 'all') {
-      if (item._source === 'github') {
-        const repoMatch = item.repository_url?.match(/repos\/(.+)$/);
-        const repo = repoMatch ? repoMatch[1] : null;
-        if (repo !== filterRepo) return false;
-      } else {
-        const repo = item._projectName || item.project?.path_with_namespace || item.project?.name || item.project_id?.toString();
-        if (repo !== filterRepo) return false;
-      }
-    }
-    return true;
-  });
+  // Sort configuration (stable reference)
+  const sortConfig = useMemo(() => ({
+    title: (item) => item.title || '',
+    source: (item) => item._source || '',
+    repo: getItemRepo,
+    created: (item) => new Date(item.created_at || 0),
+    merged: (item) => getMergedDate(item) ? new Date(getMergedDate(item)) : new Date(0),
+    default: (item) => new Date(item.updated_at || 0)
+  }), []);
 
-  // Calculate filtered stats
-  const calculateFilteredStats = (filteredItems) => {
+  // Filter options - ensure we always have arrays and map keys correctly
+  const filterOptions = useMemo(() => {
+    const options = extractFilterOptions(allItems, filterConfig);
+    return {
+      statuses: options.status || [],
+      sources: options.source || [],
+      repos: options.repo || []
+    };
+  }, [allItems, filterConfig]);
+
+  // Filtered and sorted items
+  const filteredItems = useMemo(() => {
+    const filterFn = createFilter(filters, filterConfig);
+    const sortFn = createSorter(sort.by, sort.order, sortConfig);
+    
+    return [...allItems]
+      .filter(filterFn)
+      .sort(sortFn);
+  }, [allItems, filters, sort, filterConfig, sortConfig]);
+
+  // Calculate display stats
+  // Use server stats when items haven't loaded yet, otherwise use filtered local stats
+  const displayStats = useMemo(() => {
+    if (!stats) return null;
+    
+    // If items haven't loaded yet, use server stats as-is
+    if (loading || allItems.length === 0) {
+      return stats;
+    }
+    
+    // Otherwise, calculate from filtered local items
     const githubItems = filteredItems.filter(item => item._source === 'github');
     const gitlabItems = filteredItems.filter(item => item._source === 'gitlab');
     
-    const total = filteredItems.length;
-    const merged = filteredItems.filter(item => {
-      if (item._source === 'github') {
-        return item.state === 'closed' && item.pull_request?.merged_at;
-      } else {
-        return item.state === 'merged';
-      }
-    }).length;
-    const open = filteredItems.filter(item => {
-      if (item._source === 'github') {
-        return item.state === 'open';
-      } else {
-        return item.state === 'opened';
-      }
-    }).length;
-    const closed = filteredItems.filter(item => {
-      if (item._source === 'github') {
-        return item.state === 'closed' && !item.pull_request?.merged_at;
-      } else {
-        return item.state === 'closed';
-      }
-    }).length;
-
-    // Calculate average PRs/MRs per month
-    const itemsByMonth = {};
-    filteredItems.forEach(item => {
-      const date = item.created_at ? new Date(item.created_at) : null;
-      if (date && !isNaN(date.getTime())) {
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const monthKey = `${date.getFullYear()}-${month}`;
-        itemsByMonth[monthKey] = (itemsByMonth[monthKey] || 0) + 1;
-      }
-    });
-    const monthlyCounts = Object.values(itemsByMonth);
-    const avgPerMonth = monthlyCounts.length > 0
-      ? monthlyCounts.reduce((a, b) => a + b, 0) / monthlyCounts.length
-      : 0;
-
-    // Calculate last 30 days
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const last30Days = filteredItems.filter(item => {
-      const updatedDate = item.updated_at ? new Date(item.updated_at) : null;
-      return updatedDate && updatedDate >= thirtyDaysAgo;
-    }).length;
-
     return {
-      total,
-      merged,
-      open,
-      closed,
-      avgPRsPerMonth: Math.round(avgPerMonth * 10) / 10,
-      avgMRsPerMonth: Math.round(avgPerMonth * 10) / 10,
-      last30Days,
-      github: {
+      github: stats.github ? {
+        ...stats.github,
         total: githubItems.length,
         merged: githubItems.filter(item => item.state === 'closed' && item.pull_request?.merged_at).length,
         open: githubItems.filter(item => item.state === 'open').length
-      },
-      gitlab: {
-        total: gitlabItems.length,
-        merged: gitlabItems.filter(item => item.state === 'merged').length,
-        open: gitlabItems.filter(item => item.state === 'opened').length
-      }
-    };
-  };
-
-  const filteredStats = calculateFilteredStats(filteredItems);
-
-  // Merge filtered stats with API stats
-  const displayStats = stats ? {
-      github: stats.github ? {
-        ...stats.github,
-        ...filteredStats.github,
-        total: filteredStats.github.total,
-        merged: filteredStats.github.merged,
-        open: filteredStats.github.open,
-        avgPRsPerMonth: filteredStats.avgPRsPerMonth,
-        last30Days: filteredStats.last30Days
       } : null,
       gitlab: stats.gitlab ? {
         ...stats.gitlab,
-        ...filteredStats.gitlab,
-        total: filteredStats.gitlab.total,
-        merged: filteredStats.gitlab.merged,
-        open: filteredStats.gitlab.open,
-        avgMRsPerMonth: filteredStats.avgMRsPerMonth,
-        last30Days: filteredStats.last30Days
+        total: gitlabItems.length,
+        merged: gitlabItems.filter(item => item.state === 'merged').length,
+        open: gitlabItems.filter(item => item.state === 'opened').length
       } : null
-  } : null;
+    };
+  }, [stats, filteredItems, loading, allItems.length]);
 
-  // Sort items
-  const filteredAndSortedItems = filteredItems.sort((a, b) => {
-    let aValue, bValue;
-    
-    switch (sortBy) {
-      case 'title':
-        aValue = a.title || '';
-        bValue = b.title || '';
-        break;
-      case 'source':
-        aValue = a._source || '';
-        bValue = b._source || '';
-        break;
-      case 'repo':
-        if (a._source === 'github') {
-          const repoA = a.repository_url?.match(/repos\/(.+)$/)?.[1] || '';
-          const repoB = b.repository_url?.match(/repos\/(.+)$/)?.[1] || '';
-          aValue = repoA;
-          bValue = repoB;
-        } else {
-          aValue = a._projectName || a.project?.path_with_namespace || a.project?.name || a.project_id?.toString() || '';
-          bValue = b._projectName || b.project?.path_with_namespace || b.project?.name || b.project_id?.toString() || '';
-        }
-        break;
-      case 'created':
-        aValue = new Date(a.created_at || 0);
-        bValue = new Date(b.created_at || 0);
-        break;
-      case 'merged':
-        if (a._source === 'github') {
-          aValue = a.pull_request?.merged_at ? new Date(a.pull_request.merged_at) : new Date(0);
-          bValue = b.pull_request?.merged_at ? new Date(b.pull_request.merged_at) : new Date(0);
-        } else {
-          aValue = a.merged_at ? new Date(a.merged_at) : new Date(0);
-          bValue = b.merged_at ? new Date(b.merged_at) : new Date(0);
-        }
-        break;
-      case 'updated':
-      default:
-        aValue = new Date(a.updated_at || 0);
-        bValue = new Date(b.updated_at || 0);
-        break;
-    }
-    
-    if (sortOrder === 'asc') {
-      return aValue > bValue ? 1 : -1;
-    } else {
-      return aValue < bValue ? 1 : -1;
-    }
-  });
-
+  // Handlers
   const handleSort = (field) => {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(field);
-      setSortOrder('desc');
-    }
+    setSort(prev => ({
+      by: field,
+      order: prev.by === field && prev.order === 'desc' ? 'asc' : 'desc'
+    }));
   };
 
-  const getItemUrl = (item) => {
-    if (item._source === 'github') {
-      if (item.html_url) return item.html_url;
-      if (item.repository_url && item.number) {
-        const repoMatch = item.repository_url.match(/repos\/(.+)$/);
-        if (repoMatch) {
-          return `https://github.com/${repoMatch[1]}/pull/${item.number}`;
-        }
-      }
-    } else {
-      return item.web_url || '#';
-    }
-    return '#';
-  };
+  const updateFilter = (key, value) => setFilters(prev => ({ ...prev, [key]: value }));
+
+  const SortIndicator = ({ field }) => sort.by === field ? (sort.order === 'asc' ? ' ↑' : ' ↓') : '';
 
   return (
-    <div className="app">
-      <header className="app-header">
+    <div className="prs-page">
+      <header className="page-header">
         <div>
-          <h1>🔀 All Pull Requests / Merge Requests</h1>
-          <p className="work-year">{dateRange.label}</p>
+          <h1>All Pull Requests / Merge Requests</h1>
+          <p className="date-label">{dateRange.label}</p>
         </div>
         <div className="header-controls">
           <DateFilter value={dateRange} onChange={setDateRange} />
@@ -369,165 +191,129 @@ function PRsPage() {
 
       {error && <div className="error-banner">{error}</div>}
 
-      {/* Git Stats */}
+      {/* Stats Section */}
       {statsLoading ? (
-        <div className="stats-loading">
+        <div className="loading-section">
           <div className="loading-spinner"></div>
           <p>Loading stats...</p>
         </div>
-      ) : displayStats ? (
-        <div className="stats-grid">
+      ) : displayStats && (
+        <div className="stats-section">
           <GitSection githubStats={displayStats.github} gitlabStats={displayStats.gitlab} compact={true} />
-          {displayStats.github?.error && renderErrorSection('github', '📦', displayStats.github.error)}
-          {displayStats.gitlab?.error && renderErrorSection('gitlab', '🔷', displayStats.gitlab.error)}
+          {displayStats.github?.error && renderErrorSection('github', '', displayStats.github.error)}
+          {displayStats.gitlab?.error && renderErrorSection('gitlab', '', displayStats.gitlab.error)}
           
           {/* Repo Breakdown */}
           {(displayStats.github?.repoBreakdown?.length > 0 || displayStats.gitlab?.repoBreakdown?.length > 0) && (
-            <div className="source-section">
-              <h2>📚 Repository Breakdown</h2>
+            <div className="repo-breakdown-section">
+              <h2>Repository Breakdown</h2>
               <div className="repo-list">
                 {[
                   ...(displayStats.github?.repoBreakdown || []).map(r => ({ ...r, source: 'github' })),
                   ...(displayStats.gitlab?.repoBreakdown || []).map(r => ({ ...r, source: 'gitlab' }))
-                ]
-                  .sort((a, b) => b.total - a.total)
-                  .slice(0, 20)
-                  .map((repo, index) => (
-                    <div key={index} className="repo-item">
-                      <div className="repo-name">
-                        <span className={`source-badge source-${repo.source}`}>
-                          {repo.source === 'github' ? '📦' : '🔷'}
-                        </span>
-                        {repo.repo}
-                      </div>
-                      <div className="repo-stats">
-                        <span className="repo-stat">{repo.total} total</span>
-                        {repo.merged > 0 && <span className="repo-stat merged">{repo.merged} merged</span>}
-                        {repo.open > 0 && <span className="repo-stat open">{repo.open} open</span>}
-                      </div>
+                ].sort((a, b) => b.total - a.total).slice(0, 20).map((repo, i) => (
+                  <div key={i} className="repo-item">
+                    <div className="repo-name">
+                      <span className={`source-tag ${repo.source}`}>
+                        {repo.source === 'github' ? 'GH' : 'GL'}
+                      </span>
+                      {repo.repo}
                     </div>
-                  ))}
+                    <div className="repo-stats">
+                      <span className="stat">{repo.total} total</span>
+                      {repo.merged > 0 && <span className="stat merged">{repo.merged} merged</span>}
+                      {repo.open > 0 && <span className="stat open">{repo.open} open</span>}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
         </div>
-      ) : null}
+      )}
 
+      {/* Table Section */}
       {!error && (
-        <div className="issues-page">
+        <div className="table-section">
           {loading ? (
-            <div className="table-loading">
+            <div className="loading-section">
               <div className="loading-spinner"></div>
               <p>Loading PRs/MRs...</p>
             </div>
           ) : (
             <>
-          {/* Filters */}
-          <div className="issues-filters">
-            <div className="filter-group">
-              <label>Status:</label>
-              <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-                <option value="all">All Statuses</option>
-                {statuses.map(status => (
-                  <option key={status} value={status}>{status}</option>
-                ))}
-              </select>
-            </div>
-            <div className="filter-group">
-              <label>Source:</label>
-              <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)}>
-                <option value="all">All Sources</option>
-                {sources.map(source => (
-                  <option key={source} value={source}>{source === 'github' ? 'GitHub' : 'GitLab'}</option>
-                ))}
-              </select>
-            </div>
-            <div className="filter-group">
-              <label>Repository/Project:</label>
-              <select value={filterRepo} onChange={(e) => setFilterRepo(e.target.value)}>
-                <option value="all">All Repositories/Projects</option>
-                {repos.map(repo => (
-                  <option key={repo} value={repo}>{repo}</option>
-                ))}
-              </select>
-            </div>
-          </div>
+              {/* Filters */}
+              <div className="filters">
+                <div className="filter-group">
+                  <label>Status:</label>
+                  <select value={filters.status} onChange={e => updateFilter('status', e.target.value)}>
+                    <option value="all">All Statuses</option>
+                    {filterOptions.statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="filter-group">
+                  <label>Source:</label>
+                  <select value={filters.source} onChange={e => updateFilter('source', e.target.value)}>
+                    <option value="all">All Sources</option>
+                    {filterOptions.sources.map(s => <option key={s} value={s}>{s === 'github' ? 'GitHub' : 'GitLab'}</option>)}
+                  </select>
+                </div>
+                <div className="filter-group">
+                  <label>Repository:</label>
+                  <select value={filters.repo} onChange={e => updateFilter('repo', e.target.value)}>
+                    <option value="all">All Repositories</option>
+                    {filterOptions.repos.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+              </div>
 
-          {/* Table */}
-          <div className="issues-table-container">
-            <table className="issues-table">
-              <thead>
-                <tr>
-                  <th onClick={() => handleSort('title')} className="sortable">
-                    Title {sortBy === 'title' && (sortOrder === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th onClick={() => handleSort('source')} className="sortable">
-                    Source {sortBy === 'source' && (sortOrder === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th onClick={() => handleSort('repo')} className="sortable">
-                    Repository/Project {sortBy === 'repo' && (sortOrder === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th onClick={() => handleSort('status')} className="sortable">
-                    Status {sortBy === 'status' && (sortOrder === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th onClick={() => handleSort('created')} className="sortable">
-                    Created {sortBy === 'created' && (sortOrder === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th onClick={() => handleSort('merged')} className="sortable">
-                    Merged {sortBy === 'merged' && (sortOrder === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th onClick={() => handleSort('updated')} className="sortable">
-                    Updated {sortBy === 'updated' && (sortOrder === 'asc' ? '↑' : '↓')}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAndSortedItems.length === 0 ? (
-                  <tr>
-                    <td colSpan="7" className="no-data">No PRs/MRs found</td>
-                  </tr>
-                ) : (
-                  filteredAndSortedItems.map(item => {
-                    const repo = item._source === 'github'
-                      ? (item.repository_url?.match(/repos\/(.+)$/)?.[1] || 'Unknown')
-                      : (item._projectName || item.project?.path_with_namespace || item.project?.name || item.project_id?.toString() || 'Unknown');
-                    const status = item._source === 'github'
-                      ? (item.state === 'closed' && item.pull_request?.merged_at ? 'merged' : item.state)
-                      : item.state;
-                    
-                    return (
-                      <tr key={`${item._source}-${item.id}`}>
-                        <td>
-                          <a href={getItemUrl(item)} target="_blank" rel="noopener noreferrer" className="issue-link">
-                            {item.title || 'Untitled'}
-                          </a>
-                        </td>
-                        <td>
-                          <span className={`source-badge source-${item._source}`}>
-                            {item._source === 'github' ? 'GitHub' : 'GitLab'}
-                          </span>
-                        </td>
-                        <td>{repo}</td>
-                        <td>
-                          <span className={`status-badge status-${status}`}>
-                            {status}
-                          </span>
-                        </td>
-                        <td>{item.created_at ? format(new Date(item.created_at), 'MMM dd, yyyy') : '-'}</td>
-                        <td>
-                          {item._source === 'github'
-                            ? (item.pull_request?.merged_at ? format(new Date(item.pull_request.merged_at), 'MMM dd, yyyy') : '-')
-                            : (item.merged_at ? format(new Date(item.merged_at), 'MMM dd, yyyy') : '-')
-                          }
-                        </td>
-                        <td>{item.updated_at ? format(new Date(item.updated_at), 'MMM dd, yyyy') : '-'}</td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+              {/* Table */}
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th onClick={() => handleSort('title')}>Title<SortIndicator field="title" /></th>
+                      <th onClick={() => handleSort('source')}>Source<SortIndicator field="source" /></th>
+                      <th onClick={() => handleSort('repo')}>Repository<SortIndicator field="repo" /></th>
+                      <th>Status</th>
+                      <th onClick={() => handleSort('created')}>Created<SortIndicator field="created" /></th>
+                      <th onClick={() => handleSort('merged')}>Merged<SortIndicator field="merged" /></th>
+                      <th onClick={() => handleSort('updated')}>Updated<SortIndicator field="updated" /></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredItems.length === 0 ? (
+                      <tr><td colSpan="7" className="empty">No PRs/MRs found</td></tr>
+                    ) : (
+                      filteredItems.map(item => {
+                        const status = getItemStatus(item);
+                        const mergedDate = getMergedDate(item);
+                        return (
+                          <tr key={`${item._source}-${item.id}`}>
+                            <td>
+                              <a href={getItemUrl(item)} target="_blank" rel="noopener noreferrer">
+                                {item.title || 'Untitled'}
+                              </a>
+                            </td>
+                            <td>
+                              <span className={`source-badge ${item._source}`}>
+                                {item._source === 'github' ? 'GitHub' : 'GitLab'}
+                              </span>
+                            </td>
+                            <td>{getItemRepo(item)}</td>
+                            <td>
+                              <span className={`status-badge ${getStatusClasses(status)}`}>{status}</span>
+                            </td>
+                            <td>{item.created_at ? format(new Date(item.created_at), 'MMM dd, yyyy') : '-'}</td>
+                            <td>{mergedDate ? format(new Date(mergedDate), 'MMM dd, yyyy') : '-'}</td>
+                            <td>{item.updated_at ? format(new Date(item.updated_at), 'MMM dd, yyyy') : '-'}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </>
           )}
         </div>
@@ -537,4 +323,3 @@ function PRsPage() {
 }
 
 export default PRsPage;
-

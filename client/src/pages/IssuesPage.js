@@ -1,10 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { format } from 'date-fns';
 import DateFilter from '../components/DateFilter';
 import { getCurrentWorkYearStart, formatWorkYearLabel } from '../utils/dateHelpers';
+import { buildApiUrl, getStatusClasses } from '../utils/apiHelpers';
 import { getJiraUrl } from '../utils/urlHelpers';
 import { getStoryPoints } from '../utils/jiraHelpers';
+import { createFilter, createSorter, extractFilterOptions } from '../utils/filterHelpers';
+import clientCache from '../utils/clientCache';
 import JiraSection from '../components/JiraSection';
 import { renderErrorSection } from '../utils/sectionHelpers';
 import './IssuesPage.css';
@@ -16,11 +19,8 @@ function IssuesPage() {
   const [statsLoading, setStatsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [baseUrl, setBaseUrl] = useState(null);
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterProject, setFilterProject] = useState('all');
-  const [filterSprint, setFilterSprint] = useState('all');
-  const [sortBy, setSortBy] = useState('inProgress'); // 'updated', 'created', 'key', 'sprint', 'inProgress', 'qaReady'
-  const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
+  const [filters, setFilters] = useState({ status: 'all', project: 'all', sprint: 'all' });
+  const [sort, setSort] = useState({ by: 'inProgress', order: 'desc' });
   
   const workYearStart = getCurrentWorkYearStart();
   const [dateRange, setDateRange] = useState({
@@ -30,223 +30,159 @@ function IssuesPage() {
     type: 'custom'
   });
 
-  const buildApiUrl = useCallback((dateRange) => {
-    const params = new URLSearchParams();
-    
-    if (dateRange.type === 'dynamic') {
-      params.append('range', dateRange.range);
-    } else {
-      if (dateRange.start) params.append('start', dateRange.start);
-      if (dateRange.end) params.append('end', dateRange.end);
-    }
-    
-    const queryString = params.toString();
-    return queryString ? `/api/issues?${queryString}` : '/api/issues';
-  }, []);
-
-  const buildStatsApiUrl = useCallback((dateRange) => {
-    const params = new URLSearchParams();
-    
-    if (dateRange.type === 'dynamic') {
-      params.append('range', dateRange.range);
-    } else {
-      if (dateRange.start) params.append('start', dateRange.start);
-      if (dateRange.end) params.append('end', dateRange.end);
-    }
-    
-    const queryString = params.toString();
-    // Only fetch Jira stats since this page only needs Jira data
-    return queryString ? `/api/stats/jira?${queryString}` : '/api/stats/jira';
-  }, []);
-
+  // Fetch issues
   const fetchIssues = useCallback(async () => {
+    // Check cache first
+    const cached = clientCache.get('/api/issues', dateRange);
+    if (cached) {
+      setIssues(cached.issues || []);
+      setBaseUrl(cached.baseUrl);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
-      const url = buildApiUrl(dateRange);
-      const response = await axios.get(url);
-      setIssues(response.data.issues || []);
-      setBaseUrl(response.data.baseUrl);
+      const response = await axios.get(buildApiUrl('/api/issues', dateRange));
+      const data = {
+        issues: response.data.issues || [],
+        baseUrl: response.data.baseUrl
+      };
+      setIssues(data.issues);
+      setBaseUrl(data.baseUrl);
+      clientCache.set('/api/issues', dateRange, data);
     } catch (err) {
       setError('Failed to fetch issues. Please check your API configuration.');
       console.error('Error fetching issues:', err);
     } finally {
       setLoading(false);
     }
-  }, [dateRange, buildApiUrl]);
+  }, [dateRange]);
 
+  // Fetch stats
   const fetchStats = useCallback(async () => {
+    // Check cache first
+    const cached = clientCache.get('/api/stats/jira', dateRange);
+    if (cached) {
+      setStats(cached);
+      setStatsLoading(false);
+      return;
+    }
+
     try {
       setStatsLoading(true);
-      const url = buildStatsApiUrl(dateRange);
-      const response = await axios.get(url);
+      const response = await axios.get(buildApiUrl('/api/stats/jira', dateRange));
       setStats(response.data);
+      clientCache.set('/api/stats/jira', dateRange, response.data);
     } catch (err) {
       console.error('Error fetching stats:', err);
-      // Don't set error state - stats are optional
     } finally {
       setStatsLoading(false);
     }
-  }, [dateRange, buildStatsApiUrl]);
+  }, [dateRange]);
 
   useEffect(() => {
     fetchIssues();
     fetchStats();
   }, [fetchIssues, fetchStats]);
 
-  // Get unique statuses, projects, and sprints for filters
-  const statuses = [...new Set(issues.map(issue => issue.fields?.status?.name).filter(Boolean))].sort();
-  const projects = [...new Set(issues.map(issue => issue.fields?.project?.key).filter(Boolean))].sort();
-  const sprints = [...new Set(issues.map(issue => issue._sprintName).filter(Boolean))].sort();
+  // Filter configuration (stable reference)
+  const filterConfig = useMemo(() => ({
+    status: (issue) => issue.fields?.status?.name,
+    project: (issue) => issue.fields?.project?.key,
+    sprint: (issue) => issue._sprintName
+  }), []);
 
-  // Filter issues based on current filters
-  const filteredIssues = issues.filter(issue => {
-    if (filterStatus !== 'all' && issue.fields?.status?.name !== filterStatus) return false;
-    if (filterProject !== 'all' && issue.fields?.project?.key !== filterProject) return false;
-    if (filterSprint !== 'all' && issue._sprintName !== filterSprint) return false;
-    return true;
-  });
+  // Sort configuration (stable reference)
+  const sortConfig = useMemo(() => ({
+    key: (issue) => issue.key || '',
+    sprint: (issue) => issue._sprintName || '',
+    inProgress: (issue) => issue._inProgressDate ? new Date(issue._inProgressDate) : null,
+    qaReady: (issue) => issue._qaReadyDate ? new Date(issue._qaReadyDate) : null,
+    default: (issue) => new Date(issue.fields?.updated || 0)
+  }), []);
 
-  // Calculate stats from filtered issues
-  const calculateFilteredStats = (filteredIssues) => {
+  // Filter options - ensure we always have arrays
+  const filterOptions = useMemo(() => {
+    const options = extractFilterOptions(issues, filterConfig);
+    return {
+      statuses: options.statuses || [],
+      projects: options.projects || [],
+      sprints: options.sprints || []
+    };
+  }, [issues, filterConfig]);
+
+  // Filtered and sorted issues
+  const filteredIssues = useMemo(() => {
+    const filterFn = createFilter(filters, filterConfig);
+    const sortFn = createSorter(sort.by, sort.order, sortConfig);
+    
+    return [...issues]
+      .filter(filterFn)
+      .sort(sortFn);
+  }, [issues, filters, sort, filterConfig, sortConfig]);
+
+  // Calculate display stats
+  // Use server stats when issues haven't loaded yet, otherwise use filtered local stats
+  const displayStats = useMemo(() => {
+    if (!stats) return null;
+    
+    // If issues haven't loaded yet, use server stats as-is
+    if (loading || issues.length === 0) {
+      return stats;
+    }
+    
+    // Otherwise, calculate from filtered local issues
     const total = filteredIssues.length;
-    const resolved = filteredIssues.filter(issue => issue.fields?.resolutiondate).length;
-    const done = filteredIssues.filter(issue => 
-      issue.fields?.status?.name === 'Done' || issue.fields?.status?.name === 'Closed'
-    ).length;
-    const inProgress = filteredIssues.filter(issue => 
-      issue.fields?.status?.name !== 'Done' && issue.fields?.status?.name !== 'Closed'
-    ).length;
+    const resolved = filteredIssues.filter(i => i.fields?.resolutiondate).length;
+    const done = filteredIssues.filter(i => ['Done', 'Closed'].includes(i.fields?.status?.name)).length;
+    const inProgress = filteredIssues.filter(i => !['Done', 'Closed'].includes(i.fields?.status?.name)).length;
 
-    // Calculate average resolution time (from In Progress to QA Ready)
-    const issuesWithResolutionTime = filteredIssues.filter(issue => 
-      issue._inProgressDate && issue._qaReadyDate
-    );
-    let avgResolutionTime = 0;
-    let resolutionTimeCount = 0;
-    if (issuesWithResolutionTime.length > 0) {
-      const resolutionTimes = issuesWithResolutionTime.map(issue => {
-        const inProgressDate = new Date(issue._inProgressDate);
-        const qaReadyDate = new Date(issue._qaReadyDate);
-        return (qaReadyDate - inProgressDate) / (1000 * 60 * 60 * 24); // days
-      }).filter(time => time > 0); // Only positive times
-      
-      resolutionTimeCount = resolutionTimes.length;
-      if (resolutionTimes.length > 0) {
-        avgResolutionTime = resolutionTimes.reduce((a, b) => a + b, 0) / resolutionTimes.length;
-      }
+    // Calculate avg resolution time
+    const issuesWithTime = filteredIssues.filter(i => i._inProgressDate && i._qaReadyDate);
+    let avgResolutionTime = stats.avgResolutionTime || 0;
+    if (issuesWithTime.length > 0) {
+      const times = issuesWithTime.map(i => {
+        const start = new Date(i._inProgressDate);
+        const end = new Date(i._qaReadyDate);
+        return (end - start) / (1000 * 60 * 60 * 24);
+      }).filter(t => t > 0);
+      avgResolutionTime = times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : 0;
     }
 
-    // Calculate average issues per month
-    const issuesByMonth = {};
-    filteredIssues.forEach(issue => {
-      const date = issue._inProgressDate 
-        ? new Date(issue._inProgressDate)
-        : (issue.fields?.updated ? new Date(issue.fields.updated) : null);
-      if (date && !isNaN(date.getTime())) {
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const monthKey = `${date.getFullYear()}-${month}`;
-        issuesByMonth[monthKey] = (issuesByMonth[monthKey] || 0) + 1;
-      }
-    });
-    const monthlyCounts = Object.values(issuesByMonth);
-    const avgIssuesPerMonth = monthlyCounts.length > 0
-      ? monthlyCounts.reduce((a, b) => a + b, 0) / monthlyCounts.length
-      : 0;
-
-    // Calculate last 30 days
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const last30Days = filteredIssues.filter(issue => {
-      const updatedDate = issue.fields?.updated ? new Date(issue.fields.updated) : null;
-      return updatedDate && updatedDate >= thirtyDaysAgo;
-    }).length;
-
     return {
+      ...stats,
       total,
       resolved,
       done,
       inProgress,
       avgResolutionTime: Math.round(avgResolutionTime * 10) / 10,
-      avgResolutionTimeCount: resolutionTimeCount,
-      avgIssuesPerMonth: Math.round(avgIssuesPerMonth * 10) / 10,
-      last30Days
+      avgResolutionTimeCount: issuesWithTime.length
     };
-  };
+  }, [stats, filteredIssues, loading, issues.length]);
 
-  // Calculate filtered stats
-  const filteredStats = calculateFilteredStats(filteredIssues);
-
-  // Merge filtered stats with API stats (keep velocity from API)
-  // stats is now directly the Jira stats object (not wrapped in .jira)
-  const displayStats = stats ? {
-    ...stats,
-    ...filteredStats,
-    // Keep velocity from API since it's sprint-based and complex
-    velocity: stats.velocity,
-    // Keep baseUrl from API
-    baseUrl: stats.baseUrl
-  } : null;
-
-  // Filter and sort issues
-  const filteredAndSortedIssues = filteredIssues
-    .sort((a, b) => {
-      let aValue, bValue;
-      
-      switch (sortBy) {
-        case 'key':
-          aValue = a.key || '';
-          bValue = b.key || '';
-          break;
-        case 'sprint':
-          aValue = a._sprintName || '';
-          bValue = b._sprintName || '';
-          break;
-        case 'inProgress':
-          aValue = a._inProgressDate ? new Date(a._inProgressDate) : null;
-          bValue = b._inProgressDate ? new Date(b._inProgressDate) : null;
-          // Handle null values - put them at the end
-          if (!aValue && !bValue) return 0;
-          if (!aValue) return 1;
-          if (!bValue) return -1;
-          break;
-        case 'qaReady':
-          aValue = a._qaReadyDate ? new Date(a._qaReadyDate) : null;
-          bValue = b._qaReadyDate ? new Date(b._qaReadyDate) : null;
-          // Handle null values - put them at the end
-          if (!aValue && !bValue) return 0;
-          if (!aValue) return 1;
-          if (!bValue) return -1;
-          break;
-        case 'updated':
-        default:
-          aValue = new Date(a.fields?.updated || 0);
-          bValue = new Date(b.fields?.updated || 0);
-          break;
-      }
-      
-      if (sortOrder === 'asc') {
-        return aValue > bValue ? 1 : -1;
-      } else {
-        return aValue < bValue ? 1 : -1;
-      }
-    });
-
+  // Handlers
   const handleSort = (field) => {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(field);
-      setSortOrder('desc');
-    }
+    setSort(prev => ({
+      by: field,
+      order: prev.by === field && prev.order === 'desc' ? 'asc' : 'desc'
+    }));
   };
+
+  const updateFilter = (key, value) => setFilters(prev => ({ ...prev, [key]: value }));
+
+  const SortIndicator = ({ field }) => sort.by === field ? (sort.order === 'asc' ? ' ↑' : ' ↓') : '';
+
+  const formatDate = (dateStr) => dateStr ? format(new Date(dateStr), 'MMM dd, yyyy') : '-';
 
   return (
-    <div className="app">
-      <header className="app-header">
+    <div className="issues-page">
+      <header className="page-header">
         <div>
-          <h1>📋 All Issues</h1>
-          <p className="work-year">{dateRange.label}</p>
+          <h1>All Issues</h1>
+          <p className="date-label">{dateRange.label}</p>
         </div>
         <div className="header-controls">
           <DateFilter value={dateRange} onChange={setDateRange} />
@@ -255,150 +191,127 @@ function IssuesPage() {
 
       {error && <div className="error-banner">{error}</div>}
 
-      {/* Jira Stats */}
+      {/* Stats Section */}
       {statsLoading ? (
-        <div className="stats-loading">
+        <div className="loading-section">
           <div className="loading-spinner"></div>
           <p>Loading stats...</p>
         </div>
-      ) : displayStats ? (
-        <div className="stats-grid">
+      ) : displayStats && (
+        <div className="stats-section">
           <JiraSection stats={displayStats} compact={true} />
-          {renderErrorSection('jira', '📋', displayStats?.error)}
+          {renderErrorSection('jira', '', displayStats?.error)}
         </div>
-      ) : null}
+      )}
 
+      {/* Table Section */}
       {!error && (
-        <div className="issues-page">
+        <div className="table-section">
           {loading ? (
-            <div className="table-loading">
+            <div className="loading-section">
               <div className="loading-spinner"></div>
               <p>Loading issues...</p>
             </div>
           ) : (
             <>
-          {/* Filters */}
-          <div className="issues-filters">
-            <div className="filter-group">
-              <label>Status:</label>
-              <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-                <option value="all">All Statuses</option>
-                {statuses.map(status => (
-                  <option key={status} value={status}>{status}</option>
-                ))}
-              </select>
-            </div>
-            <div className="filter-group">
-              <label>Project:</label>
-              <select value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
-                <option value="all">All Projects</option>
-                {projects.map(project => (
-                  <option key={project} value={project}>{project}</option>
-                ))}
-              </select>
-            </div>
-            <div className="filter-group">
-              <label>Sprint:</label>
-              <select value={filterSprint} onChange={(e) => setFilterSprint(e.target.value)}>
-                <option value="all">All Sprints</option>
-                {sprints.map(sprint => (
-                  <option key={sprint} value={sprint}>{sprint}</option>
-                ))}
-              </select>
-            </div>
-            <div className="filter-group">
-              <label>Sort by:</label>
-              <select value={`${sortBy}-${sortOrder}`} onChange={(e) => {
-                const [field, order] = e.target.value.split('-');
-                setSortBy(field);
-                setSortOrder(order);
-              }}>
-                <option value="inProgress-desc">In Progress Date (Newest)</option>
-                <option value="inProgress-asc">In Progress Date (Oldest)</option>
-                <option value="updated-desc">Last Updated (Newest)</option>
-                <option value="updated-asc">Last Updated (Oldest)</option>
-                <option value="sprint-asc">Sprint (A-Z)</option>
-                <option value="sprint-desc">Sprint (Z-A)</option>
-                <option value="qaReady-desc">QA Ready Date (Newest)</option>
-                <option value="qaReady-asc">QA Ready Date (Oldest)</option>
-                <option value="key-asc">Key (A-Z)</option>
-                <option value="key-desc">Key (Z-A)</option>
-              </select>
-            </div>
-            <div className="issues-count">
-              Showing {filteredAndSortedIssues.length} of {issues.length} issues
-            </div>
-          </div>
+              {/* Filters */}
+              <div className="filters">
+                <div className="filter-group">
+                  <label>Status:</label>
+                  <select value={filters.status} onChange={e => updateFilter('status', e.target.value)}>
+                    <option value="all">All Statuses</option>
+                    {filterOptions.statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="filter-group">
+                  <label>Project:</label>
+                  <select value={filters.project} onChange={e => updateFilter('project', e.target.value)}>
+                    <option value="all">All Projects</option>
+                    {filterOptions.projects.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div className="filter-group">
+                  <label>Sprint:</label>
+                  <select value={filters.sprint} onChange={e => updateFilter('sprint', e.target.value)}>
+                    <option value="all">All Sprints</option>
+                    {filterOptions.sprints.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="filter-group">
+                  <label>Sort by:</label>
+                  <select 
+                    value={`${sort.by}-${sort.order}`} 
+                    onChange={e => {
+                      const [field, order] = e.target.value.split('-');
+                      setSort({ by: field, order });
+                    }}
+                  >
+                    <option value="inProgress-desc">In Progress (Newest)</option>
+                    <option value="inProgress-asc">In Progress (Oldest)</option>
+                    <option value="updated-desc">Updated (Newest)</option>
+                    <option value="updated-asc">Updated (Oldest)</option>
+                    <option value="sprint-asc">Sprint (A-Z)</option>
+                    <option value="sprint-desc">Sprint (Z-A)</option>
+                    <option value="qaReady-desc">QA Ready (Newest)</option>
+                    <option value="qaReady-asc">QA Ready (Oldest)</option>
+                  </select>
+                </div>
+                <div className="filter-count">
+                  Showing {filteredIssues.length} of {issues.length} issues
+                </div>
+              </div>
 
-          {/* Issues Table */}
-          <div className="issues-table-container">
-            <table className="issues-table">
-              <thead>
-                <tr>
-                  <th onClick={() => handleSort('key')} className="sortable">
-                    Key {sortBy === 'key' && (sortOrder === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th>Summary</th>
-                  <th onClick={() => handleSort('updated')} className="sortable">
-                    Status {sortBy === 'updated' && (sortOrder === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th>Type</th>
-                  <th>Project</th>
-                  <th onClick={() => handleSort('sprint')} className="sortable">
-                    Sprint {sortBy === 'sprint' && (sortOrder === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th>Story Points</th>
-                  <th onClick={() => handleSort('inProgress')} className="sortable">
-                    In Progress {sortBy === 'inProgress' && (sortOrder === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th onClick={() => handleSort('qaReady')} className="sortable">
-                    QA Ready {sortBy === 'qaReady' && (sortOrder === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th>Resolved</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAndSortedIssues.length === 0 ? (
-                  <tr>
-                    <td colSpan="10" className="no-issues">
-                      No issues found for the selected filters.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredAndSortedIssues.map(issue => {
-                    const storyPoints = getStoryPoints(issue);
-                    return (
-                      <tr key={issue.key}>
-                        <td>
-                          <a 
-                            href={getJiraUrl(issue.key, baseUrl)} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="issue-link"
-                          >
-                            {issue.key}
-                          </a>
-                        </td>
-                        <td className="issue-summary">{issue.fields?.summary || 'No summary'}</td>
-                        <td>
-                          <span className={`status-badge status-${(issue.fields?.status?.name || '').toLowerCase().replace(/\s+/g, '-')}`}>
-                            {issue.fields?.status?.name || 'Unknown'}
-                          </span>
-                        </td>
-                        <td>{issue.fields?.issuetype?.name || 'N/A'}</td>
-                        <td>{issue.fields?.project?.key || 'N/A'}</td>
-                        <td>{issue._sprintName || '-'}</td>
-                        <td>{storyPoints > 0 ? storyPoints : '-'}</td>
-                        <td>{issue._inProgressDate ? format(new Date(issue._inProgressDate), 'MMM dd, yyyy') : '-'}</td>
-                        <td>{issue._qaReadyDate ? format(new Date(issue._qaReadyDate), 'MMM dd, yyyy') : '-'}</td>
-                        <td>{issue.fields?.resolutiondate ? format(new Date(issue.fields.resolutiondate), 'MMM dd, yyyy') : '-'}</td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+              {/* Table */}
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th onClick={() => handleSort('key')}>Key<SortIndicator field="key" /></th>
+                      <th>Summary</th>
+                      <th onClick={() => handleSort('updated')}>Status<SortIndicator field="updated" /></th>
+                      <th>Type</th>
+                      <th>Project</th>
+                      <th onClick={() => handleSort('sprint')}>Sprint<SortIndicator field="sprint" /></th>
+                      <th>Points</th>
+                      <th onClick={() => handleSort('inProgress')}>In Progress<SortIndicator field="inProgress" /></th>
+                      <th onClick={() => handleSort('qaReady')}>QA Ready<SortIndicator field="qaReady" /></th>
+                      <th>Resolved</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredIssues.length === 0 ? (
+                      <tr><td colSpan="10" className="empty">No issues found</td></tr>
+                    ) : (
+                      filteredIssues.map(issue => {
+                        const statusName = (issue.fields?.status?.name || '').toLowerCase().replace(/\s+/g, '-');
+                        const points = getStoryPoints(issue);
+                        return (
+                          <tr key={issue.key}>
+                            <td>
+                              <a href={getJiraUrl(issue.key, baseUrl)} target="_blank" rel="noopener noreferrer">
+                                {issue.key}
+                              </a>
+                            </td>
+                            <td className="summary">{issue.fields?.summary || 'No summary'}</td>
+                            <td>
+                              <span className={`status-badge ${getStatusClasses(statusName)}`}>
+                                {issue.fields?.status?.name || 'Unknown'}
+                              </span>
+                            </td>
+                            <td>{issue.fields?.issuetype?.name || 'N/A'}</td>
+                            <td>{issue.fields?.project?.key || 'N/A'}</td>
+                            <td>{issue._sprintName || '-'}</td>
+                            <td>{points > 0 ? points : '-'}</td>
+                            <td>{formatDate(issue._inProgressDate)}</td>
+                            <td>{formatDate(issue._qaReadyDate)}</td>
+                            <td>{formatDate(issue.fields?.resolutiondate)}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </>
           )}
         </div>
@@ -408,4 +321,3 @@ function IssuesPage() {
 }
 
 export default IssuesPage;
-

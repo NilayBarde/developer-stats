@@ -60,31 +60,12 @@ function PRList({ prs, source, baseUrl, githubBaseUrl, gitlabBaseUrl }) {
     );
   }
 
-  // Helper function to get URL for GitHub PRs
-  const getGitHubPRUrl = (pr) => {
-    if (pr.html_url) return pr.html_url;
-    // Fallback: construct from repository_url and number
-    if (pr.repository_url && pr.number) {
-      const repoMatch = pr.repository_url.match(/repos\/(.+)$/);
-      if (repoMatch) {
-        return `https://github.com/${repoMatch[1]}/pull/${pr.number}`;
-      }
-    }
-    return null;
-  };
-
-  // Helper function to get URL for GitLab MRs
-  const getGitLabMRUrl = (mr) => {
-    if (mr.web_url) return mr.web_url;
-    return null;
-  };
-
-  // Determine if a PR/MR is from GitHub or GitLab
-  const getPRSource = (pr) => {
-    if (pr.html_url || pr.repository_url) return 'github';
-    if (pr.web_url) return 'gitlab';
-    return null;
-  };
+  // Helper functions
+  const getGitHubPRUrl = (pr) => pr.html_url || (pr.repository_url && pr.number 
+    ? `https://github.com/${pr.repository_url.match(/repos\/(.+)$/)?.[1]}/pull/${pr.number}` 
+    : null);
+  const getGitLabMRUrl = (mr) => mr.web_url || null;
+  const getPRSource = (pr) => (pr.html_url || pr.repository_url) ? 'github' : (pr.web_url ? 'gitlab' : null);
 
   return (
     <div className="pr-list">

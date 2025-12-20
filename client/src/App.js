@@ -6,6 +6,7 @@ import GitSection from './components/GitSection';
 import JiraSection from './components/JiraSection';
 import DateFilter from './components/DateFilter';
 import { getCurrentWorkYearStart, formatWorkYearLabel } from './utils/dateHelpers';
+import { buildApiUrl } from './utils/apiHelpers';
 import { renderErrorSection } from './utils/sectionHelpers';
 import CombinedOverview from './components/CombinedOverview';
 import IssuesPage from './pages/IssuesPage';
@@ -26,24 +27,10 @@ function App() {
     type: 'custom'
   });
 
-  const buildApiUrl = useCallback((dateRange) => {
-    const params = new URLSearchParams();
-    
-    if (dateRange.type === 'dynamic') {
-      params.append('range', dateRange.range);
-    } else {
-      if (dateRange.start) params.append('start', dateRange.start);
-      if (dateRange.end) params.append('end', dateRange.end);
-    }
-    
-    const queryString = params.toString();
-    return queryString ? `/api/stats?${queryString}` : '/api/stats';
-  }, []);
-
   const fetchStats = useCallback(async () => {
     try {
       setLoading(true);
-      const url = buildApiUrl(dateRange);
+      const url = buildApiUrl('/api/stats', dateRange);
       const response = await axios.get(url);
       setStats(response.data);
       setLastUpdated(new Date());
@@ -54,14 +41,20 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [dateRange, buildApiUrl]);
+  }, [dateRange]);
 
   useEffect(() => {
     fetchStats();
-    // Refresh every 5 minutes
     const interval = setInterval(fetchStats, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchStats]);
+
+  const LoadingSpinner = ({ message }) => (
+    <div className="stats-loading">
+      <div className="loading-spinner"></div>
+      <p>{message}</p>
+    </div>
+  );
 
   return (
     <div className="app">
@@ -76,6 +69,7 @@ function App() {
           PRs/MRs
         </Link>
       </nav>
+      
       <Routes>
         <Route path="/issues" element={<IssuesPage />} />
         <Route path="/prs" element={<PRsPage />} />
@@ -84,10 +78,8 @@ function App() {
             <header className="app-header">
               <div>
                 <h1>🚀 Engineering Stats Dashboard</h1>
-                {stats && (stats.github?.dateRange || stats.gitlab?.dateRange || stats.jira?.dateRange) && (
-                  <p className="work-year">
-                    {dateRange.label}
-                  </p>
+                {stats && (
+                  <p className="work-year">{dateRange.label}</p>
                 )}
               </div>
               <div className="header-controls">
@@ -103,41 +95,24 @@ function App() {
               </div>
             </header>
 
-          {error && <div className="error-banner">{error}</div>}
+            {error && <div className="error-banner">{error}</div>}
 
-           <div className="stats-grid">
-             {loading ? (
-               <>
-                 {/* Combined Overview Loading */}
-                 <div className="stats-loading">
-                   <div className="loading-spinner"></div>
-                   <p>Loading overview...</p>
-                 </div>
-                 {/* Jira Stats Loading */}
-                 <div className="stats-loading">
-                   <div className="loading-spinner"></div>
-                   <p>Loading Jira stats...</p>
-                 </div>
-                 {/* Git Stats Loading */}
-                 <div className="stats-loading">
-                   <div className="loading-spinner"></div>
-                   <p>Loading Git stats...</p>
-                 </div>
-               </>
-             ) : (
-              <>
-                {/* Combined Overview */}
-                {stats && <CombinedOverview githubStats={stats.github} gitlabStats={stats.gitlab} jiraStats={stats.jira} />}
-
-                {/* Jira Stats */}
-                <JiraSection stats={stats?.jira} />
-                {renderErrorSection('jira', '📋', stats?.jira?.error)}
-
-                {/* Combined Git Stats (GitHub + GitLab) */}
-                <GitSection githubStats={stats?.github} gitlabStats={stats?.gitlab} />
-              </>
-            )}
-          </div>
+            <div className="stats-grid">
+              {loading ? (
+                <>
+                  <LoadingSpinner message="Loading overview..." />
+                  <LoadingSpinner message="Loading Jira stats..." />
+                  <LoadingSpinner message="Loading Git stats..." />
+                </>
+              ) : (
+                <>
+                  {stats && <CombinedOverview githubStats={stats.github} gitlabStats={stats.gitlab} jiraStats={stats.jira} />}
+                  <JiraSection stats={stats?.jira} />
+                  {renderErrorSection('jira', '📋', stats?.jira?.error)}
+                  <GitSection githubStats={stats?.github} gitlabStats={stats?.gitlab} />
+                </>
+              )}
+            </div>
           </>
         } />
       </Routes>
@@ -146,4 +121,3 @@ function App() {
 }
 
 export default App;
-

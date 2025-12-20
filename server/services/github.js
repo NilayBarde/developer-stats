@@ -1,5 +1,7 @@
 const axios = require('axios');
+const cache = require('../utils/cache');
 const { calculatePRStats } = require('../utils/statsHelpers');
+const { prepareItemsForPage } = require('../utils/serviceHelpers');
 
 const GITHUB_USERNAME = process.env.GITHUB_USERNAME;
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
@@ -10,25 +12,18 @@ if (!GITHUB_USERNAME || !GITHUB_TOKEN) {
 }
 
 // Support both classic tokens (token format) and fine-grained tokens (Bearer format)
-// Fine-grained tokens start with 'github_pat_' prefix
-const getAuthHeader = (token) => {
+function getAuthHeader(token) {
   if (!token) return '';
-  // Fine-grained tokens use Bearer, classic tokens use token
-  return token.startsWith('github_pat_') 
-    ? `Bearer ${token}`
-    : `token ${token}`;
-};
+  return token.startsWith('github_pat_') ? `Bearer ${token}` : `token ${token}`;
+}
 
 // Construct API base URL from GitHub base URL
-// For GitHub Enterprise: https://github.company.com -> https://github.company.com/api/v3
-// For GitHub.com: https://github.com -> https://api.github.com
-const getApiBaseURL = (baseURL) => {
+function getApiBaseURL(baseURL) {
   if (baseURL === 'https://github.com' || baseURL === 'https://www.github.com') {
     return 'https://api.github.com';
   }
-  // For GitHub Enterprise, API is typically at /api/v3
   return baseURL.replace(/\/$/, '') + '/api/v3';
-};
+}
 
 const githubApi = axios.create({
   baseURL: getApiBaseURL(GITHUB_BASE_URL),
@@ -39,10 +34,10 @@ const githubApi = axios.create({
   timeout: 30000
 });
 
+/**
+ * Fetch all PRs authored by user
+ */
 async function getAllPRs() {
-  // Check cache for raw PRs (cache for 5 minutes)
-  // v2: Only includes authored PRs (commented PRs disabled)
-  const cache = require('../utils/cache');
   const cacheKey = 'github-all-prs:v2';
   const cached = cache.get(cacheKey);
   if (cached) {
@@ -50,19 +45,19 @@ async function getAllPRs() {
     return cached;
   }
   
-  const prsMap = new Map(); // Use Map to deduplicate PRs by ID
-  
-  // Fetch PRs authored by user
+  const prsMap = new Map();
   let page = 1;
   let hasMore = true;
+  
   console.log('📦 Fetching PRs authored by user...');
+  
   while (hasMore) {
     try {
       const response = await githubApi.get('/search/issues', {
         params: {
           q: `author:${GITHUB_USERNAME} type:pr`,
           per_page: 100,
-          page: page,
+          page,
           sort: 'created',
           order: 'desc'
         }
@@ -73,10 +68,7 @@ async function getAllPRs() {
       } else {
         response.data.items.forEach(pr => prsMap.set(pr.id, pr));
         page++;
-        if (response.data.items.length < 100) {
-          hasMore = false;
-        }
-        if (response.data.total && prsMap.size >= response.data.total) {
+        if (response.data.items.length < 100 || prsMap.size >= response.data.total) {
           hasMore = false;
         }
       }
@@ -89,58 +81,17 @@ async function getAllPRs() {
       hasMore = false;
     }
   }
+  
   console.log(`  ✓ Found ${prsMap.size} PRs authored by user`);
-  
-  // COMMENTED PRS DISABLED - Set to true to include PRs where user commented but didn't author
-  const INCLUDE_COMMENTED_PRS = false;
-  
-  if (INCLUDE_COMMENTED_PRS) {
-    // Fetch PRs where user commented
-    page = 1;
-    hasMore = true;
-    console.log('📦 Fetching PRs where user commented...');
-    while (hasMore) {
-    try {
-      const response = await githubApi.get('/search/issues', {
-        params: {
-          q: `commenter:${GITHUB_USERNAME} type:pr`,
-          per_page: 100,
-          page: page,
-          sort: 'created',
-          order: 'desc'
-        }
-      });
-
-      if (response.data.items.length === 0) {
-        hasMore = false;
-      } else {
-        response.data.items.forEach(pr => prsMap.set(pr.id, pr)); // Deduplicate
-        page++;
-        if (response.data.items.length < 100) {
-          hasMore = false;
-        }
-        if (response.data.total && response.data.items.length < 100) {
-          hasMore = false;
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching PRs with comments:', error.message);
-      hasMore = false;
-    }
-    }
-    console.log(`  ✓ Found ${prsMap.size} total PRs (authored + commented)`);
-  } else {
-    console.log(`  ✓ Skipping PRs where user commented (INCLUDE_COMMENTED_PRS disabled)`);
-    console.log(`  ✓ Found ${prsMap.size} total PRs (authored only)`);
-  }
 
   const prs = Array.from(prsMap.values());
-  
-  // Cache PRs for 5 minutes
   cache.set(cacheKey, prs, 300);
   return prs;
 }
 
+/**
+ * Get GitHub stats with optional date range filtering
+ */
 async function getStats(dateRange = null) {
   const hasCredentials = GITHUB_USERNAME && GITHUB_TOKEN && 
                          GITHUB_USERNAME.trim() !== '' && 
@@ -150,8 +101,6 @@ async function getStats(dateRange = null) {
     throw new Error('GitHub credentials not configured. Please set GITHUB_USERNAME and GITHUB_TOKEN environment variables.');
   }
 
-  // Check cache for stats (cache for 5 minutes)
-  const cache = require('../utils/cache');
   const statsCacheKey = `github-stats:${JSON.stringify(dateRange)}`;
   const cachedStats = cache.get(statsCacheKey);
   if (cachedStats) {
@@ -165,10 +114,8 @@ async function getStats(dateRange = null) {
     const stats = calculatePRStats(prs, [], dateRange, {
       mergedField: 'pull_request.merged_at',
       getState: (pr) => pr.state,
-      // Only count as merged if PR is closed AND has merged_at timestamp (not just closed)
       isMerged: (pr) => pr.state === 'closed' && pr.pull_request?.merged_at,
       isOpen: (pr) => pr.state === 'open',
-      // Count as closed only if closed but NOT merged (closed without merged_at)
       isClosed: (pr) => pr.state === 'closed' && !pr.pull_request?.merged_at,
       groupByKey: (pr) => pr.repository_url.split('/repos/')[1] || 'unknown'
     });
@@ -181,9 +128,7 @@ async function getStats(dateRange = null) {
       prs: stats.items
     };
     
-    // Cache stats for 5 minutes
     cache.set(statsCacheKey, result, 300);
-    
     return result;
   } catch (error) {
     console.error('❌ Error fetching GitHub stats:', error.message);
@@ -191,25 +136,12 @@ async function getStats(dateRange = null) {
   }
 }
 
+/**
+ * Get all PRs for the PRs page with date filtering
+ */
 async function getAllPRsForPage(dateRange = null) {
-  const { filterByDateRange } = require('../utils/dateHelpers');
-  
-  // Get all PRs (from cache if available)
   const prs = await getAllPRs();
-  
-  // Filter by date range if provided
-  let filteredPRs = dateRange 
-    ? filterByDateRange(prs, 'created_at', dateRange)
-    : prs;
-  
-  // Sort by updated date descending (most recent first)
-  filteredPRs.sort((a, b) => {
-    const dateA = new Date(a.updated_at || a.created_at || 0);
-    const dateB = new Date(b.updated_at || b.created_at || 0);
-    return dateB - dateA;
-  });
-  
-  return filteredPRs;
+  return prepareItemsForPage(prs, dateRange);
 }
 
 module.exports = {

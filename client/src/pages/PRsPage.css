@@ -1,4 +1,4 @@
-.issues-page {
+.prs-page {
   max-width: 1400px;
   margin: 0 auto;
 }
@@ -81,6 +81,92 @@
   margin-bottom: 30px;
 }
 
+.repo-breakdown-section {
+  background: white;
+  padding: 30px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.repo-breakdown-section h2 {
+  color: #333;
+  font-size: 1.8em;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #667eea;
+  padding-bottom: 10px;
+}
+
+.repo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.repo-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+  transition: background 0.2s;
+}
+
+.repo-item:hover {
+  background: #f0f0f0;
+}
+
+.repo-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  color: #333;
+}
+
+.source-tag {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  font-weight: 600;
+}
+
+.source-tag.github {
+  background: #24292e;
+  color: white;
+}
+
+.source-tag.gitlab {
+  background: #fc6d26;
+  color: white;
+}
+
+.repo-stats {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.repo-stats .stat {
+  font-size: 0.9em;
+  padding: 4px 10px;
+  background: white;
+  border-radius: 4px;
+  color: #666;
+}
+
+.repo-stats .stat.merged {
+  color: #28a745;
+  background: #d4edda;
+}
+
+.repo-stats .stat.open {
+  color: #007bff;
+  background: #d1ecf1;
+}
+
 .table-section {
   background: white;
   padding: 30px;
@@ -92,7 +178,6 @@
   display: flex;
   gap: 20px;
   flex-wrap: wrap;
-  align-items: center;
   margin-bottom: 20px;
   padding-bottom: 20px;
   border-bottom: 2px solid #e0e0e0;
@@ -122,13 +207,6 @@
 
 .filter-group select:hover {
   border-color: #667eea;
-}
-
-.filter-count {
-  margin-left: auto;
-  font-weight: 600;
-  color: #666;
-  font-size: 0.9em;
 }
 
 .table-wrapper {
@@ -164,13 +242,6 @@ td {
   border-bottom: 1px solid #eee;
 }
 
-td.summary {
-  max-width: 400px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 tr:hover {
   background: #f8f9fa;
 }
@@ -183,6 +254,24 @@ td a {
 
 td a:hover {
   text-decoration: underline;
+}
+
+.source-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.8em;
+  font-weight: 600;
+}
+
+.source-badge.github {
+  background: #24292e;
+  color: white;
+}
+
+.source-badge.gitlab {
+  background: #fc6d26;
+  color: white;
 }
 
 .status-badge {
@@ -213,7 +302,6 @@ td a:hover {
   
   .filters {
     flex-direction: column;
-    align-items: stretch;
   }
   
   .filter-group {
@@ -224,8 +312,10 @@ td a:hover {
     flex: 1;
   }
   
-  .filter-count {
-    margin-left: 0;
-    text-align: center;
+  .repo-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
   }
 }
+
