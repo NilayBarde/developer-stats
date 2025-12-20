@@ -64,12 +64,12 @@ app.get('/api/stats', async (req, res) => {
   // Create cache key from date range
   const cacheKey = `stats:${JSON.stringify(dateRange)}`;
   
-  // Check cache first (cache for 2 minutes)
+  // Check cache first (cache for 5 minutes)
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log(`✓ Stats served from cache`);
-    // Set cache headers for browser caching
-    res.set('Cache-Control', 'public, max-age=60'); // Browser cache for 1 minute
+    // Disable browser caching (server cache only)
+    res.set('Cache-Control', 'no-cache');
     res.set('X-Cache', 'HIT');
     return res.json(cached);
   }
@@ -104,12 +104,12 @@ app.get('/api/stats', async (req, res) => {
       timestamp: new Date().toISOString()
     };
 
-    // Cache the result for 2 minutes
-    cache.set(cacheKey, stats, 120);
+    // Cache the result for 5 minutes
+    cache.set(cacheKey, stats, 300);
 
     console.log(`✓ Stats fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
-    // Set cache headers for browser caching
-    res.set('Cache-Control', 'public, max-age=60'); // Browser cache for 1 minute
+    // Disable browser caching (server cache only)
+    res.set('Cache-Control', 'no-cache');
     res.set('X-Cache', 'MISS');
     res.json(stats);
   } catch (error) {
@@ -308,7 +308,7 @@ app.get('/api/prs', async (req, res) => {
     const cachedPRs = cache.get(prsCacheKey);
     if (cachedPRs) {
       console.log(`✓ PRs page served from cache`);
-      res.set('Cache-Control', 'public, max-age=60');
+      res.set('Cache-Control', 'no-cache'); // Disable browser caching (server cache only)
       res.set('X-Cache', 'HIT');
       return res.json(cachedPRs);
     }
@@ -320,10 +320,10 @@ app.get('/api/prs', async (req, res) => {
     
     const response = { prs, baseUrl: process.env.GITHUB_BASE_URL?.replace(/\/$/, '') || 'https://github.com' };
     
-    // Cache PRs response for 2 minutes
-    cache.set(prsCacheKey, response, 120);
+    // Cache PRs response for 5 minutes
+    cache.set(prsCacheKey, response, 300);
     
-    res.set('Cache-Control', 'public, max-age=60');
+    res.set('Cache-Control', 'no-cache'); // Disable browser caching (server cache only)
     res.set('X-Cache', 'MISS');
     res.json(response);
   } catch (error) {
@@ -359,12 +359,12 @@ app.get('/api/mrs', async (req, res) => {
       }
     }
     
-    // Create cache key for MRs endpoint
-    const mrsCacheKey = `mrs:${JSON.stringify(dateRange)}`;
+    // Create cache key for MRs endpoint (v2 includes project names)
+    const mrsCacheKey = `mrs:v2:${JSON.stringify(dateRange)}`;
     const cachedMRs = cache.get(mrsCacheKey);
     if (cachedMRs) {
       console.log(`✓ MRs page served from cache`);
-      res.set('Cache-Control', 'public, max-age=60');
+      res.set('Cache-Control', 'no-cache'); // Disable browser caching (server cache only)
       res.set('X-Cache', 'HIT');
       return res.json(cachedMRs);
     }
@@ -376,10 +376,10 @@ app.get('/api/mrs', async (req, res) => {
     
     const response = { mrs, baseUrl: process.env.GITLAB_BASE_URL?.replace(/\/$/, '') || 'https://gitlab.com' };
     
-    // Cache MRs response for 2 minutes
-    cache.set(mrsCacheKey, response, 120);
+    // Cache MRs response for 5 minutes
+    cache.set(mrsCacheKey, response, 300);
     
-    res.set('Cache-Control', 'public, max-age=60');
+    res.set('Cache-Control', 'no-cache'); // Disable browser caching (server cache only)
     res.set('X-Cache', 'MISS');
     res.json(response);
   } catch (error) {
@@ -420,7 +420,7 @@ app.get('/api/issues', async (req, res) => {
     const cachedIssues = cache.get(issuesCacheKey);
     if (cachedIssues) {
       console.log(`✓ Issues page served from cache`);
-      res.set('Cache-Control', 'public, max-age=60'); // Browser cache for 1 minute
+      res.set('Cache-Control', 'no-cache'); // Disable browser caching (server cache only)
       res.set('X-Cache', 'HIT');
       return res.json(cachedIssues);
     }
@@ -435,7 +435,7 @@ app.get('/api/issues', async (req, res) => {
     // Cache issues response for 2 minutes
     cache.set(issuesCacheKey, response, 120);
     
-    res.set('Cache-Control', 'public, max-age=60'); // Browser cache for 1 minute
+    res.set('Cache-Control', 'no-cache'); // Disable browser caching (server cache only)
     res.set('X-Cache', 'MISS');
     res.json(response);
   } catch (error) {

@@ -41,8 +41,9 @@ const githubApi = axios.create({
 
 async function getAllPRs() {
   // Check cache for raw PRs (cache for 5 minutes)
+  // v2: Only includes authored PRs (commented PRs disabled)
   const cache = require('../utils/cache');
-  const cacheKey = 'github-all-prs';
+  const cacheKey = 'github-all-prs:v2';
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log('✓ GitHub PRs served from cache');
@@ -90,11 +91,15 @@ async function getAllPRs() {
   }
   console.log(`  ✓ Found ${prsMap.size} PRs authored by user`);
   
-  // Fetch PRs where user commented
-  page = 1;
-  hasMore = true;
-  console.log('📦 Fetching PRs where user commented...');
-  while (hasMore) {
+  // COMMENTED PRS DISABLED - Set to true to include PRs where user commented but didn't author
+  const INCLUDE_COMMENTED_PRS = false;
+  
+  if (INCLUDE_COMMENTED_PRS) {
+    // Fetch PRs where user commented
+    page = 1;
+    hasMore = true;
+    console.log('📦 Fetching PRs where user commented...');
+    while (hasMore) {
     try {
       const response = await githubApi.get('/search/issues', {
         params: {
@@ -122,136 +127,18 @@ async function getAllPRs() {
       console.error('Error fetching PRs with comments:', error.message);
       hasMore = false;
     }
+    }
+    console.log(`  ✓ Found ${prsMap.size} total PRs (authored + commented)`);
+  } else {
+    console.log(`  ✓ Skipping PRs where user commented (INCLUDE_COMMENTED_PRS disabled)`);
+    console.log(`  ✓ Found ${prsMap.size} total PRs (authored only)`);
   }
-  console.log(`  ✓ Found ${prsMap.size} total PRs (authored + commented)`);
 
   const prs = Array.from(prsMap.values());
   
   // Cache PRs for 5 minutes
   cache.set(cacheKey, prs, 300);
   return prs;
-}
-
-async function getPRComments(pr) {
-  try {
-    const repoUrl = pr.repository_url;
-    const repoMatch = repoUrl.match(/repos\/(.+)$/);
-    if (!repoMatch) return [];
-
-    const [owner, repo] = repoMatch[1].split('/');
-    const prNumber = pr.number;
-    const allComments = [];
-    
-    // Fetch PR review comments (code comments on diffs)
-    let page = 1;
-    let hasMore = true;
-    while (hasMore) {
-      try {
-        const response = await githubApi.get(`/repos/${owner}/${repo}/pulls/${prNumber}/comments`, {
-          params: {
-            per_page: 100,
-            page: page
-          }
-        });
-
-        if (response.data.length === 0) {
-          hasMore = false;
-        } else {
-          const userComments = response.data.filter(comment => {
-            const matches = comment.user?.login?.toLowerCase() === GITHUB_USERNAME.toLowerCase();
-            if (!matches && comment.user?.login && allComments.length < 10) {
-              console.log(`  ⚠️ Review comment author mismatch: "${comment.user.login}" vs "${GITHUB_USERNAME}"`);
-            }
-            return matches;
-          });
-          allComments.push(...userComments);
-          page++;
-          if (response.data.length < 100) {
-            hasMore = false;
-          }
-        }
-      } catch (error) {
-        console.error(`Error fetching PR review comments for ${prNumber}:`, error.message);
-        hasMore = false;
-      }
-    }
-    
-    // Fetch PR issue comments (general discussion comments)
-    // PRs are also issues, so we use the issue comments endpoint
-    page = 1;
-    hasMore = true;
-    while (hasMore) {
-      try {
-        const response = await githubApi.get(`/repos/${owner}/${repo}/issues/${prNumber}/comments`, {
-          params: {
-            per_page: 100,
-            page: page
-          }
-        });
-
-        if (response.data.length === 0) {
-          hasMore = false;
-        } else {
-          const userComments = response.data.filter(comment => {
-            const matches = comment.user?.login?.toLowerCase() === GITHUB_USERNAME.toLowerCase();
-            if (!matches && comment.user?.login && allComments.length < 10) {
-              console.log(`  ⚠️ Issue comment author mismatch: "${comment.user.login}" vs "${GITHUB_USERNAME}"`);
-            }
-            return matches;
-          });
-          allComments.push(...userComments);
-          page++;
-          if (response.data.length < 100) {
-            hasMore = false;
-          }
-        }
-      } catch (error) {
-        console.error(`Error fetching PR issue comments for ${prNumber}:`, error.message);
-        hasMore = false;
-      }
-    }
-
-    return allComments;
-  } catch (error) {
-    console.error(`Error fetching PR comments for ${pr.number}:`, error.message);
-    return [];
-  }
-}
-
-async function getAllPRComments(prs, dateRange = null) {
-  // Fetch comments for ALL PRs (no limit)
-  // Comments will be filtered by their creation date in calculatePRStats
-  // This ensures we capture comments made on any PR that fall within the date range
-  // We need to check all PRs because comments can be added to old PRs
-  const prsToFetch = prs; // Fetch comments for all PRs
-  console.log(`📦 Fetching comments for ${prsToFetch.length} PRs...`);
-  
-  // Fetch comments in parallel batches to speed up
-  const batchSize = 10;
-  const allComments = [];
-  
-  for (let i = 0; i < prsToFetch.length; i += batchSize) {
-    const batch = prsToFetch.slice(i, i + batchSize);
-    const commentPromises = batch.map(pr => 
-      getPRComments(pr).catch(error => {
-        console.error(`Error fetching comments for PR ${pr.number}:`, error.message);
-        return [];
-      })
-    );
-    
-    const batchComments = await Promise.all(commentPromises);
-    const batchTotal = batchComments.flat().length;
-    allComments.push(...batchComments.flat());
-    console.log(`  ✓ Batch ${Math.floor(i / batchSize) + 1}: ${batchTotal} comments from ${batch.length} PRs`);
-    
-    // Small delay between batches to respect rate limits
-    if (i + batchSize < prsToFetch.length) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-  }
-  
-  console.log(`📝 Total comments fetched: ${allComments.length} from ${prsToFetch.length} PRs`);
-  return allComments;
 }
 
 async function getStats(dateRange = null) {
@@ -263,7 +150,7 @@ async function getStats(dateRange = null) {
     throw new Error('GitHub credentials not configured. Please set GITHUB_USERNAME and GITHUB_TOKEN environment variables.');
   }
 
-  // Check cache for stats (cache for 2 minutes)
+  // Check cache for stats (cache for 5 minutes)
   const cache = require('../utils/cache');
   const statsCacheKey = `github-stats:${JSON.stringify(dateRange)}`;
   const cachedStats = cache.get(statsCacheKey);
@@ -274,29 +161,14 @@ async function getStats(dateRange = null) {
 
   try {
     const prs = await getAllPRs();
-    console.log(`📦 Fetching comments for ${prs.length} PRs...`);
-    const comments = await getAllPRComments(prs, dateRange);
     
-    // Debug: Log comment counts by month BEFORE filtering
-    const commentsByMonthBefore = {};
-    comments.forEach(comment => {
-      if (comment.created_at) {
-        const date = new Date(comment.created_at);
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        commentsByMonthBefore[monthKey] = (commentsByMonthBefore[monthKey] || 0) + 1;
-      }
-    });
-    console.log(`📝 Total comments fetched: ${comments.length} from ${prs.length} PRs`);
-    console.log('📝 Comments by month (before date filtering):', commentsByMonthBefore);
-    if (dateRange) {
-      console.log('📅 Date range filter:', dateRange);
-    }
-    
-    const stats = calculatePRStats(prs, comments, dateRange, {
+    const stats = calculatePRStats(prs, [], dateRange, {
       mergedField: 'pull_request.merged_at',
       getState: (pr) => pr.state,
+      // Only count as merged if PR is closed AND has merged_at timestamp (not just closed)
       isMerged: (pr) => pr.state === 'closed' && pr.pull_request?.merged_at,
       isOpen: (pr) => pr.state === 'open',
+      // Count as closed only if closed but NOT merged (closed without merged_at)
       isClosed: (pr) => pr.state === 'closed' && !pr.pull_request?.merged_at,
       groupByKey: (pr) => pr.repository_url.split('/repos/')[1] || 'unknown'
     });
@@ -309,8 +181,8 @@ async function getStats(dateRange = null) {
       prs: stats.items
     };
     
-    // Cache stats for 2 minutes
-    cache.set(statsCacheKey, result, 120);
+    // Cache stats for 5 minutes
+    cache.set(statsCacheKey, result, 300);
     
     return result;
   } catch (error) {

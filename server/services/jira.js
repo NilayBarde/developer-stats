@@ -37,9 +37,10 @@ async function getCurrentUser() {
 }
 
 async function getAllIssues(dateRange = null) {
-  // Check cache for raw issues (cache for 5 minutes - issues don't change that often)
+  // Check cache for raw issues (cache for 10 minutes - issues don't change that often)
+  // Note: dateRange is not used in JQL query, so we cache all issues without dateRange dependency
   const cache = require('../utils/cache');
-  const cacheKey = `all-issues:${JSON.stringify(dateRange)}`;
+  const cacheKey = 'all-issues';
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log('✓ Raw issues served from cache');
@@ -138,8 +139,8 @@ async function getAllIssues(dateRange = null) {
     }
   }
 
-  // Cache raw issues for 5 minutes
-  cache.set(cacheKey, issues, 300);
+  // Cache raw issues for 10 minutes (raw issues don't change often)
+  cache.set(cacheKey, issues, 600);
   return issues;
 }
 

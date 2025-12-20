@@ -12,7 +12,6 @@ function SourceSection({
   prsField = 'prs',
   mrsField = 'mrs',
   monthlyPRsField = 'monthlyPRs',
-  monthlyCommentsField = 'monthlyComments',
   avgPerMonthField = 'avgPRsPerMonth'
 }) {
   if (!stats || stats.error) return null;
@@ -43,23 +42,11 @@ function SourceSection({
             subtitle="Monthly average"
           />
         )}
-        {stats.totalComments !== undefined && (
-          <StatsCard
-            title="Total Comments"
-            value={stats.totalComments}
-            subtitle={`Avg: ${stats.avgCommentsPerMonth || 0}/month`}
-          />
-        )}
       </div>
       <ChartWithFallback
         data={monthlyItems}
         title={`${label} per Month`}
         emptyMessage={`No ${label.toLowerCase()} data available for the selected date range`}
-      />
-      <ChartWithFallback
-        data={stats[monthlyCommentsField]}
-        title={`${label} Comments per Month`}
-        emptyMessage="No comment data available for the selected date range"
       />
       {items && items.length > 0 && (
         <PRList prs={items} source={source} />

@@ -72,21 +72,6 @@ function calculatePRStats(items, comments, dateRange, config) {
 
   // Filter to date range
   const filteredItems = filterByDateRange(items, dateField, dateRange);
-  const filteredComments = filterByDateRange(comments, dateField, dateRange);
-  
-  // Debug logging for comments
-  if (dateRange && dateRange.start && comments.length > 0) {
-    const commentsByMonthAfter = {};
-    filteredComments.forEach(comment => {
-      if (comment.created_at) {
-        const date = new Date(comment.created_at);
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        commentsByMonthAfter[monthKey] = (commentsByMonthAfter[monthKey] || 0) + 1;
-      }
-    });
-    console.log(`📊 Comments after date filtering: ${filteredComments.length} of ${comments.length} total`);
-    console.log('📊 Comments by month (after date filtering):', commentsByMonthAfter);
-  }
 
   // Basic stats
   const timePeriodStats = calculateTimePeriodStats(filteredItems, dateField);
@@ -97,7 +82,6 @@ function calculatePRStats(items, comments, dateRange, config) {
 
   // Monthly stats
   const monthlyItems = calculateMonthlyStats(filteredItems, dateField, dateRange);
-  const monthlyComments = calculateMonthlyStats(filteredComments, dateField, dateRange);
 
   // Group by repository/project
   const grouped = groupByKey 
@@ -176,9 +160,6 @@ function calculatePRStats(items, comments, dateRange, config) {
     monthlyMRs: monthlyItems.monthly, // Alias for GitLab compatibility
     avgPRsPerMonth: monthlyItems.averagePerMonth,
     avgMRsPerMonth: monthlyItems.averagePerMonth, // Alias for GitLab compatibility
-    totalComments: filteredComments.length,
-    monthlyComments: monthlyComments.monthly,
-    avgCommentsPerMonth: monthlyComments.averagePerMonth,
     grouped,
     reposAuthored: reposAuthored.size,
     repoBreakdown: Object.entries(repoBreakdown)

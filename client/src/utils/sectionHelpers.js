@@ -27,14 +27,12 @@ export function getSourceConfig(source) {
       icon: '📦',
       prLabel: 'PRs',
       monthlyPRsField: 'monthlyPRs',
-      monthlyCommentsField: 'monthlyComments',
       avgPerMonthField: 'avgPRsPerMonth'
     },
     gitlab: {
       icon: '🔷',
       mrLabel: 'MRs',
       monthlyPRsField: 'monthlyMRs',
-      monthlyCommentsField: 'monthlyComments',
       avgPerMonthField: 'avgMRsPerMonth'
     }
   };

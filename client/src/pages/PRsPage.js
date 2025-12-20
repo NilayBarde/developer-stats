@@ -157,7 +157,7 @@ function PRsPage() {
         return match ? match[1] : null;
       }
     } else {
-      return item.project_id?.toString() || null;
+      return item._projectName || item.project?.path_with_namespace || item.project?.name || item.project_id?.toString() || null;
     }
     return null;
   }).filter(Boolean))].sort();
@@ -177,7 +177,8 @@ function PRsPage() {
         const repo = repoMatch ? repoMatch[1] : null;
         if (repo !== filterRepo) return false;
       } else {
-        if (item.project_id?.toString() !== filterRepo) return false;
+        const repo = item._projectName || item.project?.path_with_namespace || item.project?.name || item.project_id?.toString();
+        if (repo !== filterRepo) return false;
       }
     }
     return true;
@@ -299,8 +300,8 @@ function PRsPage() {
           aValue = repoA;
           bValue = repoB;
         } else {
-          aValue = a.project_id?.toString() || '';
-          bValue = b.project_id?.toString() || '';
+          aValue = a._projectName || a.project?.path_with_namespace || a.project?.name || a.project_id?.toString() || '';
+          bValue = b._projectName || b.project?.path_with_namespace || b.project?.name || b.project_id?.toString() || '';
         }
         break;
       case 'created':
@@ -489,7 +490,7 @@ function PRsPage() {
                   filteredAndSortedItems.map(item => {
                     const repo = item._source === 'github'
                       ? (item.repository_url?.match(/repos\/(.+)$/)?.[1] || 'Unknown')
-                      : (item.project_id?.toString() || 'Unknown');
+                      : (item._projectName || item.project?.path_with_namespace || item.project?.name || item.project_id?.toString() || 'Unknown');
                     const status = item._source === 'github'
                       ? (item.state === 'closed' && item.pull_request?.merged_at ? 'merged' : item.state)
                       : item.state;

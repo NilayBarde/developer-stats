@@ -21,7 +21,6 @@ function combinePRLists(githubPRs = [], gitlabMRs = []) {
 
 function GitSection({ githubStats, gitlabStats, compact = false }) {
   // Determine if we're showing single source or combined
-  const isSingleSource = (githubStats && !gitlabStats) || (!githubStats && gitlabStats);
   const showGitHubOnly = githubStats && !gitlabStats;
   const showGitLabOnly = gitlabStats && !githubStats;
   
@@ -51,17 +50,9 @@ function GitSection({ githubStats, gitlabStats, compact = false }) {
     githubStats?.monthlyPRs || [],
     gitlabStats?.monthlyMRs || []
   );
-  const combinedMonthlyComments = combineMonthlyData(
-    githubStats?.monthlyComments || [],
-    gitlabStats?.monthlyComments || []
-  );
   
   // Convert combined monthly objects to arrays
   const monthlyPRsArray = Object.entries(combinedMonthlyPRs)
-    .map(([month, count]) => ({ month, count }))
-    .sort((a, b) => a.month.localeCompare(b.month));
-  
-  const monthlyCommentsArray = Object.entries(combinedMonthlyComments)
     .map(([month, count]) => ({ month, count }))
     .sort((a, b) => a.month.localeCompare(b.month));
 
@@ -111,13 +102,6 @@ function GitSection({ githubStats, gitlabStats, compact = false }) {
             subtitle="Monthly average"
           />
         )}
-        {combined.totalComments > 0 && (
-          <StatsCard
-            title="Total Comments"
-            value={combined.totalComments}
-            subtitle={`Avg: ${combined.avgCommentsPerMonth}/month`}
-          />
-        )}
         <StatsCard
           title="Repos Authored"
           value={totalReposAuthored}
@@ -158,12 +142,6 @@ function GitSection({ githubStats, gitlabStats, compact = false }) {
             data={monthlyPRsArray}
             title="PRs/MRs per Month"
             emptyMessage="No PR/MR data available for the selected date range"
-          />
-          
-          <ChartWithFallback
-            data={monthlyCommentsArray}
-            title="Comments per Month"
-            emptyMessage="No comment data available for the selected date range"
           />
           
           {combinedPRs.length > 0 && (
