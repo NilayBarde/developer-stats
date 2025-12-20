@@ -2093,6 +2093,8 @@ async function getProjectsByEpic(dateRange = null) {
       
       // Calculate metrics from issues (excluding User Stories)
       let totalStoryPoints = 0;
+      let totalAssignedStoryPoints = 0; // Only story points from tickets assigned to someone
+      let remainingStoryPoints = 0; // Story points from tickets that are not done
       let userStoryPoints = 0;
       let totalDoneIssues = 0;
       let userDoneIssues = 0;
@@ -2105,8 +2107,20 @@ async function getProjectsByEpic(dateRange = null) {
         const isUser = isUserIssue(issue);
         const statusName = issue.fields?.status?.name || '';
         const isDone = ['Done', 'Closed', 'Resolved'].includes(statusName);
+        const isAssigned = !!issue.fields?.assignee;
         
         totalStoryPoints += points;
+        
+        // Only count story points from assigned tickets
+        if (isAssigned) {
+          totalAssignedStoryPoints += points;
+        }
+        
+        // Count remaining story points (not done)
+        if (!isDone) {
+          remainingStoryPoints += points;
+        }
+        
         if (isDone) totalDoneIssues++;
         
         // Check if all issues are closed
@@ -2187,14 +2201,16 @@ async function getProjectsByEpic(dateRange = null) {
           totalIssues: issuesToCount.length, // Total issues in epic (excluding User Stories)
           totalDoneIssues,
           totalStoryPoints,
+          totalAssignedStoryPoints, // Story points from tickets assigned to someone
+          remainingStoryPoints, // Story points from tickets that are not done
           totalCompletionPercentage: issuesToCount.length > 0 
             ? Math.round((totalDoneIssues / issuesToCount.length) * 100) 
             : 0,
           userIssues: userIssuesCount,
           userDoneIssues,
           userStoryPoints,
-          userStoryPointsPercentage: totalStoryPoints > 0 
-            ? Math.round((userStoryPoints / totalStoryPoints) * 100) 
+          userStoryPointsPercentage: totalAssignedStoryPoints > 0 
+            ? Math.round((userStoryPoints / totalAssignedStoryPoints) * 100) 
             : 0,
           userCompletionPercentage: userIssuesCount > 0 
             ? Math.round((userDoneIssues / userIssuesCount) * 100) 

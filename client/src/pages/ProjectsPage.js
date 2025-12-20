@@ -87,7 +87,7 @@ function ProjectsPage() {
             />
             <StatsCard
               title="Total Story Points"
-              value={projects.epics.reduce((sum, epic) => sum + epic.metrics.totalStoryPoints, 0)}
+              value={projects.epics.reduce((sum, epic) => sum + (epic.metrics.totalAssignedStoryPoints || 0), 0)}
               subtitle={`${projects.epics.reduce((sum, epic) => sum + epic.metrics.userStoryPoints, 0)} by you`}
               color="green"
             />
@@ -127,10 +127,19 @@ function ProjectsPage() {
                     <div className="metric-item">
                       <span className="metric-label">Story Points:</span>
                       <span className="metric-value">
-                        {epic.metrics.userStoryPoints} / {epic.metrics.totalStoryPoints}
+                        {epic.metrics.userStoryPoints} / {epic.metrics.totalAssignedStoryPoints}
                       </span>
                       <span className="metric-percentage">
                         ({epic.metrics.userStoryPointsPercentage}% yours)
+                      </span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">Remaining Story Points:</span>
+                      <span className="metric-value">
+                        {epic.metrics.remainingStoryPoints}
+                      </span>
+                      <span className="metric-percentage">
+                        (not completed)
                       </span>
                     </div>
                     <div className="metric-item">
