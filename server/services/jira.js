@@ -94,7 +94,8 @@ async function getAllIssues(dateRange = null) {
     'assignee', 'reporter', 'priority', 'description',
     'customfield_10105', 'customfield_10020', 'customfield_10007', 'customfield_10000', // Sprint fields
     'customfield_10106', 'customfield_21766', 'customfield_10016', 'customfield_10021', // Story point fields
-    'customfield_10002', 'customfield_10004', 'customfield_10020'
+    'customfield_10002', 'customfield_10004', 'customfield_10020',
+    'customfield_10011', 'parent', 'epicLink', 'epicName' // Epic fields
   ];
 
   let jqlIndex = 0;
@@ -1373,13 +1374,16 @@ async function getAllIssuesForPage(dateRange = null) {
     const jqlQueries = baseQueries.map(base => `${base} ORDER BY updated DESC`);
 
     // Only fetch fields we need - NO changelog initially (much faster)
+    // Note: Requesting 'parent' with expand to get full parent details including issuetype
     const requiredFields = [
       'key', 'summary', 'status', 'created', 'updated', 'resolutiondate',
       'issuetype', 'project', 'timespent', 'timeoriginalestimate',
       'assignee', 'reporter', 'priority',
       'customfield_10105', 'customfield_10020', 'customfield_10007', 'customfield_10000', // Sprint fields
       'customfield_10106', 'customfield_21766', 'customfield_10016', 'customfield_10021', // Story point fields
-      'customfield_10002', 'customfield_10004'
+      'customfield_10002', 'customfield_10004',
+      'customfield_10011', 'customfield_10014', 'customfield_10015', 'customfield_10008', 'customfield_10009', 'customfield_10010', // Epic link fields
+      'parent', 'epicLink', 'epicName' // Epic fields
     ];
 
     let jqlIndex = 0;
@@ -1392,7 +1396,7 @@ async function getAllIssuesForPage(dateRange = null) {
           startAt: startAt,
           maxResults: maxResults,
           fields: requiredFields,
-          expand: ['names'] // NO changelog - fetch only when needed
+          expand: ['names', 'parent'] // Expand parent to get full parent details including issuetype
         });
 
         if (response.data.issues.length === 0) {
@@ -1555,8 +1559,640 @@ async function getAllIssuesForPage(dateRange = null) {
   }
 }
 
+/**
+ * Get all issues grouped by epic
+ * Returns epics with their child issues and calculated metrics
+ * 
+ * Logic:
+ * 1. Get user's issues filtered by date range
+ * 2. Extract epic keys from those issues
+ * 3. For each epic, fetch ALL issues in that epic (not date filtered)
+ * 4. Mark issues as "user's" based on assignee (not date filter)
+ * 5. Calculate story points: user's total vs epic's total
+ */
+async function getProjectsByEpic(dateRange = null) {
+  if (!JIRA_PAT || !JIRA_BASE_URL) {
+    throw new Error('Jira credentials not configured. Please set JIRA_PAT and JIRA_BASE_URL environment variables.');
+  }
+
+  const cache = require('../utils/cache');
+  const cacheKey = `projects-by-epic-v2:${JSON.stringify(dateRange)}`; // Changed cache key to force refresh
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    console.log('✓ Projects by epic served from cache');
+    return cached;
+  }
+
+  try {
+    // Get current user info for identifying user's issues
+    let currentUserAccountId = null;
+    let currentUserEmail = null;
+    try {
+      const user = await getCurrentUser();
+      currentUserAccountId = user.accountId;
+      currentUserEmail = user.emailAddress;
+    } catch (error) {
+      // Silently fail - will try alternative methods
+    }
+
+    // Step 1: Find the Epic Link custom field ID by querying all fields
+    let epicLinkFieldId = null;
+    try {
+      const fieldsResponse = await jiraApi.get('/rest/api/2/field');
+      const fields = fieldsResponse.data || [];
+      
+      // Look for "Epic Link" or "Parent" field
+      const epicLinkField = fields.find(field => 
+        field.name === 'Epic Link' || 
+        field.name === 'Parent' ||
+        (field.name && field.name.toLowerCase().includes('epic link'))
+      );
+      
+      if (epicLinkField) {
+        epicLinkFieldId = epicLinkField.id;
+      }
+    } catch (error) {
+      // Silently fail - will try common field IDs
+    }
+    
+    // Also try to get it from editmeta of a sample issue
+    if (!epicLinkFieldId && userIssuesInDateRange.length === 0) {
+      try {
+        // We'll try this after we get at least one issue
+      } catch (error) {
+        // Ignore
+      }
+    }
+
+    // Get user's issues filtered by date range - but fetch with epic/parent fields properly
+    // We'll fetch issues directly with all epic-related fields
+    const userIssuesInDateRange = [];
+    let startAt = 0;
+    const maxResults = 100;
+    let hasMore = true;
+    
+    // Build JQL query with date filtering
+    let dateFilter = '';
+    if (dateRange && dateRange.start) {
+      dateFilter = ` AND updated >= "${dateRange.start}"`;
+    }
+    if (dateRange && dateRange.end) {
+      dateFilter += ` AND updated <= "${dateRange.end}"`;
+    }
+
+    const baseQueries = [
+      `assignee = currentUser()${dateFilter}`,
+      currentUserEmail ? `assignee = "${currentUserEmail}"${dateFilter}` : null,
+      currentUserAccountId ? `assignee = ${currentUserAccountId}${dateFilter}` : null
+    ].filter(Boolean);
+    
+    const jqlQueries = baseQueries.map(base => `${base} ORDER BY updated DESC`);
+
+    // Build fields list - include the discovered epic link field if found
+    const requiredFields = [
+      'key', 'summary', 'status', 'created', 'updated', 'resolutiondate',
+      'issuetype', 'project', 'timespent', 'timeoriginalestimate',
+      'assignee', 'reporter', 'priority',
+      'customfield_10105', 'customfield_10020', 'customfield_10007', 'customfield_10000', // Sprint fields
+      'customfield_10106', 'customfield_21766', 'customfield_10016', 'customfield_10021', // Story point fields
+      'customfield_10002', 'customfield_10004',
+      'customfield_10011', 'customfield_10014', 'customfield_10015', 'customfield_10008', 'customfield_10009', 'customfield_10010', // Common epic link fields
+      'parent', 'epicLink', 'epicName' // Epic fields
+    ];
+    
+    // Add discovered epic link field if found
+    if (epicLinkFieldId && !requiredFields.includes(epicLinkFieldId)) {
+      requiredFields.push(epicLinkFieldId);
+    }
+
+    let jqlIndex = 0;
+    while (hasMore && jqlIndex < jqlQueries.length) {
+      try {
+        const jql = jqlQueries[jqlIndex];
+        const response = await jiraApi.post('/rest/api/2/search', {
+          jql: jql,
+          startAt: startAt,
+          maxResults: maxResults,
+          fields: requiredFields,
+          expand: ['names', 'parent'] // Expand parent to get full details
+        });
+
+        if (response.data.issues.length === 0) {
+          hasMore = false;
+        } else {
+          userIssuesInDateRange.push(...response.data.issues);
+          startAt += maxResults;
+          
+          if (response.data.issues.length < maxResults || userIssuesInDateRange.length >= response.data.total) {
+            hasMore = false;
+                    }
+                }
+              } catch (error) {
+        if (error.response?.status === 403 && jqlIndex < jqlQueries.length - 1) {
+          jqlIndex++;
+          startAt = 0;
+                continue;
+              }
+        console.error('Error fetching user issues:', error.message);
+        hasMore = false;
+      }
+    }
+    
+    // If we still don't have the epic link field ID, try getting it from editmeta of first issue
+    if (!epicLinkFieldId && userIssuesInDateRange.length > 0) {
+      try {
+        const firstIssue = userIssuesInDateRange[0];
+        const editmetaResponse = await jiraApi.get(`/rest/api/2/issue/${firstIssue.key}/editmeta`);
+        const editmetaFields = editmetaResponse.data?.fields || {};
+        
+        // Look for epic link field in editmeta
+        for (const [fieldId, fieldMeta] of Object.entries(editmetaFields)) {
+          if (fieldMeta.name === 'Epic Link' || fieldMeta.name === 'Parent' ||
+              (fieldMeta.name && fieldMeta.name.toLowerCase().includes('epic'))) {
+            epicLinkFieldId = fieldId;
+            break;
+        }
+      }
+    } catch (error) {
+        // Silently fail
+      }
+    }
+    
+    if (userIssuesInDateRange.length === 0) {
+      return {
+        epics: [],
+        issuesWithoutEpic: 0,
+        totalEpics: 0
+      };
+    }
+    
+    // Extract epic keys from user's issues using multiple methods
+    const epicKeysSet = new Set();
+    const issuesWithoutEpic = [];
+    const userIssueKeys = new Set(userIssuesInDateRange.map(i => i.key));
+    
+    // Helper to extract epic key from an issue
+    function extractEpicKey(issue) {
+      if (!issue || !issue.fields) return null;
+      
+      // Method 1: Check discovered Epic Link field (most reliable)
+      if (epicLinkFieldId && issue.fields[epicLinkFieldId]) {
+        const epicLinkValue = issue.fields[epicLinkFieldId];
+        if (typeof epicLinkValue === 'string' && /^[A-Z]+-\d+$/.test(epicLinkValue)) {
+          return epicLinkValue;
+        }
+        if (epicLinkValue && typeof epicLinkValue === 'object' && epicLinkValue.key) {
+          return epicLinkValue.key;
+        }
+      }
+      
+      // Method 2: Check parent field (expanded)
+      if (issue.fields.parent) {
+        const parent = issue.fields.parent;
+        let parentKey = null;
+        let parentType = null;
+        
+        if (typeof parent === 'string') {
+          parentKey = parent;
+        } else if (parent.key) {
+          parentKey = parent.key;
+          parentType = parent.fields?.issuetype?.name || parent.issuetype?.name;
+        }
+        
+        if (parentKey && (!parentType || parentType === 'Epic')) {
+          return parentKey;
+        }
+      }
+      
+      // Method 3: Check epicLink field (standard field name)
+      if (issue.fields.epicLink) {
+        const epicLink = issue.fields.epicLink;
+        if (typeof epicLink === 'string' && /^[A-Z]+-\d+$/.test(epicLink)) {
+          return epicLink;
+        }
+        if (epicLink && typeof epicLink === 'object' && epicLink.key) {
+          return epicLink.key;
+        }
+      }
+      
+      // Method 4: Check common epic link custom fields
+      const epicLinkFields = [
+        'customfield_10011', 'customfield_10014', 'customfield_10015',
+        'customfield_10008', 'customfield_10009', 'customfield_10010',
+        'customfield_10007' // Common one
+      ];
+      for (const fieldId of epicLinkFields) {
+            const value = issue.fields[fieldId];
+        if (value) {
+            if (typeof value === 'string' && /^[A-Z]+-\d+$/.test(value)) {
+            return value;
+          }
+          if (value && typeof value === 'object' && value.key && /^[A-Z]+-\d+$/.test(value.key)) {
+            return value.key;
+          }
+        }
+      }
+      
+      // Method 5: Search all fields for epic-like references
+      for (const [fieldKey, fieldValue] of Object.entries(issue.fields)) {
+        if (!fieldValue) continue;
+        
+        if (fieldKey.toLowerCase().includes('epic') || fieldKey.toLowerCase().includes('parent')) {
+            if (typeof fieldValue === 'string' && /^[A-Z]+-\d+$/.test(fieldValue)) {
+            return fieldValue;
+          }
+          if (fieldValue && typeof fieldValue === 'object' && fieldValue.key && /^[A-Z]+-\d+$/.test(fieldValue.key)) {
+            return fieldValue.key;
+          }
+        }
+      }
+      
+      return null;
+    }
+    
+    // Extract epic keys from user's issues
+    for (const issue of userIssuesInDateRange) {
+      const epicKey = extractEpicKey(issue);
+      if (epicKey) {
+        epicKeysSet.add(epicKey);
+      } else {
+        issuesWithoutEpic.push(issue);
+      }
+    }
+    
+    // Alternative approach: Query epics that contain user's issue keys
+    // This works by querying epics and checking which ones have issues matching user's issue keys
+    if (epicKeysSet.size === 0 && userIssuesInDateRange.length > 0) {
+      const projectKeys = [...new Set(userIssuesInDateRange.map(issue => issue.fields?.project?.key).filter(Boolean))];
+      const userIssueKeys = userIssuesInDateRange.map(i => i.key);
+      
+      if (projectKeys.length > 0) {
+        try {
+          // Query for all epics in the projects
+          const epicJql = `project IN (${projectKeys.join(', ')}) AND issuetype = Epic`;
+          
+          const epicResponse = await jiraApi.post('/rest/api/2/search', {
+            jql: epicJql,
+            maxResults: 1000,
+            fields: ['key', 'summary', 'status', 'project']
+          });
+          
+          if (epicResponse.data?.issues?.length > 0) {
+            // For each epic, check if it contains any of the user's issues
+            for (const epic of epicResponse.data.issues) {
+              try {
+                // Try different JQL patterns to find issues linked to this epic
+                const jqlPatterns = [
+                  `"Epic Link" = ${epic.key}`,
+                  `"Epic Link" = "${epic.key}"`,
+                  `parent = ${epic.key}`,
+                  `"Parent" = ${epic.key}`,
+                ];
+                
+                for (const jqlPattern of jqlPatterns) {
+                  try {
+                    const linkedIssuesResponse = await jiraApi.post('/rest/api/2/search', {
+                      jql: jqlPattern,
+                      maxResults: 1000,
+                      fields: ['key']
+                    });
+                    
+                    if (linkedIssuesResponse.data?.issues?.length > 0) {
+                      const linkedIssueKeys = linkedIssuesResponse.data.issues.map(i => i.key);
+                      const userIssuesInEpic = linkedIssueKeys.filter(key => userIssueKeys.includes(key));
+                      
+                      if (userIssuesInEpic.length > 0) {
+                        epicKeysSet.add(epic.key);
+                        break; // Found issues, move to next epic
+                      }
+        }
+      } catch (error) {
+                    // Try next pattern
+                    continue;
+                  }
+                }
+              } catch (error) {
+                // Continue to next epic
+              }
+            }
+          }
+        } catch (error) {
+          // Silently fail
+        }
+      }
+    }
+    
+    const epicKeys = Array.from(epicKeysSet);
+    
+    if (epicKeys.length === 0) {
+      return {
+        epics: [],
+        issuesWithoutEpic: issuesWithoutEpic.length,
+        totalEpics: 0
+      };
+    }
+    
+    // For each epic, fetch ALL issues in that epic
+    const epicsData = [];
+    
+    for (const epicKey of epicKeys) {
+      // Fetch epic details
+      let epicDetails = null;
+      try {
+        const epicResponse = await jiraApi.get(`/rest/api/2/issue/${epicKey}`, {
+          params: {
+            fields: 'summary,status,created,updated,resolutiondate,project,issuetype'
+          }
+        });
+        epicDetails = epicResponse.data;
+      } catch (error) {
+        // Continue with limited epic info
+      }
+      
+      // Fetch ALL issues in this epic using multiple methods
+      let allEpicIssues = [];
+      
+      // Method 1: Try JQL patterns (most common)
+        const jqlPatterns = [
+          `"Epic Link" = ${epicKey}`,
+        `"Epic Link" = "${epicKey}"`,
+          `parent = ${epicKey}`,
+        `"Parent" = ${epicKey}`,
+          `"Parent Link" = ${epicKey}`,
+        `cf[10011] = ${epicKey}`,
+        `cf[10014] = ${epicKey}`,
+        `cf[10015] = ${epicKey}`,
+      ];
+      
+      let foundIssues = false;
+      for (const jql of jqlPatterns) {
+        if (foundIssues) break;
+        
+        try {
+          const response = await jiraApi.post('/rest/api/2/search', {
+            jql: jql,
+            maxResults: 500,
+            fields: [
+              'key', 'summary', 'status', 'created', 'updated', 'resolutiondate',
+              'project', 'issuetype', 'assignee',
+              'customfield_10106', 'customfield_21766', 'customfield_10016', 
+              'customfield_10021', 'customfield_10002', 'customfield_10004',
+              'timeoriginalestimate'
+            ]
+          });
+          
+          if (response.data?.issues?.length > 0) {
+            allEpicIssues = response.data.issues;
+            foundIssues = true;
+            }
+          } catch (error) {
+            // Try next pattern
+            continue;
+          }
+        }
+        
+      // Method 2: If JQL didn't work, try using issue links API
+      if (!foundIssues) {
+        try {
+          const epicResponse = await jiraApi.get(`/rest/api/2/issue/${epicKey}`, {
+            params: {
+              fields: 'issuelinks'
+            }
+          });
+          
+          const issueLinks = epicResponse.data?.fields?.issuelinks || [];
+          const childIssueKeys = [];
+          
+          for (const link of issueLinks) {
+            if (link.type && (link.type.name === 'contains' || link.type.inward === 'contains' || link.type.outward === 'is parent of')) {
+              const linkedIssue = link.inwardIssue || link.outwardIssue;
+              if (linkedIssue && linkedIssue.key) {
+                childIssueKeys.push(linkedIssue.key);
+              }
+            }
+          }
+          
+          if (childIssueKeys.length > 0) {
+            const batchSize = 50;
+            for (let i = 0; i < childIssueKeys.length; i += batchSize) {
+              const batch = childIssueKeys.slice(i, i + batchSize);
+            await Promise.all(batch.map(async (issueKey) => {
+              try {
+                const issueResponse = await jiraApi.get(`/rest/api/2/issue/${issueKey}`, {
+                  params: {
+                      fields: 'key,summary,status,created,updated,resolutiondate,project,issuetype,assignee,customfield_10106,customfield_21766,customfield_10016,customfield_10021,customfield_10002,customfield_10004,timeoriginalestimate'
+                  }
+                });
+                allEpicIssues.push(issueResponse.data);
+              } catch (error) {
+                  // Skip failed issues
+              }
+            }));
+            }
+            if (allEpicIssues.length > 0) {
+              foundIssues = true;
+            }
+          }
+        } catch (error) {
+          // Try next method
+        }
+      }
+      
+      // Method 3: Try using Agile API to get epic children
+      if (!foundIssues) {
+        try {
+          const agileResponse = await jiraApi.get(`/rest/agile/1.0/epic/${epicKey}/issue`, {
+            params: {
+              maxResults: 500
+            }
+          });
+          
+          if (agileResponse.data?.issues?.length > 0) {
+            allEpicIssues = agileResponse.data.issues;
+            foundIssues = true;
+        }
+      } catch (error) {
+          // Agile API might not be available
+        }
+      }
+      
+      if (allEpicIssues.length === 0) {
+        continue;
+      }
+      
+      // Helper to check if issue belongs to current user
+      function isUserIssue(issue) {
+        const assignee = issue.fields?.assignee;
+        if (!assignee) return false;
+        
+        // Check by accountId
+        if (currentUserAccountId && assignee.accountId === currentUserAccountId) {
+          return true;
+        }
+        
+        // Check by email
+        if (currentUserEmail && assignee.emailAddress === currentUserEmail) {
+          return true;
+        }
+        
+        // Also check if issue key is in user's date-filtered issues
+        if (userIssueKeys.has(issue.key)) {
+          return true;
+        }
+        
+        return false;
+      }
+      
+      // Filter out User Story type issues (they shouldn't be counted)
+      const issuesToCount = allEpicIssues.filter(issue => {
+        const issueType = issue.fields?.issuetype?.name || '';
+        return issueType !== 'User Story';
+      });
+      
+      // Calculate metrics from issues (excluding User Stories)
+      let totalStoryPoints = 0;
+      let userStoryPoints = 0;
+      let totalDoneIssues = 0;
+      let userDoneIssues = 0;
+      let userIssuesCount = 0;
+      let allIssuesClosed = true;
+      
+      // First pass: Calculate metrics from all issues (excluding User Stories)
+      issuesToCount.forEach(issue => {
+        const points = getStoryPoints(issue);
+        const isUser = isUserIssue(issue);
+        const statusName = issue.fields?.status?.name || '';
+        const isDone = ['Done', 'Closed', 'Resolved'].includes(statusName);
+        
+        totalStoryPoints += points;
+        if (isDone) totalDoneIssues++;
+        
+        // Check if all issues are closed
+        if (!isDone) {
+          allIssuesClosed = false;
+        }
+        
+        if (isUser) {
+          userStoryPoints += points;
+          userIssuesCount++;
+          if (isDone) userDoneIssues++;
+        }
+      });
+      
+      // Second pass: Build issues list with ONLY user's issues (excluding User Stories)
+      // Also track the most recent update date from user's issues
+      let mostRecentUserUpdate = null;
+      const userIssuesList = allEpicIssues
+        .filter(issue => {
+          const isUser = isUserIssue(issue);
+          const issueType = issue.fields?.issuetype?.name || '';
+          return isUser && issueType !== 'User Story';
+        })
+        .map(issue => {
+          const updatedDate = issue.fields?.updated ? new Date(issue.fields.updated) : null;
+          if (updatedDate && (!mostRecentUserUpdate || updatedDate > mostRecentUserUpdate)) {
+            mostRecentUserUpdate = updatedDate;
+          }
+          
+          return {
+            key: issue.key,
+            summary: issue.fields?.summary,
+            status: issue.fields?.status?.name,
+            storyPoints: getStoryPoints(issue),
+            created: issue.fields?.created,
+            updated: issue.fields?.updated,
+            resolved: issue.fields?.resolutiondate,
+            assignee: issue.fields?.assignee?.displayName || 'Unassigned',
+            isUserIssue: true // All issues in this list are user's issues
+          };
+        });
+      
+      // Determine simplified epic status: DONE, IN PROGRESS, or TO DO
+      let simplifiedStatus = 'TO DO';
+      
+      // Check if epic is done (all issues closed or epic status is Done/Closed)
+      const epicStatusFromJira = epicDetails?.fields?.status?.name || '';
+      const isEpicDone = ['Done', 'Closed', 'Resolved'].includes(epicStatusFromJira);
+      
+      if (allIssuesClosed && issuesToCount.length > 0) {
+        simplifiedStatus = 'DONE';
+      } else if (isEpicDone) {
+        simplifiedStatus = 'DONE';
+      } else {
+        // Check if any issues are in progress
+        const hasInProgressIssues = issuesToCount.some(issue => {
+          const statusName = issue.fields?.status?.name || '';
+          return !['Done', 'Closed', 'Resolved', 'To Do', 'Open', 'Backlog'].includes(statusName);
+        });
+        
+        if (hasInProgressIssues) {
+          simplifiedStatus = 'IN PROGRESS';
+        }
+      }
+      
+      epicsData.push({
+        epicKey: epicKey,
+        epicName: epicDetails?.fields?.summary || `Epic ${epicKey}`,
+        epicStatus: simplifiedStatus,
+        epicCreated: epicDetails?.fields?.created,
+        epicUpdated: epicDetails?.fields?.updated,
+        epicResolved: epicDetails?.fields?.resolutiondate,
+        project: epicDetails?.fields?.project?.key || allEpicIssues[0]?.fields?.project?.key || 'Unknown',
+        projectName: epicDetails?.fields?.project?.name || allEpicIssues[0]?.fields?.project?.name || 'Unknown',
+        issues: userIssuesList, // Only user's issues (excluding User Stories)
+        mostRecentUserUpdate: mostRecentUserUpdate ? mostRecentUserUpdate.toISOString() : null, // Most recent update from user's issues
+        metrics: {
+          totalIssues: issuesToCount.length, // Total issues in epic (excluding User Stories)
+          totalDoneIssues,
+          totalStoryPoints,
+          totalCompletionPercentage: issuesToCount.length > 0 
+            ? Math.round((totalDoneIssues / issuesToCount.length) * 100) 
+            : 0,
+          userIssues: userIssuesCount,
+          userDoneIssues,
+          userStoryPoints,
+          userStoryPointsPercentage: totalStoryPoints > 0 
+            ? Math.round((userStoryPoints / totalStoryPoints) * 100) 
+            : 0,
+          userCompletionPercentage: userIssuesCount > 0 
+            ? Math.round((userDoneIssues / userIssuesCount) * 100) 
+            : 0,
+          isComplete: allIssuesClosed && issuesToCount.length > 0 // Epic is complete if all issues (excluding User Stories) are closed
+        }
+      });
+    }
+
+    // Sort by most recent user update (most recent first), then by epic name
+    epicsData.sort((a, b) => {
+      const dateA = a.mostRecentUserUpdate ? new Date(a.mostRecentUserUpdate) : new Date(0);
+      const dateB = b.mostRecentUserUpdate ? new Date(b.mostRecentUserUpdate) : new Date(0);
+      
+      // Sort by date descending (most recent first)
+      if (dateB.getTime() !== dateA.getTime()) {
+        return dateB - dateA;
+      }
+      
+      // If dates are equal (or both null), sort by name
+      return a.epicName.localeCompare(b.epicName);
+    });
+
+    const result = {
+      epics: epicsData,
+      issuesWithoutEpic: issuesWithoutEpic.length,
+      totalEpics: epicsData.length
+    };
+
+    cache.set(cacheKey, result, 300); // Cache for 5 minutes
+    return result;
+  } catch (error) {
+    console.error('Error fetching projects by epic:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   getStats,
-  getAllIssuesForPage
+  getAllIssuesForPage,
+  getProjectsByEpic
 };
 

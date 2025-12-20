@@ -11,6 +11,7 @@ import { renderErrorSection } from './utils/sectionHelpers';
 import CombinedOverview from './components/CombinedOverview';
 import IssuesPage from './pages/IssuesPage';
 import PRsPage from './pages/PRsPage';
+import ProjectsPage from './pages/ProjectsPage';
 
 function App() {
   const location = useLocation();
@@ -44,10 +45,13 @@ function App() {
   }, [dateRange]);
 
   useEffect(() => {
-    fetchStats();
-    const interval = setInterval(fetchStats, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [fetchStats]);
+    // Only fetch stats on the dashboard route
+    if (location.pathname === '/') {
+      fetchStats();
+      const interval = setInterval(fetchStats, 5 * 60 * 1000);
+      return () => clearInterval(interval);
+    }
+  }, [fetchStats, location.pathname]);
 
   const LoadingSpinner = ({ message }) => (
     <div className="stats-loading">
@@ -68,11 +72,15 @@ function App() {
         <Link to="/prs" className={location.pathname === '/prs' ? 'active' : ''}>
           PRs/MRs
         </Link>
+        <Link to="/projects" className={location.pathname === '/projects' ? 'active' : ''}>
+          Projects
+        </Link>
       </nav>
       
       <Routes>
         <Route path="/issues" element={<IssuesPage />} />
         <Route path="/prs" element={<PRsPage />} />
+        <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/" element={
           <>
             <header className="app-header">

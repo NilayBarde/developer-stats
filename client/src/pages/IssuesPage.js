@@ -108,9 +108,9 @@ function IssuesPage() {
   const filterOptions = useMemo(() => {
     const options = extractFilterOptions(issues, filterConfig);
     return {
-      statuses: options.statuses || [],
-      projects: options.projects || [],
-      sprints: options.sprints || []
+      statuses: options.status || [],
+      projects: options.project || [],
+      sprints: options.sprint || []
     };
   }, [issues, filterConfig]);
 

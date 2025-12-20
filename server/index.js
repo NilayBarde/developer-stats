@@ -149,6 +149,29 @@ app.get('/api/issues', createCachedEndpoint({
   })
 }));
 
+// Get projects grouped by epic
+app.get('/api/projects', createCachedEndpoint({
+  cacheKeyPrefix: 'projects-v2', // Changed prefix to invalidate old cache
+  fetchFn: (dateRange) => jiraService.getProjectsByEpic(dateRange),
+  ttl: 300,
+  transformResponse: (data) => ({
+    ...data,
+    baseUrl: process.env.JIRA_BASE_URL?.replace(/\/$/, '')
+  })
+}));
+
+// Clear cache endpoint (useful for debugging)
+app.post('/api/cache/clear', (req, res) => {
+  const { prefix } = req.body;
+  if (prefix) {
+    cache.deleteByPrefix(prefix);
+    res.json({ message: `Cache cleared for prefix: ${prefix}` });
+  } else {
+    cache.clear();
+    res.json({ message: 'All cache cleared' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
