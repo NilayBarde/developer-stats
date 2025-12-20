@@ -83,8 +83,11 @@ function VelocityChart({ sprints, title = "Velocity Over Time", showBenchmarks =
   };
 
   useEffect(() => {
+    // Capture ref value at the start of the effect
+    const currentRef = tooltipRef.current;
+    
     const handleMouseMove = (e) => {
-      if (tooltipRef.current && tooltipRef.current.contains(e.target)) {
+      if (currentRef && currentRef.contains(e.target)) {
         if (hideTimeoutRef.current) {
           clearTimeout(hideTimeoutRef.current);
         }
@@ -98,15 +101,16 @@ function VelocityChart({ sprints, title = "Velocity Over Time", showBenchmarks =
       }, 300);
     };
 
-    if (isTooltipVisible && tooltipRef.current) {
-      tooltipRef.current.addEventListener('mouseleave', handleMouseLeave);
+    if (isTooltipVisible && currentRef) {
+      currentRef.addEventListener('mouseleave', handleMouseLeave);
       document.addEventListener('mousemove', handleMouseMove);
     }
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
-      if (tooltipRef.current) {
-        tooltipRef.current.removeEventListener('mouseleave', handleMouseLeave);
+      // Use the captured ref value from the start of the effect
+      if (currentRef) {
+        currentRef.removeEventListener('mouseleave', handleMouseLeave);
       }
       if (hideTimeoutRef.current) {
         clearTimeout(hideTimeoutRef.current);

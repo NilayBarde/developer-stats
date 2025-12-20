@@ -105,26 +105,26 @@ function App() {
 
           {error && <div className="error-banner">{error}</div>}
 
-          <div className="stats-grid">
-            {loading && !stats ? (
-              <>
-                {/* Combined Overview Loading */}
-                <div className="stats-loading">
-                  <div className="loading-spinner"></div>
-                  <p>Loading overview...</p>
-                </div>
-                {/* Jira Stats Loading */}
-                <div className="stats-loading">
-                  <div className="loading-spinner"></div>
-                  <p>Loading Jira stats...</p>
-                </div>
-                {/* Git Stats Loading */}
-                <div className="stats-loading">
-                  <div className="loading-spinner"></div>
-                  <p>Loading Git stats...</p>
-                </div>
-              </>
-            ) : (
+           <div className="stats-grid">
+             {loading ? (
+               <>
+                 {/* Combined Overview Loading */}
+                 <div className="stats-loading">
+                   <div className="loading-spinner"></div>
+                   <p>Loading overview...</p>
+                 </div>
+                 {/* Jira Stats Loading */}
+                 <div className="stats-loading">
+                   <div className="loading-spinner"></div>
+                   <p>Loading Jira stats...</p>
+                 </div>
+                 {/* Git Stats Loading */}
+                 <div className="stats-loading">
+                   <div className="loading-spinner"></div>
+                   <p>Loading Git stats...</p>
+                 </div>
+               </>
+             ) : (
               <>
                 {/* Combined Overview */}
                 {stats && <CombinedOverview githubStats={stats.github} gitlabStats={stats.gitlab} jiraStats={stats.jira} />}
