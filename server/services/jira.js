@@ -1750,6 +1750,7 @@ async function getProjectsByEpic(dateRange = null) {
       return {
         epics: [],
         issuesWithoutEpic: 0,
+        issuesWithoutEpicList: [],
         totalEpics: 0
       };
     }
@@ -1913,9 +1914,25 @@ async function getProjectsByEpic(dateRange = null) {
     const epicKeys = Array.from(epicKeysSet);
     
     if (epicKeys.length === 0) {
+      // Format issues without epics
+      const formattedIssuesWithoutEpic = issuesWithoutEpic.map(issue => {
+        return {
+          key: issue.key,
+          summary: issue.fields?.summary,
+          status: issue.fields?.status?.name,
+          storyPoints: getStoryPoints(issue),
+          created: issue.fields?.created,
+          updated: issue.fields?.updated,
+          resolved: issue.fields?.resolutiondate,
+          assignee: issue.fields?.assignee?.displayName || 'Unassigned',
+          isUserIssue: true
+        };
+      });
+      
       return {
         epics: [],
         issuesWithoutEpic: issuesWithoutEpic.length,
+        issuesWithoutEpicList: formattedIssuesWithoutEpic,
         totalEpics: 0
       };
     }
@@ -2234,9 +2251,25 @@ async function getProjectsByEpic(dateRange = null) {
       return a.epicName.localeCompare(b.epicName);
     });
 
+    // Format issues without epics in the same format as epic issues
+    const formattedIssuesWithoutEpic = issuesWithoutEpic.map(issue => {
+      return {
+        key: issue.key,
+        summary: issue.fields?.summary,
+        status: issue.fields?.status?.name,
+        storyPoints: getStoryPoints(issue),
+        created: issue.fields?.created,
+        updated: issue.fields?.updated,
+        resolved: issue.fields?.resolutiondate,
+        assignee: issue.fields?.assignee?.displayName || 'Unassigned',
+        isUserIssue: true
+      };
+    });
+
     const result = {
       epics: epicsData,
       issuesWithoutEpic: issuesWithoutEpic.length,
+      issuesWithoutEpicList: formattedIssuesWithoutEpic,
       totalEpics: epicsData.length
     };
 

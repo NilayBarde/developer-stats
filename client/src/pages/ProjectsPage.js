@@ -179,6 +179,44 @@ function ProjectsPage() {
                 </div>
               );
             })}
+
+            {/* Issues Without Epic Section */}
+            {projects.issuesWithoutEpicList && projects.issuesWithoutEpicList.length > 0 && (
+              <div className="project-card">
+              <div className="project-header">
+                <div className="project-title-section">
+                  <h2>Issues Without Epic</h2>
+                  <div className="project-meta">
+                    <span className="project-key">{projects.issuesWithoutEpic} issues</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Issues List */}
+              <div className="project-issues">
+                <h3>Your Issues ({projects.issuesWithoutEpicList.length} total)</h3>
+                <div className="issues-list">
+                  {projects.issuesWithoutEpicList.map(issue => (
+                    <div key={issue.key} className="issue-item user-issue">
+                      <a
+                        href={getJiraUrl(issue.key, baseUrl)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="issue-link"
+                      >
+                        {issue.key}
+                      </a>
+                      <span className="issue-summary">{issue.summary}</span>
+                      <span className="issue-story-points">{issue.storyPoints > 0 ? `${issue.storyPoints} SP` : '-'}</span>
+                      <span className={`issue-status issue-status-${issue.status.toLowerCase().replace(/\s+/g, '-')}`}>
+                        {issue.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            )}
           </div>
         </>
       )}
