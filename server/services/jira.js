@@ -2111,12 +2111,61 @@ async function getProjectsByEpic(dateRange = null) {
       // Calculate metrics from issues (excluding User Stories)
       let totalStoryPoints = 0;
       let totalAssignedStoryPoints = 0; // Only story points from tickets assigned to someone
-      let remainingStoryPoints = 0; // Story points from tickets that are not done
+      let remainingStoryPoints = 0; // Story points from tickets in To Do, In Progress, or Code Review
+      let storyPointsCompleted = 0; // Story points from tickets in Ready for QA Release or later (excluding In Progress and Code Review)
       let userStoryPoints = 0;
       let totalDoneIssues = 0;
       let userDoneIssues = 0;
       let userIssuesCount = 0;
       let allIssuesClosed = true;
+      
+      // Helper function to check if status is in "remaining" category (To Do, In Progress, Code Review, Blocked)
+      function isRemainingStatus(statusName) {
+        const normalizedStatus = (statusName || '').toLowerCase();
+        return [
+          'to do',
+          'todo',
+          'open',
+          'backlog',
+          'in progress',
+          'inprogress',
+          'code review',
+          'codereview',
+          'review',
+          'blocked'
+        ].includes(normalizedStatus);
+      }
+      
+      // Helper function to check if status is "Ready for QA Release" or later (completed)
+      // Explicitly excludes In Progress and Code Review
+      function isCompletedStatus(statusName) {
+        const normalizedStatus = (statusName || '').toLowerCase();
+        
+        // Explicitly exclude In Progress and Code Review
+        if (normalizedStatus.includes('in progress') || 
+            normalizedStatus.includes('inprogress') ||
+            normalizedStatus.includes('code review') ||
+            normalizedStatus.includes('codereview') ||
+            normalizedStatus.includes('review') && !normalizedStatus.includes('qa')) {
+          return false;
+        }
+        
+        const completedStatuses = [
+          'ready for qa release',
+          'ready for qa',
+          'qa ready',
+          'ready for testing',
+          'qa release',
+          'ready for prod',
+          'ready for production',
+          'ready for prod release',
+          'prod ready',
+          'done',
+          'closed',
+          'resolved'
+        ];
+        return completedStatuses.some(status => normalizedStatus.includes(status));
+      }
       
       // First pass: Calculate metrics from all issues (excluding User Stories)
       issuesToCount.forEach(issue => {
@@ -2124,6 +2173,7 @@ async function getProjectsByEpic(dateRange = null) {
         const isUser = isUserIssue(issue);
         const statusName = issue.fields?.status?.name || '';
         const isDone = ['Done', 'Closed', 'Resolved'].includes(statusName);
+        const isCompleted = isCompletedStatus(statusName);
         const isAssigned = !!issue.fields?.assignee;
         
         totalStoryPoints += points;
@@ -2133,14 +2183,20 @@ async function getProjectsByEpic(dateRange = null) {
           totalAssignedStoryPoints += points;
         }
         
-        // Count remaining story points (not done)
-        if (!isDone) {
+        // Count completed story points (Ready for QA Release or later, excluding In Progress and Code Review)
+        if (isCompleted) {
+          storyPointsCompleted += points;
+        } else {
+          // If not completed, it's remaining (includes To Do, In Progress, Code Review, Blocked, and any intermediate statuses)
           remainingStoryPoints += points;
         }
         
-        if (isDone) totalDoneIssues++;
+        // Count completed issues (Ready for QA Release or later)
+        if (isCompleted) {
+          totalDoneIssues++;
+        }
         
-        // Check if all issues are closed
+        // Check if all issues are closed (using old logic for backward compatibility)
         if (!isDone) {
           allIssuesClosed = false;
         }
@@ -2148,7 +2204,10 @@ async function getProjectsByEpic(dateRange = null) {
         if (isUser) {
           userStoryPoints += points;
           userIssuesCount++;
-          if (isDone) userDoneIssues++;
+          // Count user's completed issues (Ready for QA Release or later)
+          if (isCompleted) {
+            userDoneIssues++;
+          }
         }
       });
       
@@ -2217,9 +2276,10 @@ async function getProjectsByEpic(dateRange = null) {
         metrics: {
           totalIssues: issuesToCount.length, // Total issues in epic (excluding User Stories)
           totalDoneIssues,
-          totalStoryPoints,
+          totalStoryPoints, // Total story points in epic (all issues, excluding User Stories)
           totalAssignedStoryPoints, // Story points from tickets assigned to someone
-          remainingStoryPoints, // Story points from tickets that are not done
+          remainingStoryPoints, // Story points from tickets in To Do, In Progress, or Code Review
+          storyPointsCompleted, // Story points from tickets in Ready for QA Release or later (excluding In Progress and Code Review)
           totalCompletionPercentage: issuesToCount.length > 0 
             ? Math.round((totalDoneIssues / issuesToCount.length) * 100) 
             : 0,

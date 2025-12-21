@@ -125,12 +125,29 @@ function ProjectsPage() {
                   {/* Metrics */}
                   <div className="project-metrics">
                     <div className="metric-item">
-                      <span className="metric-label">Story Points:</span>
+                      <span className="metric-label">Total Story Points:</span>
                       <span className="metric-value">
-                        {epic.metrics.userStoryPoints} / {epic.metrics.totalAssignedStoryPoints}
+                        {epic.metrics.totalStoryPoints || 0}
                       </span>
                       <span className="metric-percentage">
-                        ({epic.metrics.userStoryPointsPercentage}% yours)
+                        (<a 
+                          href={getJiraUrl(epic.epicKey, baseUrl)} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="epic-link"
+                          style={{ textDecoration: 'underline' }}
+                        >
+                          all issues in epic
+                        </a>)
+                      </span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">Story Points Completed:</span>
+                      <span className="metric-value">
+                        {epic.metrics.storyPointsCompleted || 0}
+                      </span>
+                      <span className="metric-percentage">
+                        (Ready for QA Release or later)
                       </span>
                     </div>
                     <div className="metric-item">
@@ -139,7 +156,7 @@ function ProjectsPage() {
                         {epic.metrics.remainingStoryPoints}
                       </span>
                       <span className="metric-percentage">
-                        (not completed)
+                        (To Do, In Progress, Code Review, Blocked)
                       </span>
                     </div>
                     <div className="metric-item">
