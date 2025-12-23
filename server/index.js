@@ -157,16 +157,226 @@ app.get('/api/issues', createCachedEndpoint({
   })
 }));
 
-// Get projects grouped by epic
-app.get('/api/projects', createCachedEndpoint({
-  cacheKeyPrefix: 'projects-v2', // Changed prefix to invalidate old cache
-  fetchFn: (dateRange) => jiraService.getProjectsByEpic(dateRange),
-  ttl: 300,
-  transformResponse: (data) => ({
-    ...data,
-    baseUrl: process.env.JIRA_BASE_URL?.replace(/\/$/, '')
-  })
-}));
+// Load project analytics config
+const fs = require('fs');
+const path = require('path');
+let projectAnalyticsConfig = { projects: {} };
+try {
+  const configPath = path.join(__dirname, 'config', 'projectAnalytics.json');
+  if (fs.existsSync(configPath)) {
+    projectAnalyticsConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  }
+} catch (error) {
+  console.warn('Could not load project analytics config:', error.message);
+}
+
+// Get projects grouped by epic (with optional analytics)
+app.get('/api/projects', async (req, res) => {
+  const startTime = Date.now();
+  const dateRange = parseDateRange(req.query);
+  const cacheKey = `projects-v3:${JSON.stringify(dateRange)}`;
+  
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    console.log('✓ projects-v3 served from cache');
+    setCacheHeaders(res, true);
+    return res.json(cached);
+  }
+
+  try {
+    // Get Jira projects
+    const projectsData = await jiraService.getProjectsByEpic(dateRange);
+    
+    // Fetch analytics for configured projects (in parallel)
+    const analyticsPromises = projectsData.epics.map(async (epic) => {
+      const config = projectAnalyticsConfig.projects?.[epic.epicKey];
+      if (config && config.enabled) {
+        try {
+          const analytics = await adobeAnalyticsService.getProjectAnalytics(config);
+          return { epicKey: epic.epicKey, analytics };
+        } catch (error) {
+          console.error(`Analytics error for ${epic.epicKey}:`, error.message);
+          return { epicKey: epic.epicKey, analytics: null };
+        }
+      }
+      return { epicKey: epic.epicKey, analytics: null };
+    });
+    
+    const analyticsResults = await Promise.all(analyticsPromises);
+    
+    // Merge analytics into epics
+    const epicsWithAnalytics = projectsData.epics.map(epic => {
+      const analyticsResult = analyticsResults.find(r => r.epicKey === epic.epicKey);
+      return {
+        ...epic,
+        analytics: analyticsResult?.analytics || null
+      };
+    });
+    
+    const result = {
+      ...projectsData,
+      epics: epicsWithAnalytics,
+      baseUrl: process.env.JIRA_BASE_URL?.replace(/\/$/, '')
+    };
+    
+    cache.set(cacheKey, result, 300);
+    console.log(`✓ projects-v3 fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    setCacheHeaders(res, false);
+    res.json(result);
+  } catch (error) {
+    console.error('Projects error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get analytics for a specific project
+app.get('/api/projects/:epicKey/analytics', async (req, res) => {
+  const { epicKey } = req.params;
+  const config = projectAnalyticsConfig.projects?.[epicKey];
+  
+  if (!config || !config.enabled) {
+    return res.status(404).json({ error: 'Analytics not configured for this project' });
+  }
+  
+  try {
+    const analytics = await adobeAnalyticsService.getProjectAnalytics(config);
+    res.json(analytics);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all project analytics (for Analytics page)
+app.get('/api/project-analytics', async (req, res) => {
+  const cacheKey = 'all-project-analytics';
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    console.log('✓ Project analytics served from cache');
+    setCacheHeaders(res, true);
+    return res.json(cached);
+  }
+
+  try {
+    const projects = Object.entries(projectAnalyticsConfig.projects || {})
+      .filter(([_, config]) => config.enabled)
+      .map(([epicKey, config]) => ({ epicKey, ...config }));
+
+    if (projects.length === 0) {
+      return res.json({ projects: [] });
+    }
+
+    // Fetch sequentially with delays to avoid rate limiting
+    const analyticsResults = [];
+    for (const project of projects) {
+      try {
+        const analytics = await adobeAnalyticsService.getProjectAnalytics(project);
+        analyticsResults.push({
+          epicKey: project.epicKey,
+          label: project.label,
+          pageFilter: project.pageFilter,
+          launchDate: project.launchDate,
+          ...analytics
+        });
+      } catch (error) {
+        analyticsResults.push({
+          epicKey: project.epicKey,
+          label: project.label,
+          error: error.message
+        });
+      }
+      // Small delay between requests to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    const result = { projects: analyticsResults };
+    cache.set(cacheKey, result, 300);
+    setCacheHeaders(res, false);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Debug: Get top pages from Adobe Analytics (to find the right filter)
+app.get('/api/analytics/top-pages', async (req, res) => {
+  try {
+    const searchTerm = req.query.search || null;
+    const dimension = req.query.dim || 'variables/page';
+    const data = await adobeAnalyticsService.getTopPages(searchTerm, dimension);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Debug: Search for a specific page by name/URL
+app.get('/api/analytics/find-page', async (req, res) => {
+  try {
+    const search = req.query.q;
+    if (!search) {
+      return res.status(400).json({ error: 'Missing ?q=search parameter' });
+    }
+    const data = await adobeAnalyticsService.findPage(search);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// List available report suites
+app.get('/api/analytics/report-suites', async (req, res) => {
+  try {
+    const data = await adobeAnalyticsService.listReportSuites();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get top click events (for discovering click tracking data)
+app.get('/api/analytics/clicks', async (req, res) => {
+  try {
+    const searchTerm = req.query.search || null;
+    const data = await adobeAnalyticsService.getTopClickEvents(searchTerm);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get clicks broken down by source page
+app.get('/api/analytics/clicks-by-source', async (req, res) => {
+  try {
+    const clickPage = req.query.page || 'espn:betting:interstitial';
+    const data = await adobeAnalyticsService.getClicksBySource(clickPage);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get clicks filtered by page token (e.g., topeventsodds, gamecast, scoreboard)
+app.get('/api/analytics/page-clicks', async (req, res) => {
+  try {
+    const launchDate = req.query.launchDate || null;
+    const pageToken = req.query.pageToken || 'topeventsodds';
+    const data = await adobeAnalyticsService.getOddsPageClicks(launchDate, pageToken);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Legacy endpoint - keep for backwards compatibility
+app.get('/api/analytics/odds-page-clicks', async (req, res) => {
+  try {
+    const launchDate = req.query.launchDate || null;
+    const data = await adobeAnalyticsService.getOddsPageClicks(launchDate, 'topeventsodds');
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Get Adobe Analytics stats
 app.get('/api/stats/adobe', createSimpleEndpoint({

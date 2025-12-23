@@ -12,6 +12,7 @@ import CombinedOverview from './components/CombinedOverview';
 import IssuesPage from './pages/IssuesPage';
 import PRsPage from './pages/PRsPage';
 import ProjectsPage from './pages/ProjectsPage';
+import AnalyticsPage from './pages/AnalyticsPage';
 
 function App() {
   const location = useLocation();
@@ -75,12 +76,16 @@ function App() {
         <Link to="/projects" className={location.pathname === '/projects' ? 'active' : ''}>
           Projects
         </Link>
+        <Link to="/analytics" className={location.pathname === '/analytics' ? 'active' : ''}>
+          Analytics
+        </Link>
       </nav>
       
       <Routes>
         <Route path="/issues" element={<IssuesPage />} />
         <Route path="/prs" element={<PRsPage />} />
         <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/" element={
           <>
             <header className="app-header">

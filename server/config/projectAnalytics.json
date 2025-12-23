@@ -1,0 +1,44 @@
+{
+  "projects": {
+    "topeventsodds": {
+      "label": "Top Events Odds",
+      "clickEventFilter": "topeventsodds",
+      "launchDate": "2025-12-01",
+      "enabled": true,
+      "trackClicks": true,
+      "trackPageViews": false
+    },
+    "sport-odds": {
+      "label": "Sport Odds (NFL, NBA, etc)",
+      "clickEventFilter": ":odds",
+      "launchDate": "2025-12-01",
+      "enabled": true,
+      "trackClicks": true,
+      "trackPageViews": false
+    },
+    "gamecast": {
+      "label": "Gamecast",
+      "clickEventFilter": "gamecast",
+      "launchDate": "2025-12-01",
+      "enabled": true,
+      "trackClicks": true,
+      "trackPageViews": false
+    },
+    "scoreboard": {
+      "label": "Scoreboard",
+      "clickEventFilter": "scoreboard",
+      "launchDate": "2025-12-01",
+      "enabled": true,
+      "trackClicks": true,
+      "trackPageViews": false
+    },
+    "schedule": {
+      "label": "Schedule",
+      "clickEventFilter": "schedule",
+      "launchDate": "2025-12-01",
+      "enabled": true,
+      "trackClicks": true,
+      "trackPageViews": false
+    }
+  }
+}
