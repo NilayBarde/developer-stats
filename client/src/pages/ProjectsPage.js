@@ -6,6 +6,7 @@ import { buildApiUrl } from '../utils/apiHelpers';
 import { getJiraUrl } from '../utils/urlHelpers';
 import clientCache from '../utils/clientCache';
 import StatsCard from '../components/StatsCard';
+import ProjectAnalytics from '../components/ProjectAnalytics';
 import './ProjectsPage.css';
 
 function ProjectsPage() {
@@ -193,6 +194,12 @@ function ProjectsPage() {
                       ))}
                     </div>
                   </div>
+                  
+                  {/* Project Analytics */}
+                  <ProjectAnalytics 
+                    projectName={epic.epicName} 
+                    epicKey={epic.epicKey}
+                  />
                 </div>
               );
             })}

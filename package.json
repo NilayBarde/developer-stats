@@ -10,19 +10,25 @@
     "build": "cd client && npm run build",
     "install-all": "npm install && cd client && npm install"
   },
-  "keywords": ["dashboard", "github", "gitlab", "jira", "stats"],
+  "keywords": [
+    "dashboard",
+    "github",
+    "gitlab",
+    "jira",
+    "stats"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
+    "@adobe/jwt-auth": "^2.0.0",
+    "axios": "^1.13.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "axios": "^1.6.2",
+    "express": "^4.18.2",
     "node-cron": "^3.0.3"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2",
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "nodemon": "^3.0.2"
   }
 }
-

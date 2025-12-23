@@ -8,6 +8,7 @@ const { createCachedEndpoint, createSimpleEndpoint } = require('./utils/endpoint
 const githubService = require('./services/github');
 const gitlabService = require('./services/gitlab');
 const jiraService = require('./services/jira');
+const adobeAnalyticsService = require('./services/adobeAnalytics');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -30,6 +31,13 @@ app.get('/api/debug/env', (req, res) => {
     GITHUB_TOKEN: process.env.GITHUB_TOKEN ? 'set' : 'not set',
     JIRA_PAT: process.env.JIRA_PAT ? 'set' : 'not set',
     JIRA_BASE_URL: process.env.JIRA_BASE_URL || 'not set',
+    ADOBE_CLIENT_ID: process.env.ADOBE_CLIENT_ID ? 'set' : 'not set',
+    ADOBE_CLIENT_SECRET: process.env.ADOBE_CLIENT_SECRET ? 'set' : 'not set',
+    ADOBE_ORG_ID: process.env.ADOBE_ORG_ID ? 'set' : 'not set',
+    ADOBE_TECHNICAL_ACCOUNT_ID: process.env.ADOBE_TECHNICAL_ACCOUNT_ID ? 'set' : 'not set',
+    ADOBE_TECHNICAL_ACCOUNT_EMAIL: process.env.ADOBE_TECHNICAL_ACCOUNT_EMAIL ? 'set' : 'not set',
+    ADOBE_PRIVATE_KEY: process.env.ADOBE_PRIVATE_KEY ? 'set' : 'not set',
+    ADOBE_REPORT_SUITE_ID: process.env.ADOBE_REPORT_SUITE_ID || 'not set',
   });
 });
 
@@ -159,6 +167,28 @@ app.get('/api/projects', createCachedEndpoint({
     baseUrl: process.env.JIRA_BASE_URL?.replace(/\/$/, '')
   })
 }));
+
+// Get Adobe Analytics stats
+app.get('/api/stats/adobe', createSimpleEndpoint({
+  fetchFn: (dateRange) => adobeAnalyticsService.getStats(dateRange)
+}));
+
+// Get Adobe Analytics data
+app.get('/api/analytics', createCachedEndpoint({
+  cacheKeyPrefix: 'adobe-analytics',
+  fetchFn: (dateRange) => adobeAnalyticsService.getAnalyticsData(dateRange),
+  ttl: 300
+}));
+
+// Test Adobe Analytics authentication
+app.get('/api/analytics/test-auth', async (req, res) => {
+  try {
+    const result = await adobeAnalyticsService.testAuth();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Clear cache endpoint (useful for debugging)
 app.post('/api/cache/clear', (req, res) => {
