@@ -27,33 +27,21 @@ function JiraSection({ stats, compact = false }) {
           <StatsCard
             title="Total Issues"
             value={stats.total}
-            subtitle={`${stats.last30Days || 0} in last 30 days`}
+            subtitle={`${stats.done || 0} done, ${stats.inProgress || 0} in progress`}
           />
         </div>
         <StatsCard
-          title="Resolved"
-          value={stats.resolved}
-          subtitle={`${stats.inProgress || 0} in progress`}
-        />
-        <StatsCard
-          title="Done"
-          value={stats.done}
-          subtitle={`${stats.inProgress || 0} in progress`}
+          title="Total Story Points"
+          value={stats.totalStoryPoints || 0}
+          subtitle={`${stats.total || 0} issues`}
         />
         <StatsCard
           title="Avg Resolution Time"
           value={`${stats.avgResolutionTime || 0} days`}
           subtitle={stats.avgResolutionTimeCount !== undefined 
-            ? `In Progress → Ready for QA Release (${stats.avgResolutionTimeCount} issues)`
-            : "In Progress → Ready for QA Release"}
+            ? `In Progress → QA Ready (${stats.avgResolutionTimeCount} issues)`
+            : "In Progress → QA Ready"}
         />
-        {stats.avgIssuesPerMonth !== undefined && (
-          <StatsCard
-            title="Avg Issues per Month"
-            value={stats.avgIssuesPerMonth}
-            subtitle="Monthly average"
-          />
-        )}
         {stats.velocity && (
           <StatsCard
             title="Avg Velocity"

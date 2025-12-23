@@ -1,12 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import DateFilter from '../components/DateFilter';
-import { getCurrentWorkYearStart, formatWorkYearLabel } from '../utils/dateHelpers';
-import { buildApiUrl } from '../utils/apiHelpers';
 import { getJiraUrl } from '../utils/urlHelpers';
 import clientCache from '../utils/clientCache';
 import StatsCard from '../components/StatsCard';
-import ProjectAnalytics from '../components/ProjectAnalytics';
 import './ProjectsPage.css';
 
 function ProjectsPage() {
@@ -14,19 +10,12 @@ function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [baseUrl, setBaseUrl] = useState(null);
-  
-  const workYearStart = getCurrentWorkYearStart();
-  const [dateRange, setDateRange] = useState({
-    label: formatWorkYearLabel(workYearStart),
-    start: workYearStart,
-    end: null,
-    type: 'custom'
-  });
 
-  // Fetch projects
+  // Fetch all projects (no date filtering)
   const fetchProjects = useCallback(async () => {
     // Check cache first
-    const cached = clientCache.get('/api/projects', dateRange);
+    const cacheKey = '/api/projects-all';
+    const cached = clientCache.get(cacheKey, null);
     if (cached) {
       setProjects(cached);
       setBaseUrl(cached.baseUrl);
@@ -38,17 +27,17 @@ function ProjectsPage() {
     try {
       setLoading(true);
       setError(null);
-      const response = await axios.get(buildApiUrl('/api/projects', dateRange));
+      const response = await axios.get('/api/projects');
       setProjects(response.data);
       setBaseUrl(response.data.baseUrl);
-      clientCache.set('/api/projects', dateRange, response.data);
+      clientCache.set(cacheKey, null, response.data);
     } catch (err) {
       setError('Failed to fetch projects. Please check your API configuration.');
       console.error('Error fetching projects:', err);
     } finally {
       setLoading(false);
     }
-  }, [dateRange]);
+  }, []);
 
   useEffect(() => {
     fetchProjects();
@@ -60,10 +49,7 @@ function ProjectsPage() {
       <header className="page-header">
         <div>
           <h1>Projects</h1>
-          <p className="date-label">{dateRange.label}</p>
-        </div>
-        <div className="header-controls">
-          <DateFilter value={dateRange} onChange={setDateRange} />
+          <p className="date-label">All time · Sorted by most recent activity</p>
         </div>
       </header>
 
@@ -81,23 +67,31 @@ function ProjectsPage() {
           {/* Summary Stats */}
           <div className="projects-summary">
             <StatsCard
-              title="Total Projects"
+              title="Projects"
               value={projects.totalEpics}
               subtitle={`${projects.issuesWithoutEpic} issues without epic`}
               color="blue"
             />
             <StatsCard
-              title="Total Story Points"
-              value={projects.epics.reduce((sum, epic) => sum + (epic.metrics.totalAssignedStoryPoints || 0), 0)}
-              subtitle={`${projects.epics.reduce((sum, epic) => sum + epic.metrics.userStoryPoints, 0)} by you`}
+              title="My Total Contribution"
+              value={`${projects.epics.reduce((sum, epic) => sum + (epic.metrics.userTotalPointsAllTime || 0), 0) + 
+                     (projects.issuesWithoutEpicList || []).reduce((sum, issue) => sum + (issue.storyPoints || 0), 0)} SP`}
+              subtitle={`${projects.epics.reduce((sum, epic) => sum + (epic.metrics.userTotalIssuesAllTime || 0), 0) + (projects.issuesWithoutEpicList?.length || 0)} issues across all projects`}
               color="green"
             />
-            <StatsCard
-              title="Avg Completion"
-              value={`${Math.round(projects.epics.reduce((sum, epic) => sum + epic.metrics.totalCompletionPercentage, 0) / projects.epics.length)}%`}
-              subtitle="Average across all projects"
-              color="purple"
-            />
+          </div>
+
+          {/* Filter Info */}
+          <div className="filter-info">
+            <details>
+              <summary>📊 How this data is filtered</summary>
+              <ul>
+                <li><strong>Your projects:</strong> Shows all epics/projects you've contributed to</li>
+                <li><strong>Your issues only:</strong> Shows issues assigned to you within each project</li>
+                <li><strong>Excludes:</strong> User Story issue types (containers, not actual work items)</li>
+                <li><strong>Sorted by:</strong> Most recent activity first</li>
+              </ul>
+            </details>
           </div>
 
           {/* Projects List */}
@@ -119,61 +113,54 @@ function ProjectsPage() {
                       </h2>
                       <div className="project-meta">
                         <span className="project-key">{epic.project}</span>
+                        {epic.issueTypeBreakdown && Object.keys(epic.issueTypeBreakdown).length > 0 && (
+                          <span className="issue-type-breakdown">
+                            {Object.entries(epic.issueTypeBreakdown)
+                              .sort((a, b) => b[1] - a[1])
+                              .map(([type, count]) => `${count} ${type}${count !== 1 ? 's' : ''}`)
+                              .join(' · ')}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
 
                   {/* Metrics */}
                   <div className="project-metrics">
-                    <div className="metric-item">
-                      <span className="metric-label">Total Story Points:</span>
+                    <div className="metric-item metric-epic-total">
+                      <span className="metric-label">Epic Total</span>
                       <span className="metric-value">
-                        {epic.metrics.totalStoryPoints || 0}
+                        {epic.metrics.epicTotalIssues || 0} issues · {epic.metrics.epicTotalPoints || 0} SP
+                      </span>
+                    </div>
+                    <div className="metric-item metric-contribution">
+                      <span className="metric-label">My Contribution</span>
+                      <span className="metric-value">
+                        {epic.metrics.userTotalIssuesAllTime || 0} issues · {epic.metrics.userTotalPointsAllTime || 0} SP
                       </span>
                       <span className="metric-percentage">
-                        (<a 
-                          href={getJiraUrl(epic.epicKey, baseUrl)} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="epic-link"
-                          style={{ textDecoration: 'underline' }}
-                        >
-                          all issues in epic
-                        </a>)
+                        ({epic.metrics.epicTotalPoints > 0 
+                          ? Math.round(((epic.metrics.userTotalPointsAllTime || 0) / epic.metrics.epicTotalPoints) * 100) 
+                          : 0}% of epic)
                       </span>
                     </div>
                     <div className="metric-item">
-                      <span className="metric-label">Story Points Completed:</span>
+                      <span className="metric-label">Completed</span>
                       <span className="metric-value">
-                        {epic.metrics.storyPointsCompleted || 0}
-                      </span>
-                      <span className="metric-percentage">
-                        (Ready for QA Release or later)
+                        {epic.metrics.totalDoneIssues || 0} issues · {epic.metrics.storyPointsCompleted || 0} SP
                       </span>
                     </div>
                     <div className="metric-item">
-                      <span className="metric-label">Remaining Story Points:</span>
+                      <span className="metric-label">In Progress</span>
                       <span className="metric-value">
-                        {epic.metrics.remainingStoryPoints}
-                      </span>
-                      <span className="metric-percentage">
-                        (To Do, In Progress, Code Review, Blocked)
-                      </span>
-                    </div>
-                    <div className="metric-item">
-                      <span className="metric-label">Issues Completed:</span>
-                      <span className="metric-value">
-                        {epic.metrics.userDoneIssues} / {epic.metrics.totalIssues}
-                      </span>
-                      <span className="metric-percentage">
-                        ({epic.metrics.totalCompletionPercentage}% total completion)
+                        {(epic.metrics.totalIssues || 0) - (epic.metrics.totalDoneIssues || 0)} issues · {epic.metrics.remainingStoryPoints || 0} SP
                       </span>
                     </div>
                   </div>
 
                   {/* Issues List */}
                   <div className="project-issues">
-                    <h3>Your Issues ({epic.metrics.userIssues} of {epic.metrics.totalIssues} total)</h3>
+                    <h3>My Issues</h3>
                     <div className="issues-list">
                       {epic.issues.map(issue => (
                         <div key={issue.key} className="issue-item user-issue">
@@ -194,12 +181,6 @@ function ProjectsPage() {
                       ))}
                     </div>
                   </div>
-                  
-                  {/* Project Analytics */}
-                  <ProjectAnalytics 
-                    projectName={epic.epicName} 
-                    epicKey={epic.epicKey}
-                  />
                 </div>
               );
             })}
@@ -211,14 +192,14 @@ function ProjectsPage() {
                 <div className="project-title-section">
                   <h2>Issues Without Epic</h2>
                   <div className="project-meta">
-                    <span className="project-key">{projects.issuesWithoutEpic} issues</span>
+                    <span className="project-key">{projects.issuesWithoutEpic} issues · {(projects.issuesWithoutEpicList || []).reduce((sum, issue) => sum + (issue.storyPoints || 0), 0)} SP</span>
                   </div>
                 </div>
               </div>
 
               {/* Issues List */}
               <div className="project-issues">
-                <h3>Your Issues ({projects.issuesWithoutEpicList.length} total)</h3>
+                <h3>My Issues</h3>
                 <div className="issues-list">
                   {projects.issuesWithoutEpicList.map(issue => (
                     <div key={issue.key} className="issue-item user-issue">

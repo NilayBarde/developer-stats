@@ -884,6 +884,11 @@ async function calculateStats(issues, dateRange = null) {
     
     return true;
   });
+  
+  // Exclude User Story issue types (these are containers, not actual work items)
+  filteredIssues = filteredIssues.filter(issue => 
+    issue.fields?.issuetype?.name !== 'User Story'
+  );
 
   // Basic stats - use 'updated' for time period stats to match filtering
   const timePeriodStats = calculateTimePeriodStats(filteredIssues, 'fields.updated');
@@ -1593,10 +1598,9 @@ async function getAllIssuesForPage(dateRange = null) {
  * 
  * Logic:
  * 1. Get user's issues filtered by date range
- * 2. Extract epic keys from those issues
- * 3. For each epic, fetch ALL issues in that epic (not date filtered)
- * 4. Mark issues as "user's" based on assignee (not date filter)
- * 5. Calculate story points: user's total vs epic's total
+ * 2. Group those issues by epic key
+ * 3. Calculate metrics ONLY from user's issues in the date range
+ * 4. Only shows epics/projects the user worked on within the date range
  */
 async function getProjectsByEpic(dateRange = null) {
   if (!JIRA_PAT || !JIRA_BASE_URL) {
@@ -1755,10 +1759,30 @@ async function getProjectsByEpic(dateRange = null) {
       };
     }
     
+    // Filter issues
+    let filteredIssues = [...userIssuesInDateRange];
+    
+    // Exclude closed unassigned tickets (cancelled/no work needed)
+    filteredIssues = filteredIssues.filter(issue => {
+      const statusName = issue.fields?.status?.name || '';
+      const isClosed = ['Done', 'Closed', 'Resolved'].includes(statusName);
+      const isUnassigned = !issue.fields?.assignee;
+      
+      // Exclude closed unassigned tickets
+      if (isClosed && isUnassigned) {
+        return false;
+      }
+      
+      return true;
+    });
+    
+    // Use filtered issues instead of userIssuesInDateRange
+    const userIssuesFiltered = filteredIssues;
+    
     // Extract epic keys from user's issues using multiple methods
     const epicKeysSet = new Set();
     const issuesWithoutEpic = [];
-    const userIssueKeys = new Set(userIssuesInDateRange.map(i => i.key));
+    const userIssueKeys = new Set(userIssuesFiltered.map(i => i.key));
     
     // Helper to extract epic key from an issue
     function extractEpicKey(issue) {
@@ -1840,7 +1864,7 @@ async function getProjectsByEpic(dateRange = null) {
     }
     
     // Extract epic keys from user's issues
-    for (const issue of userIssuesInDateRange) {
+    for (const issue of userIssuesFiltered) {
       const epicKey = extractEpicKey(issue);
       if (epicKey) {
         epicKeysSet.add(epicKey);
@@ -1913,35 +1937,93 @@ async function getProjectsByEpic(dateRange = null) {
     
     const epicKeys = Array.from(epicKeysSet);
     
+    // Helper function to format an issue
+    function formatIssue(issue) {
+      return {
+        key: issue.key,
+        summary: issue.fields?.summary,
+        status: issue.fields?.status?.name,
+        storyPoints: getStoryPoints(issue),
+        created: issue.fields?.created,
+        updated: issue.fields?.updated,
+        resolved: issue.fields?.resolutiondate,
+        assignee: issue.fields?.assignee?.displayName || 'Unassigned',
+        isUserIssue: true
+      };
+    }
+    
+    // Format issues without epics
+    const formattedIssuesWithoutEpic = issuesWithoutEpic
+      .filter(issue => issue.fields?.issuetype?.name !== 'User Story')
+      .map(formatIssue);
+    
     if (epicKeys.length === 0) {
-      // Format issues without epics
-      const formattedIssuesWithoutEpic = issuesWithoutEpic.map(issue => {
-        return {
-          key: issue.key,
-          summary: issue.fields?.summary,
-          status: issue.fields?.status?.name,
-          storyPoints: getStoryPoints(issue),
-          created: issue.fields?.created,
-          updated: issue.fields?.updated,
-          resolved: issue.fields?.resolutiondate,
-          assignee: issue.fields?.assignee?.displayName || 'Unassigned',
-          isUserIssue: true
-        };
-      });
-      
       return {
         epics: [],
-        issuesWithoutEpic: issuesWithoutEpic.length,
+        issuesWithoutEpic: formattedIssuesWithoutEpic.length,
         issuesWithoutEpicList: formattedIssuesWithoutEpic,
         totalEpics: 0
       };
     }
     
-    // For each epic, fetch ALL issues in that epic
+    // Helper function to check if status is "Ready for QA Release" or later (completed)
+    function isCompletedStatus(statusName) {
+      const normalizedStatus = (statusName || '').toLowerCase();
+      
+      // Explicitly exclude In Progress and Code Review
+      if (normalizedStatus.includes('in progress') || 
+          normalizedStatus.includes('inprogress') ||
+          normalizedStatus.includes('code review') ||
+          normalizedStatus.includes('codereview') ||
+          normalizedStatus.includes('review') && !normalizedStatus.includes('qa')) {
+        return false;
+      }
+      
+      const completedStatuses = [
+        'ready for qa release',
+        'ready for qa',
+        'qa ready',
+        'ready for testing',
+        'qa release',
+        'ready for prod',
+        'ready for production',
+        'ready for prod release',
+        'prod ready',
+        'done',
+        'closed',
+        'resolved'
+      ];
+      return completedStatuses.some(status => normalizedStatus.includes(status));
+    }
+    
+    // Group user's date-filtered issues by epic (ONLY user's issues, no additional fetching)
+    const issuesByEpic = {};
+    for (const issue of userIssuesFiltered) {
+      const epicKey = extractEpicKey(issue);
+      if (epicKey && epicKeys.includes(epicKey)) {
+        if (!issuesByEpic[epicKey]) {
+          issuesByEpic[epicKey] = [];
+        }
+        issuesByEpic[epicKey].push(issue);
+      }
+    }
+    
     const epicsData = [];
     
     for (const epicKey of epicKeys) {
-      // Fetch epic details
+      // Get user's issues for this epic (already filtered by date range)
+      const epicIssues = issuesByEpic[epicKey] || [];
+      
+      // Filter out User Story type issues
+      const issuesToCount = epicIssues.filter(issue => 
+        issue.fields?.issuetype?.name !== 'User Story'
+      );
+      
+      if (issuesToCount.length === 0) {
+        continue;
+      }
+      
+      // Fetch epic details for display
       let epicDetails = null;
       try {
         const epicResponse = await jiraApi.get(`/rest/api/2/issue/${epicKey}`, {
@@ -1954,313 +2036,122 @@ async function getProjectsByEpic(dateRange = null) {
         // Continue with limited epic info
       }
       
-      // Fetch ALL issues in this epic using multiple methods
+      // Fetch ALL issues in this epic (regardless of date range) for all-time metrics
       let allEpicIssues = [];
       
-      // Method 1: Try JQL patterns (most common)
-        const jqlPatterns = [
-          `"Epic Link" = ${epicKey}`,
-        `"Epic Link" = "${epicKey}"`,
-          `parent = ${epicKey}`,
-        `"Parent" = ${epicKey}`,
-          `"Parent Link" = ${epicKey}`,
-        `cf[10011] = ${epicKey}`,
-        `cf[10014] = ${epicKey}`,
-        `cf[10015] = ${epicKey}`,
+      // Try different JQL queries - some Jira instances use different field names
+      const jqlAttempts = [
+        `parent = ${epicKey}`,
+        `"Parent Link" = ${epicKey}`,
+        `"Epic Link" = ${epicKey}`
       ];
       
-      let foundIssues = false;
-      for (const jql of jqlPatterns) {
-        if (foundIssues) break;
-        
+      // Add discovered epic link field if available
+      if (epicLinkFieldId) {
+        jqlAttempts.unshift(`cf[${epicLinkFieldId.replace('customfield_', '')}] = ${epicKey}`);
+        jqlAttempts.unshift(`${epicLinkFieldId} = ${epicKey}`);
+      }
+      
+      for (const jql of jqlAttempts) {
         try {
-          const response = await jiraApi.post('/rest/api/2/search', {
-            jql: jql,
+          const epicIssuesResponse = await jiraApi.post('/rest/api/2/search', {
+            jql: `${jql} ORDER BY updated DESC`,
             maxResults: 500,
-            fields: [
-              'key', 'summary', 'status', 'created', 'updated', 'resolutiondate',
-              'project', 'issuetype', 'assignee',
+            fields: ['key', 'summary', 'status', 'assignee', 'issuetype',
               'customfield_10106', 'customfield_21766', 'customfield_10016', 
               'customfield_10021', 'customfield_10002', 'customfield_10004',
-              'timeoriginalestimate'
-            ]
+              'timeoriginalestimate']
           });
-          
-          if (response.data?.issues?.length > 0) {
-            allEpicIssues = response.data.issues;
-            foundIssues = true;
-            }
-          } catch (error) {
-            // Try next pattern
-            continue;
-          }
-        }
-        
-      // Method 2: If JQL didn't work, try using issue links API
-      if (!foundIssues) {
-        try {
-          const epicResponse = await jiraApi.get(`/rest/api/2/issue/${epicKey}`, {
-            params: {
-              fields: 'issuelinks'
-            }
-          });
-          
-          const issueLinks = epicResponse.data?.fields?.issuelinks || [];
-          const childIssueKeys = [];
-          
-          for (const link of issueLinks) {
-            if (link.type && (link.type.name === 'contains' || link.type.inward === 'contains' || link.type.outward === 'is parent of')) {
-              const linkedIssue = link.inwardIssue || link.outwardIssue;
-              if (linkedIssue && linkedIssue.key) {
-                childIssueKeys.push(linkedIssue.key);
-              }
-            }
-          }
-          
-          if (childIssueKeys.length > 0) {
-            const batchSize = 50;
-            for (let i = 0; i < childIssueKeys.length; i += batchSize) {
-              const batch = childIssueKeys.slice(i, i + batchSize);
-            await Promise.all(batch.map(async (issueKey) => {
-              try {
-                const issueResponse = await jiraApi.get(`/rest/api/2/issue/${issueKey}`, {
-                  params: {
-                      fields: 'key,summary,status,created,updated,resolutiondate,project,issuetype,assignee,customfield_10106,customfield_21766,customfield_10016,customfield_10021,customfield_10002,customfield_10004,timeoriginalestimate'
-                  }
-                });
-                allEpicIssues.push(issueResponse.data);
-              } catch (error) {
-                  // Skip failed issues
-              }
-            }));
-            }
-            if (allEpicIssues.length > 0) {
-              foundIssues = true;
-            }
+          const issues = epicIssuesResponse.data?.issues || [];
+          if (issues.length > 0) {
+            // Count issue types BEFORE filtering (for breakdown display)
+            const issueTypeCounts = {};
+            issues.forEach(issue => {
+              const typeName = issue.fields?.issuetype?.name || 'Unknown';
+              issueTypeCounts[typeName] = (issueTypeCounts[typeName] || 0) + 1;
+            });
+            
+            // Store the breakdown, then filter out User Stories for metrics
+            allEpicIssues = issues.filter(issue => issue.fields?.issuetype?.name !== 'User Story');
+            allEpicIssues._issueTypeCounts = issueTypeCounts;
+            break;
           }
         } catch (error) {
-          // Try next method
+          // Try next JQL pattern
         }
       }
       
-      // Method 3: Try using Agile API to get epic children
-      if (!foundIssues) {
-        try {
-          const agileResponse = await jiraApi.get(`/rest/agile/1.0/epic/${epicKey}/issue`, {
-            params: {
-              maxResults: 500
-            }
-          });
-          
-          if (agileResponse.data?.issues?.length > 0) {
-            allEpicIssues = agileResponse.data.issues;
-            foundIssues = true;
-        }
-      } catch (error) {
-          // Agile API might not be available
-        }
-      }
+      // Get issue type breakdown (before User Story filtering)
+      const issueTypeBreakdown = allEpicIssues._issueTypeCounts || {};
       
-      if (allEpicIssues.length === 0) {
-        continue;
-      }
+      // Calculate all-time epic metrics
+      let epicTotalPoints = 0;
+      let userTotalPointsAllTime = 0;
+      let userTotalIssuesAllTime = 0;
       
-      // Helper to check if issue belongs to current user
-      function isUserIssue(issue) {
-        const assignee = issue.fields?.assignee;
-        if (!assignee) return false;
+      allEpicIssues.forEach(issue => {
+        const points = getStoryPoints(issue);
+        epicTotalPoints += points;
         
-        // Check by accountId
-        if (currentUserAccountId && assignee.accountId === currentUserAccountId) {
-          return true;
+        // Check if this is the user's issue
+        const assigneeId = issue.fields?.assignee?.accountId;
+        const assigneeEmail = issue.fields?.assignee?.emailAddress;
+        
+        // Match by accountId OR email (case-insensitive)
+        const isCurrentUser = (currentUserAccountId && assigneeId === currentUserAccountId) || 
+            (currentUserEmail && assigneeEmail && assigneeEmail.toLowerCase() === currentUserEmail.toLowerCase());
+        
+        if (isCurrentUser) {
+          userTotalPointsAllTime += points;
+          userTotalIssuesAllTime++;
         }
-        
-        // Check by email
-        if (currentUserEmail && assignee.emailAddress === currentUserEmail) {
-          return true;
-        }
-        
-        // Also check if issue key is in user's date-filtered issues
-        if (userIssueKeys.has(issue.key)) {
-          return true;
-        }
-        
-        return false;
-      }
-      
-      // Filter out User Story type issues and closed unassigned tickets (they shouldn't be counted)
-      const issuesToCount = allEpicIssues.filter(issue => {
-        const issueType = issue.fields?.issuetype?.name || '';
-        const statusName = issue.fields?.status?.name || '';
-        const isClosed = ['Done', 'Closed', 'Resolved'].includes(statusName);
-        const isUnassigned = !issue.fields?.assignee;
-        
-        // Exclude User Stories
-        if (issueType === 'User Story') {
-          return false;
-        }
-        
-        // Exclude closed unassigned tickets (cancelled/no work needed)
-        if (isClosed && isUnassigned) {
-          return false;
-        }
-        
-        return true;
       });
       
-      // Calculate metrics from issues (excluding User Stories)
+      // Calculate metrics from user's issues ONLY (date-filtered)
       let totalStoryPoints = 0;
-      let totalAssignedStoryPoints = 0; // Only story points from tickets assigned to someone
-      let remainingStoryPoints = 0; // Story points from tickets in To Do, In Progress, or Code Review
-      let storyPointsCompleted = 0; // Story points from tickets in Ready for QA Release or later (excluding In Progress and Code Review)
-      let userStoryPoints = 0;
-      let totalDoneIssues = 0;
-      let userDoneIssues = 0;
-      let userIssuesCount = 0;
-      let allIssuesClosed = true;
+      let remainingStoryPoints = 0;
+      let storyPointsCompleted = 0;
+      let doneIssues = 0;
+      let mostRecentUpdate = null;
       
-      // Helper function to check if status is in "remaining" category (To Do, In Progress, Code Review, Blocked)
-      function isRemainingStatus(statusName) {
-        const normalizedStatus = (statusName || '').toLowerCase();
-        return [
-          'to do',
-          'todo',
-          'open',
-          'backlog',
-          'in progress',
-          'inprogress',
-          'code review',
-          'codereview',
-          'review',
-          'blocked'
-        ].includes(normalizedStatus);
-      }
-      
-      // Helper function to check if status is "Ready for QA Release" or later (completed)
-      // Explicitly excludes In Progress and Code Review
-      function isCompletedStatus(statusName) {
-        const normalizedStatus = (statusName || '').toLowerCase();
-        
-        // Explicitly exclude In Progress and Code Review
-        if (normalizedStatus.includes('in progress') || 
-            normalizedStatus.includes('inprogress') ||
-            normalizedStatus.includes('code review') ||
-            normalizedStatus.includes('codereview') ||
-            normalizedStatus.includes('review') && !normalizedStatus.includes('qa')) {
-          return false;
-        }
-        
-        const completedStatuses = [
-          'ready for qa release',
-          'ready for qa',
-          'qa ready',
-          'ready for testing',
-          'qa release',
-          'ready for prod',
-          'ready for production',
-          'ready for prod release',
-          'prod ready',
-          'done',
-          'closed',
-          'resolved'
-        ];
-        return completedStatuses.some(status => normalizedStatus.includes(status));
-      }
-      
-      // First pass: Calculate metrics from all issues (excluding User Stories)
       issuesToCount.forEach(issue => {
         const points = getStoryPoints(issue);
-        const isUser = isUserIssue(issue);
         const statusName = issue.fields?.status?.name || '';
-        const isDone = ['Done', 'Closed', 'Resolved'].includes(statusName);
         const isCompleted = isCompletedStatus(statusName);
-        const isAssigned = !!issue.fields?.assignee;
         
         totalStoryPoints += points;
         
-        // Only count story points from assigned tickets
-        if (isAssigned) {
-          totalAssignedStoryPoints += points;
-        }
-        
-        // Count completed story points (Ready for QA Release or later, excluding In Progress and Code Review)
         if (isCompleted) {
           storyPointsCompleted += points;
+          doneIssues++;
         } else {
-          // If not completed, it's remaining (includes To Do, In Progress, Code Review, Blocked, and any intermediate statuses)
           remainingStoryPoints += points;
         }
         
-        // Count completed issues (Ready for QA Release or later)
-        if (isCompleted) {
-          totalDoneIssues++;
-        }
-        
-        // Check if all issues are closed (using old logic for backward compatibility)
-        if (!isDone) {
-          allIssuesClosed = false;
-        }
-        
-        if (isUser) {
-          userStoryPoints += points;
-          userIssuesCount++;
-          // Count user's completed issues (Ready for QA Release or later)
-          if (isCompleted) {
-            userDoneIssues++;
-          }
+        const updatedDate = issue.fields?.updated ? new Date(issue.fields.updated) : null;
+        if (updatedDate && (!mostRecentUpdate || updatedDate > mostRecentUpdate)) {
+          mostRecentUpdate = updatedDate;
         }
       });
       
-      // Second pass: Build issues list with ONLY user's issues (excluding User Stories)
-      // Also track the most recent update date from user's issues
-      let mostRecentUserUpdate = null;
-      const userIssuesList = allEpicIssues
-        .filter(issue => {
-          const isUser = isUserIssue(issue);
-          const issueType = issue.fields?.issuetype?.name || '';
-          return isUser && issueType !== 'User Story';
-        })
-        .map(issue => {
-          const updatedDate = issue.fields?.updated ? new Date(issue.fields.updated) : null;
-          if (updatedDate && (!mostRecentUserUpdate || updatedDate > mostRecentUserUpdate)) {
-            mostRecentUserUpdate = updatedDate;
-          }
-          
-          return {
-            key: issue.key,
-            summary: issue.fields?.summary,
-            status: issue.fields?.status?.name,
-            storyPoints: getStoryPoints(issue),
-            created: issue.fields?.created,
-            updated: issue.fields?.updated,
-            resolved: issue.fields?.resolutiondate,
-            assignee: issue.fields?.assignee?.displayName || 'Unassigned',
-            isUserIssue: true // All issues in this list are user's issues
-          };
-        });
-      
-      // Determine simplified epic status: DONE, IN PROGRESS, or TO DO
+      // Determine simplified epic status based on user's issues
       let simplifiedStatus = 'TO DO';
+      const allUserIssuesDone = issuesToCount.every(issue => 
+        isCompletedStatus(issue.fields?.status?.name || '')
+      );
+      const hasInProgressIssues = issuesToCount.some(issue => {
+        const statusName = issue.fields?.status?.name || '';
+        return !['Done', 'Closed', 'Resolved', 'To Do', 'Open', 'Backlog'].includes(statusName);
+      });
       
-      // Check if epic is done (all issues closed or epic status is Done/Closed)
-      const epicStatusFromJira = epicDetails?.fields?.status?.name || '';
-      const isEpicDone = ['Done', 'Closed', 'Resolved'].includes(epicStatusFromJira);
-      
-      if (allIssuesClosed && issuesToCount.length > 0) {
+      if (allUserIssuesDone) {
         simplifiedStatus = 'DONE';
-      } else if (isEpicDone) {
-        simplifiedStatus = 'DONE';
-      } else {
-        // Check if any issues are in progress
-        const hasInProgressIssues = issuesToCount.some(issue => {
-          const statusName = issue.fields?.status?.name || '';
-          return !['Done', 'Closed', 'Resolved', 'To Do', 'Open', 'Backlog'].includes(statusName);
-        });
-        
-        if (hasInProgressIssues) {
-          simplifiedStatus = 'IN PROGRESS';
-        }
+      } else if (hasInProgressIssues) {
+        simplifiedStatus = 'IN PROGRESS';
       }
+      
+      // Build formatted issues list
+      const issuesList = issuesToCount.map(formatIssue);
       
       epicsData.push({
         epicKey: epicKey,
@@ -2269,30 +2160,25 @@ async function getProjectsByEpic(dateRange = null) {
         epicCreated: epicDetails?.fields?.created,
         epicUpdated: epicDetails?.fields?.updated,
         epicResolved: epicDetails?.fields?.resolutiondate,
-        project: epicDetails?.fields?.project?.key || allEpicIssues[0]?.fields?.project?.key || 'Unknown',
-        projectName: epicDetails?.fields?.project?.name || allEpicIssues[0]?.fields?.project?.name || 'Unknown',
-        issues: userIssuesList, // Only user's issues (excluding User Stories)
-        mostRecentUserUpdate: mostRecentUserUpdate ? mostRecentUserUpdate.toISOString() : null, // Most recent update from user's issues
+        project: epicDetails?.fields?.project?.key || issuesToCount[0]?.fields?.project?.key || 'Unknown',
+        projectName: epicDetails?.fields?.project?.name || issuesToCount[0]?.fields?.project?.name || 'Unknown',
+        issues: issuesList,
+        mostRecentUserUpdate: mostRecentUpdate ? mostRecentUpdate.toISOString() : null,
+        issueTypeBreakdown: issueTypeBreakdown,
         metrics: {
-          totalIssues: issuesToCount.length, // Total issues in epic (excluding User Stories)
-          totalDoneIssues,
-          totalStoryPoints, // Total story points in epic (all issues, excluding User Stories)
-          totalAssignedStoryPoints, // Story points from tickets assigned to someone
-          remainingStoryPoints, // Story points from tickets in To Do, In Progress, or Code Review
-          storyPointsCompleted, // Story points from tickets in Ready for QA Release or later (excluding In Progress and Code Review)
-          totalCompletionPercentage: issuesToCount.length > 0 
-            ? Math.round((totalDoneIssues / issuesToCount.length) * 100) 
+          totalIssues: issuesToCount.length,
+          totalDoneIssues: doneIssues,
+          totalStoryPoints,
+          remainingStoryPoints,
+          storyPointsCompleted,
+          completionPercentage: issuesToCount.length > 0 
+            ? Math.round((doneIssues / issuesToCount.length) * 100) 
             : 0,
-          userIssues: userIssuesCount,
-          userDoneIssues,
-          userStoryPoints,
-          userStoryPointsPercentage: totalAssignedStoryPoints > 0 
-            ? Math.round((userStoryPoints / totalAssignedStoryPoints) * 100) 
-            : 0,
-          userCompletionPercentage: userIssuesCount > 0 
-            ? Math.round((userDoneIssues / userIssuesCount) * 100) 
-            : 0,
-          isComplete: allIssuesClosed && issuesToCount.length > 0 // Epic is complete if all issues (excluding User Stories) are closed
+          // All-time metrics (regardless of date range)
+          epicTotalPoints,
+          userTotalPointsAllTime,
+          userTotalIssuesAllTime,
+          epicTotalIssues: allEpicIssues.length
         }
       });
     }
@@ -2309,21 +2195,6 @@ async function getProjectsByEpic(dateRange = null) {
       
       // If dates are equal (or both null), sort by name
       return a.epicName.localeCompare(b.epicName);
-    });
-
-    // Format issues without epics in the same format as epic issues
-    const formattedIssuesWithoutEpic = issuesWithoutEpic.map(issue => {
-      return {
-        key: issue.key,
-        summary: issue.fields?.summary,
-        status: issue.fields?.status?.name,
-        storyPoints: getStoryPoints(issue),
-        created: issue.fields?.created,
-        updated: issue.fields?.updated,
-        resolved: issue.fields?.resolutiondate,
-        assignee: issue.fields?.assignee?.displayName || 'Unassigned',
-        isUserIssue: true
-      };
     });
 
     const result = {

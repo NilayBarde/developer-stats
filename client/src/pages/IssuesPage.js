@@ -139,6 +139,12 @@ function IssuesPage() {
     const resolved = filteredIssues.filter(i => i.fields?.resolutiondate).length;
     const done = filteredIssues.filter(i => ['Done', 'Closed'].includes(i.fields?.status?.name)).length;
     const inProgress = filteredIssues.filter(i => !['Done', 'Closed'].includes(i.fields?.status?.name)).length;
+    
+    // Calculate total story points
+    const totalStoryPoints = filteredIssues.reduce((sum, issue) => {
+      const points = getStoryPoints(issue);
+      return sum + (points || 0);
+    }, 0);
 
     // Calculate avg resolution time
     const issuesWithTime = filteredIssues.filter(i => i._inProgressDate && i._qaReadyDate);
@@ -158,6 +164,7 @@ function IssuesPage() {
       resolved,
       done,
       inProgress,
+      totalStoryPoints,
       avgResolutionTime: Math.round(avgResolutionTime * 10) / 10,
       avgResolutionTimeCount: issuesWithTime.length
     };
@@ -203,6 +210,20 @@ function IssuesPage() {
           {renderErrorSection('jira', '', displayStats?.error)}
         </div>
       )}
+
+      {/* Filter Info */}
+      <div className="filter-info">
+        <details>
+          <summary>📊 How this data is filtered</summary>
+          <ul>
+            <li><strong>Your issues only:</strong> Shows issues assigned to you</li>
+            <li><strong>Date range:</strong> Issues that went "In Progress" within the selected date range</li>
+            <li><strong>Excludes:</strong> Closed unassigned tickets (cancelled/no work needed)</li>
+            <li><strong>Excludes:</strong> User Story issue types (containers, not actual work items)</li>
+            <li><strong>Resolution time:</strong> Measures time from "In Progress" to "Ready for QA Release"</li>
+          </ul>
+        </details>
+      </div>
 
       {/* Table Section */}
       {!error && (
