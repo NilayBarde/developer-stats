@@ -35,6 +35,7 @@
   align-items: flex-end;
   gap: 1px;
   padding-bottom: 24px;
+  min-height: 100px;
 }
 
 .chart-bar-container {

@@ -299,14 +299,11 @@ app.get('/api/project-analytics', async (req, res) => {
 
   try {
     // Auto-discover all pages with bet clicks from evar67
-    console.log('🔍 Auto-discovering pages with bet clicks...');
     const discovered = await adobeAnalyticsService.discoverAllBetClicks(launchDate);
     
     if (!discovered?.pages?.length) {
       return res.json({ projects: [], others: [], method: 'auto-discovery', totalClicks: 0 });
     }
-
-    console.log(`📊 Found ${discovered.pages.length} pages with ${discovered.totalClicks.toLocaleString()} total bet clicks`);
 
     // Format ALL pages for charts, grouped by page type
     const projects = discovered.pages.map(page => ({
@@ -577,9 +574,10 @@ killProcessOnPort(PORT).then(() => {
   app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
     
-    // Pre-warm cache after server starts
-    setTimeout(() => {
-      prewarmCache();
-    }, 1000);
+    // Pre-warm cache disabled - data is cached on first request anyway
+    // To re-enable: uncomment the lines below
+    // setTimeout(() => {
+    //   prewarmCache();
+    // }, 1000);
   });
 });

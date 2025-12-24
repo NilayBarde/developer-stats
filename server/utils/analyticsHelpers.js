@@ -95,6 +95,7 @@ const SPORTS_MAP = {
   'ncaaf': 'College Football',
   'ncaab': 'College Basketball',
   'ncaam': 'College Basketball',
+  'ncaaw': 'Women\'s College Basketball',
   'soccer': 'Soccer',
   'mma': 'MMA',
   'wnba': 'WNBA',

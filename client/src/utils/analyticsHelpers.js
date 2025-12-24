@@ -31,10 +31,22 @@ export function formatFullDate(dateStr) {
 /**
  * Parse a date string and return a Date object at noon UTC
  * This avoids timezone issues when comparing dates
+ * Handles both ISO format (2025-12-01) and human format (Dec 1, 2025)
  */
 export function parseDate(dateStr) {
   if (!dateStr) return null;
-  return new Date(dateStr.split('T')[0] + 'T12:00:00Z');
+  
+  // If it's ISO format (contains - and looks like YYYY-MM-DD)
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    return new Date(dateStr.split('T')[0] + 'T12:00:00Z');
+  }
+  
+  // Otherwise parse as human-readable date (e.g., "Dec 1, 2025")
+  const parsed = new Date(dateStr);
+  if (isNaN(parsed.getTime())) return null;
+  
+  // Normalize to noon UTC to avoid timezone issues
+  return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 12, 0, 0));
 }
 
 /**

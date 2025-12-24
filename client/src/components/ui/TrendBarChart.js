@@ -25,10 +25,22 @@ function TrendBarChart({
     return <div className="chart-empty">No data available</div>;
   }
 
-  // Sort data chronologically
-  const sortedData = [...data].sort((a, b) => new Date(a[dateKey]) - new Date(b[dateKey]));
+  // Sort data chronologically and ensure numeric values
+  const sortedData = [...data]
+    .map(d => {
+      // Handle different data formats - value might be nested or direct
+      let value = d[valueKey];
+      if (typeof value === 'object' && value !== null) {
+        value = value.clicks || value.value || 0;
+      }
+      return {
+        ...d,
+        _value: Number(value) || 0
+      };
+    })
+    .sort((a, b) => new Date(a[dateKey]) - new Date(b[dateKey]));
   
-  const maxValue = Math.max(...sortedData.map(d => d[valueKey] || 0), 1);
+  const maxValue = Math.max(...sortedData.map(d => d._value), 1);
   
   // Find launch date index
   const launchDateObj = launchDate ? parseDate(launchDate) : null;
@@ -52,7 +64,7 @@ function TrendBarChart({
       <div className="chart-main">
         <div className="chart-bars">
           {sortedData.map((item, index) => {
-            const barHeight = ((item[valueKey] || 0) / maxValue) * 100;
+            const barHeight = (item._value / maxValue) * 100;
             const isAfterLaunch = launchDateIndex >= 0 && index >= launchDateIndex;
             const isLaunchDay = index === launchDateIndex;
             const isHovered = hoveredBar === index;
@@ -77,7 +89,7 @@ function TrendBarChart({
                     <div className="tooltip-date">{formatShortDate(item[dateKey])}</div>
                     <div className="tooltip-row">
                       <span className="tooltip-label">{tooltipLabel}:</span>
-                      <span className="tooltip-value">{(item[valueKey] || 0).toLocaleString()}</span>
+                      <span className="tooltip-value">{item._value.toLocaleString()}</span>
                     </div>
                   </div>
                 )}

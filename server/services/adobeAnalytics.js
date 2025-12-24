@@ -1621,6 +1621,9 @@ async function getPageDailyBetClicks(pageName, launchDate = null) {
   return result;
 }
 
+// Track in-progress discovery to prevent duplicate concurrent calls
+let discoveryInProgress = null;
+
 /**
  * NEW: Get ALL bet clicks using evar66 (event_name) = "betting interaction" etc
  * Then break down by pageName to see where clicks came from
@@ -1635,6 +1638,12 @@ async function discoverAllBetClicks(launchDate = '2025-12-01') {
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
+  // If discovery is already in progress, wait for it
+  if (discoveryInProgress) {
+    console.log('  → Discovery already in progress, waiting...');
+    return discoveryInProgress;
+  }
+
   const today = new Date();
   const ninetyDaysAgo = new Date(today);
   ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
@@ -1643,6 +1652,20 @@ async function discoverAllBetClicks(launchDate = '2025-12-01') {
   const endDate = today.toISOString().split('T')[0];
 
   console.log('Discovering all bet clicks by page...');
+  
+  // Mark discovery as in progress
+  discoveryInProgress = (async () => {
+    try {
+      return await _doDiscovery(launchDate, startDate, endDate, cacheKey);
+    } finally {
+      discoveryInProgress = null;
+    }
+  })();
+  
+  return discoveryInProgress;
+}
+
+async function _doDiscovery(launchDate, startDate, endDate, cacheKey) {
 
   // Query evar67 for ALL bet click events (contains espnbet or draft kings)
   // These events have the page context embedded in the value
@@ -1702,7 +1725,7 @@ async function discoverAllBetClicks(launchDate = '2025-12-01') {
     const valueLower = value.toLowerCase();
     
     // Known sports
-    const sports = ['nfl', 'nba', 'nhl', 'mlb', 'ncaaf', 'ncaab', 'ncaam', 'soccer', 'mma', 'wnba', 'college-football', 'mens-college-basketball'];
+    const sports = ['nfl', 'nba', 'nhl', 'mlb', 'ncaaf', 'ncaab', 'ncaam', 'ncaaw', 'soccer', 'mma', 'wnba', 'college-football', 'mens-college-basketball', 'womens-college-basketball'];
     
     // Known page types (order matters - check more specific first)
     const pageTypes = ['gamecast', 'scoreboard', 'schedule', 'odds', 'standings', 'boxscore', 'fightcenter', 'index', 'scores'];
@@ -1715,6 +1738,7 @@ async function discoverAllBetClicks(launchDate = '2025-12-01') {
         // Normalize college sports
         if (foundSport === 'college-football') foundSport = 'ncaaf';
         if (foundSport === 'mens-college-basketball') foundSport = 'ncaab';
+        if (foundSport === 'womens-college-basketball') foundSport = 'ncaaw';
         break;
       }
     }
@@ -1813,21 +1837,33 @@ async function discoverAllBetClicks(launchDate = '2025-12-01') {
       // Use the existing getOddsPageClicks function which works correctly
       // It searches evar67 for patterns and gets daily breakdown
       let searchPattern;
+      
+      // Map normalized sport codes to evar67 names - varies by page type!
+      // Schedule pages use long names, gamecasts use short codes
+      const sportToEvar67Schedule = {
+        'ncaaf': 'college-football',
+        'ncaab': 'mens-college-basketball',
+        'ncaam': 'mens-college-basketball',
+        'ncaaw': 'womens-college-basketball'
+      };
+      
       if (sport === 'other') {
         // Generic: just match page type
         searchPattern = pageType;
-      } else if (sport === 'ncaaf' && pageType === 'schedule') {
-        // Special case for college football schedule (uses different naming)
-        searchPattern = 'college-football:schedule';
       } else if (pageType === 'gamecast') {
-        // Gamecasts use "game:gamecast" format in evar67
+        // Gamecasts use SHORT codes: "ncaaf:game:gamecast", "ncaam:game:gamecast"
         if (sport === 'soccer') {
-          searchPattern = 'match:gamecast'; // Soccer uses match:gamecast
+          searchPattern = 'match:gamecast';
         } else {
+          // Use the original sport code (ncaaf, ncaam, nfl, etc.)
           searchPattern = `${sport}:game:gamecast`;
         }
+      } else if (pageType === 'schedule') {
+        // Schedule pages use LONG names for college sports
+        const evar67Sport = sportToEvar67Schedule[sport] || sport;
+        searchPattern = `${evar67Sport}:schedule`;
       } else {
-        // Sport-specific: e.g., "nfl:odds", "nba:schedule"
+        // Other pages (odds, scoreboard, etc.) - use original sport code
         searchPattern = `${sport}:${pageType}`;
       }
       
@@ -1930,6 +1966,7 @@ function formatPageLabel(page) {
     'ncaaf': 'College Football',
     'ncaab': 'College Basketball',
     'ncaam': 'College Basketball',
+    'ncaaw': 'Women\'s College Basketball',
     'soccer': 'Soccer',
     'mma': 'MMA',
     'wnba': 'WNBA',
