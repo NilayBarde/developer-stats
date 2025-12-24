@@ -17,10 +17,11 @@ function ProjectsPage() {
 
   // Fetch all projects (no date filtering)
   const fetchProjects = useCallback(async () => {
-    // Check cache first
-    const cacheKey = '/api/projects-all';
+    // Check cache first - include mock param in cache key
+    const cacheKey = `/api/projects${mockParam || ''}`;
     const cached = clientCache.get(cacheKey, null);
     if (cached) {
+      console.log('✓ Projects served from client cache');
       setProjects(cached);
       setBaseUrl(cached.baseUrl);
       setLoading(false);

@@ -69,6 +69,8 @@ function generateMockAnalyticsData(startDate, endDate, launchDate) {
       label: p.label,
       pageType: p.page.split(':')[1] || 'other',
       launchDate: launch,
+      parentProject: 'MOCK-12345',
+      parentLabel: 'Mock Analytics Project',
       metricType: 'betClicks',
       clicks: {
         totalClicks,

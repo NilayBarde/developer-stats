@@ -48,6 +48,7 @@ function AnalyticsPage() {
   const [selectedPage, setSelectedPage] = useState(null);
   const [datePreset, setDatePreset] = useState('sinceMarch'); // Default to since March 1
   const [loadProgress, setLoadProgress] = useState({ elapsed: 0, estimated: 0, phase: 'Starting...' });
+  const [projectExpanded, setProjectExpanded] = useState(true); // Toggle project section visibility
 
   const pollIntervalRef = useRef(null);
   const pollCountRef = useRef(0);
@@ -347,9 +348,37 @@ function AnalyticsPage() {
         ))}
       </div>
 
+      {analyticsData?.projects?.[0]?.parentProject && (
+        <div className="parent-project-tag">
+          <button 
+            className={`project-toggle ${projectExpanded ? 'expanded' : 'collapsed'}`}
+            onClick={() => setProjectExpanded(!projectExpanded)}
+            aria-label={projectExpanded ? 'Collapse project' : 'Expand project'}
+          >
+            {projectExpanded ? '▼' : '▶'}
+          </button>
+          <a 
+            href={`https://jira.disney.com/browse/${analyticsData.projects[0].parentProject}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {analyticsData.projects[0].parentProject}
+          </a>
+          <span className="parent-label">{analyticsData.projects[0].parentLabel}</span>
+          <span className="launch-date">(Launch: Dec 1, 2025)</span>
+          {!projectExpanded && (
+            <span className="collapsed-summary">
+              {analyticsData.totalPages} pages · {formatNumber(analyticsData.totalClicks)} clicks
+            </span>
+          )}
+        </div>
+      )}
+
+      {projectExpanded && (
+      <>
       <div className="page-description">
         <p>
-          Auto-discovered bet clicks across ESPN pages (DraftKings launch: Dec 1, 2025)
+          Auto-discovered bet clicks across ESPN pages
           <span className="legend-inline">
             <span className="legend-item"><span className="legend-dot before"></span>Before launch</span>
             <span className="legend-item"><span className="legend-dot after"></span>After launch</span>
@@ -415,6 +444,8 @@ function AnalyticsPage() {
           </p>
           <p className="method-note">Data source: {analyticsData.method}</p>
         </div>
+      )}
+      </>
       )}
 
       {/* Expanded Chart Modal */}
