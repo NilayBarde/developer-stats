@@ -68,6 +68,67 @@
   transition: all 0.15s ease;
 }
 
+/* Date Filter in Modal */
+.modal-date-filter {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 24px 0;
+  flex-wrap: wrap;
+}
+
+.modal-date-filter .date-filter-btn {
+  padding: 6px 14px;
+  border: 2px solid var(--border-color, #e2e8f0);
+  background: var(--modal-bg, #ffffff);
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modal-date-filter .date-filter-btn:hover:not(:disabled) {
+  border-color: var(--primary-color, #667eea);
+  color: var(--primary-color, #667eea);
+}
+
+.modal-date-filter .date-filter-btn.active {
+  background: var(--primary-color, #667eea);
+  border-color: var(--primary-color, #667eea);
+  color: white;
+}
+
+.modal-date-filter .date-filter-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Chart Loading */
+.chart-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 300px;
+  gap: 12px;
+  color: var(--text-secondary, #64748b);
+}
+
+.chart-loading .spinner-ring {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-color, #e2e8f0);
+  border-top-color: var(--primary-color, #667eea);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  100% { transform: rotate(360deg); }
+}
+
 .modal-close-btn:hover {
   background: var(--close-btn-hover-bg, #e2e8f0);
   color: var(--text-primary, #1e293b);

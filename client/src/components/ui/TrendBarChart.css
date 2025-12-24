@@ -66,6 +66,10 @@
   background-color: var(--launch-day-color, #f59e0b);
 }
 
+.chart-bar.geo-gate-day {
+  background-color: var(--gating-marker-color, #ef4444);
+}
+
 .chart-bar.hovered {
   opacity: 1;
   transform: scaleY(1.02);
@@ -109,6 +113,20 @@
   color: var(--tooltip-date-color, #94a3b8);
 }
 
+.tooltip-event {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.tooltip-event.geo-gate {
+  color: var(--gating-marker-color, #ef4444);
+}
+
+.tooltip-event.launch {
+  color: var(--launch-marker-color, #f59e0b);
+}
+
 .tooltip-row {
   display: flex;
   justify-content: space-between;
@@ -141,18 +159,17 @@
   white-space: nowrap;
 }
 
-/* Launch marker */
-.launch-marker {
+/* Event markers (Launch, Location Gating, etc.) */
+.event-marker {
   position: absolute;
   top: 0;
   bottom: 24px;
   width: 2px;
-  background: var(--launch-marker-color, #f59e0b);
   transform: translateX(-50%);
   pointer-events: none;
 }
 
-.launch-marker::before {
+.event-marker::before {
   content: '';
   position: absolute;
   top: 0;
@@ -160,21 +177,45 @@
   transform: translateX(-50%);
   width: 8px;
   height: 8px;
-  background: var(--launch-marker-color, #f59e0b);
   border-radius: 50%;
 }
 
-.launch-label {
+.event-label {
   position: absolute;
   top: -20px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
-  color: var(--launch-marker-color, #f59e0b);
   white-space: nowrap;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+/* Launch marker (Dec 1) - Orange */
+.event-marker.launch {
+  background: var(--launch-marker-color, #f59e0b);
+}
+
+.event-marker.launch::before {
+  background: var(--launch-marker-color, #f59e0b);
+}
+
+.event-marker.launch .event-label {
+  color: var(--launch-marker-color, #f59e0b);
+}
+
+/* Location gating marker (Feb 19) - Red/Coral */
+.event-marker.location-gating {
+  background: var(--gating-marker-color, #ef4444);
+}
+
+.event-marker.location-gating::before {
+  background: var(--gating-marker-color, #ef4444);
+}
+
+.event-marker.location-gating .event-label {
+  color: var(--gating-marker-color, #ef4444);
 }
 
 /* Legend */
@@ -230,7 +271,7 @@
   display: none;
 }
 
-.trend-bar-chart.small .launch-label {
+.trend-bar-chart.small .event-label {
   display: none;
 }
 

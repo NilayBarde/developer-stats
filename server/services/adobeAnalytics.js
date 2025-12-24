@@ -909,18 +909,28 @@ async function getClicksBySource(clickPage) {
 /**
  * Get bet clicks filtered by source page (using evar67 event_detail)
  * Searches for BOTH old tracking (espnbet) and new tracking (draft kings)
+ * @param {string} launchDate - Launch date for before/after comparison
+ * @param {string} pageToken - Page token to search for in evar67
+ * @param {object} customDateRange - Optional { startDate, endDate } in YYYY-MM-DD format
  */
-async function getOddsPageClicks(launchDate = null, pageToken = 'topeventsodds') {
+async function getOddsPageClicks(launchDate = null, pageToken = 'topeventsodds', customDateRange = null) {
   if (!ADOBE_REPORT_SUITE_ID) {
     throw new Error('ADOBE_REPORT_SUITE_ID is required');
   }
 
-  const today = new Date();
-  const ninetyDaysAgo = new Date(today);
-  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  let startDate, endDate;
   
-  const startDate = ninetyDaysAgo.toISOString().split('T')[0];
-  const endDate = today.toISOString().split('T')[0];
+  if (customDateRange) {
+    startDate = customDateRange.startDate;
+    endDate = customDateRange.endDate;
+  } else {
+    const today = new Date();
+    const ninetyDaysAgo = new Date(today);
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    
+    startDate = ninetyDaysAgo.toISOString().split('T')[0];
+    endDate = today.toISOString().split('T')[0];
+  }
 
   // Search for BOTH old (espnbet) and new (draft kings) tracking patterns
   // Both contain the pageToken (e.g., topeventsodds) in evar67
@@ -1629,12 +1639,25 @@ let discoveryInProgress = null;
  * Then break down by pageName to see where clicks came from
  * This auto-discovers all pages - no manual config needed!
  */
-async function discoverAllBetClicks(launchDate = '2025-12-01') {
+async function discoverAllBetClicks(launchDate = '2025-12-01', customDateRange = null) {
   if (!ADOBE_REPORT_SUITE_ID) {
     throw new Error('ADOBE_REPORT_SUITE_ID is required');
   }
 
-  const cacheKey = `discover-bet-clicks:${launchDate}`;
+  // Calculate date range
+  let startDate, endDate;
+  if (customDateRange) {
+    startDate = customDateRange.startDate;
+    endDate = customDateRange.endDate;
+  } else {
+    const today = new Date();
+    const ninetyDaysAgo = new Date(today);
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    startDate = ninetyDaysAgo.toISOString().split('T')[0];
+    endDate = today.toISOString().split('T')[0];
+  }
+
+  const cacheKey = `discover-bet-clicks:${launchDate}:${startDate}:${endDate}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
@@ -1644,14 +1667,7 @@ async function discoverAllBetClicks(launchDate = '2025-12-01') {
     return discoveryInProgress;
   }
 
-  const today = new Date();
-  const ninetyDaysAgo = new Date(today);
-  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-  
-  const startDate = ninetyDaysAgo.toISOString().split('T')[0];
-  const endDate = today.toISOString().split('T')[0];
-
-  console.log('Discovering all bet clicks by page...');
+  console.log(`Discovering all bet clicks by page (${startDate} to ${endDate})...`);
   
   // Mark discovery as in progress
   discoveryInProgress = (async () => {
@@ -1867,8 +1883,11 @@ async function _doDiscovery(launchDate, startDate, endDate, cacheKey) {
         searchPattern = `${sport}:${pageType}`;
       }
       
-      // Call the working getOddsPageClicks function
-      const clickData = await getOddsPageClicks(launchDate, searchPattern);
+      // Call the working getOddsPageClicks function with custom date range
+      const clickData = await getOddsPageClicks(launchDate, searchPattern, { startDate, endDate });
+      
+      // Small delay to avoid rate limiting
+      await new Promise(r => setTimeout(r, 200));
       
       if (clickData?.dailyClicks?.length > 0) {
         // Convert array to map
@@ -1878,6 +1897,9 @@ async function _doDiscovery(launchDate, startDate, endDate, cacheKey) {
         });
         page.dailyClicks = dailyClicksMap;
         page.comparison = clickData.comparison;
+        page.espnBetClicks = clickData.espnBetClicks;
+        page.draftKingsClicks = clickData.draftKingsClicks;
+        
         console.log(`  ✓ ${page.label}: ${clickData.totalClicks.toLocaleString()} clicks, ${clickData.dailyClicks.length} days`);
       } else {
         console.log(`  ⚠ ${page.label}: No daily data (pattern: ${searchPattern})`);
@@ -1891,7 +1913,9 @@ async function _doDiscovery(launchDate, startDate, endDate, cacheKey) {
   // First, collect all page types and their total clicks
   const pageTypeStats = {};
   pages.forEach(page => {
-    const pageType = page.page.split(':')[1] || 'other';
+    const parts = page.page.split(':');
+    // If first part is "other", group under "other" not the page type
+    const pageType = parts[0] === 'other' ? 'other' : (parts[1] || 'other');
     if (!pageTypeStats[pageType]) {
       pageTypeStats[pageType] = { totalClicks: 0, pages: [] };
     }
@@ -1949,10 +1973,11 @@ function formatPageTypeLabel(pageType) {
     'boxscore': '📋',
     'index': '🏠',
     'scores': '⚽',
-    'fightcenter': '🥊'
+    'fightcenter': '🥊',
+    'other': '📁'
   };
   const icon = emoji[pageType] || '📄';
-  const label = pageType.charAt(0).toUpperCase() + pageType.slice(1);
+  const label = pageType === 'other' ? 'Other' : pageType.charAt(0).toUpperCase() + pageType.slice(1);
   return `${icon} ${label} Pages`;
 }
 

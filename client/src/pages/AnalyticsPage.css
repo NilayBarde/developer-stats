@@ -3,24 +3,40 @@
   margin: 0 auto;
 }
 
-.page-header {
+/* Date Filter Bar */
+.date-filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.date-filter-btn {
+  padding: 8px 16px;
+  border: 2px solid #e9ecef;
   background: white;
-  padding: 30px;
-  border-radius: 12px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  margin-bottom: 30px;
-}
-
-.page-header h1 {
-  color: #333;
-  font-size: 2.5em;
-  margin: 0;
-}
-
-.page-header .date-label {
+  border-radius: 20px;
+  font-size: 0.85em;
+  font-weight: 500;
   color: #666;
-  font-size: 0.9em;
-  margin: 5px 0 0 0;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.date-filter-btn:hover:not(:disabled) {
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.date-filter-btn.active {
+  background: #667eea;
+  border-color: #667eea;
+  color: white;
+}
+
+.date-filter-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .page-description {
@@ -128,38 +144,6 @@
 .metric-type-badge.pageViews {
   background: #667eea20;
   color: #667eea;
-}
-
-.error-banner {
-  background: #fee;
-  color: #c33;
-  padding: 15px;
-  border-radius: 8px;
-  margin-bottom: 20px;
-  border-left: 4px solid #c33;
-}
-
-.loading-section {
-  background: white;
-  padding: 60px;
-  border-radius: 12px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  text-align: center;
-}
-
-.loading-spinner {
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #667eea;
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  animation: spin 1s linear infinite;
-  margin: 0 auto;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
 }
 
 .no-data-message {
@@ -294,10 +278,16 @@
   margin-top: 4px;
 }
 
+.badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .change-badge {
   padding: 4px 10px;
   border-radius: 12px;
-  font-size: 0.8em;
+  font-size: 0.75em;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -940,42 +930,6 @@
   background: #f8f9fa;
   border-radius: 10px;
   color: #999;
-}
-
-/* Card Loading Spinner */
-.card-loading-spinner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 20px;
-  color: #888;
-  gap: 16px;
-}
-
-.card-loading-spinner .spinner-ring {
-  width: 48px;
-  height: 48px;
-  border: 4px solid #e9ecef;
-  border-top-color: #667eea;
-  border-radius: 50%;
-  animation: spinRing 1s linear infinite;
-}
-
-.card-loading-spinner.small .spinner-ring {
-  width: 24px;
-  height: 24px;
-  border-width: 2px;
-}
-
-.card-loading-spinner span {
-  font-size: 0.9em;
-  color: #999;
-}
-
-@keyframes spinRing {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
 }
 
 /* No Data Card */

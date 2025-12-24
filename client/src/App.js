@@ -9,6 +9,7 @@ import { getCurrentWorkYearStart, formatWorkYearLabel } from './utils/dateHelper
 import { buildApiUrl } from './utils/apiHelpers';
 import { renderErrorSection } from './utils/sectionHelpers';
 import CombinedOverview from './components/CombinedOverview';
+import LoadingSpinner from './components/ui/LoadingSpinner';
 import IssuesPage from './pages/IssuesPage';
 import PRsPage from './pages/PRsPage';
 import ProjectsPage from './pages/ProjectsPage';
@@ -53,13 +54,6 @@ function App() {
       return () => clearInterval(interval);
     }
   }, [fetchStats, location.pathname]);
-
-  const LoadingSpinner = ({ message }) => (
-    <div className="stats-loading">
-      <div className="loading-spinner"></div>
-      <p>{message}</p>
-    </div>
-  );
 
   return (
     <div className="app">
@@ -113,9 +107,9 @@ function App() {
             <div className="stats-grid">
               {loading ? (
                 <>
-                  <LoadingSpinner message="Loading overview..." />
-                  <LoadingSpinner message="Loading Jira stats..." />
-                  <LoadingSpinner message="Loading Git stats..." />
+                  <LoadingSpinner text="Loading overview..." />
+                  <LoadingSpinner text="Loading Jira stats..." />
+                  <LoadingSpinner text="Loading Git stats..." />
                 </>
               ) : (
                 <>

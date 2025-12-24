@@ -9,6 +9,7 @@ import { getStoryPoints } from '../utils/jiraHelpers';
 import { createFilter, createSorter, extractFilterOptions } from '../utils/filterHelpers';
 import clientCache from '../utils/clientCache';
 import JiraSection from '../components/JiraSection';
+import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { renderErrorSection } from '../utils/sectionHelpers';
 import './IssuesPage.css';
 
@@ -200,10 +201,7 @@ function IssuesPage() {
 
       {/* Stats Section */}
       {statsLoading ? (
-        <div className="loading-section">
-          <div className="loading-spinner"></div>
-          <p>Loading stats...</p>
-        </div>
+        <LoadingSpinner text="Loading stats..." />
       ) : displayStats && (
         <div className="stats-section">
           <JiraSection stats={displayStats} compact={true} />
@@ -229,10 +227,7 @@ function IssuesPage() {
       {!error && (
         <div className="table-section">
           {loading ? (
-            <div className="loading-section">
-              <div className="loading-spinner"></div>
-              <p>Loading issues...</p>
-            </div>
+            <LoadingSpinner text="Loading issues..." />
           ) : (
             <>
               {/* Filters */}

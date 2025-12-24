@@ -1,0 +1,30 @@
+/* ErrorBanner - Reusable error message component */
+
+.error-banner {
+  background: #fee;
+  color: #c33;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border-left: 4px solid #c33;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+}
+
+.error-banner .error-retry-btn {
+  background: #c33;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.error-banner .error-retry-btn:hover {
+  background: #a22;
+}
+

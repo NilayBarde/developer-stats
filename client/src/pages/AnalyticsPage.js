@@ -3,21 +3,47 @@ import axios from 'axios';
 import clientCache from '../utils/clientCache';
 import { formatNumber, isProjectLoading, dailyClicksToArray, DEFAULT_LAUNCH_DATE } from '../utils/analyticsHelpers';
 import TrendBarChart from '../components/ui/TrendBarChart';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
 import ChartModal from '../components/ui/ChartModal';
+import LoadingSpinner from '../components/ui/LoadingSpinner';
 import './AnalyticsPage.css';
+
+// Date range presets
+const DATE_PRESETS = {
+  'last30': { label: 'Last 30 days', getDates: () => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 30);
+    return { start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] };
+  }},
+  'last90': { label: 'Last 90 days', getDates: () => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 90);
+    return { start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] };
+  }},
+  'sinceMarch': { label: 'Since March 1', getDates: () => {
+    const end = new Date();
+    return { start: '2025-03-01', end: end.toISOString().split('T')[0] };
+  }},
+  'sinceDecLaunch': { label: 'Since Dec 1 Launch', getDates: () => {
+    const end = new Date();
+    return { start: '2025-12-01', end: end.toISOString().split('T')[0] };
+  }},
+};
 
 function AnalyticsPage() {
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedPage, setSelectedPage] = useState(null);
+  const [datePreset, setDatePreset] = useState('sinceMarch'); // Default to since March 1
 
   const pollIntervalRef = useRef(null);
   const pollCountRef = useRef(0);
 
-  const fetchAnalytics = useCallback(async (skipCache = false) => {
-    const cacheKey = '/api/project-analytics';
+  const fetchAnalytics = useCallback(async (skipCache = false, preset = datePreset) => {
+    const dates = DATE_PRESETS[preset].getDates();
+    const cacheKey = `/api/project-analytics?start=${dates.start}&end=${dates.end}`;
     
     if (!skipCache) {
       const cached = clientCache.get(cacheKey, null);
@@ -31,7 +57,7 @@ function AnalyticsPage() {
     try {
       if (!analyticsData) setLoading(true);
       setError(null);
-      const response = await axios.get('/api/project-analytics');
+      const response = await axios.get(`/api/project-analytics?startDate=${dates.start}&endDate=${dates.end}`);
       setAnalyticsData(response.data);
       clientCache.set(cacheKey, null, response.data);
       return response.data;
@@ -42,11 +68,18 @@ function AnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [analyticsData]);
+  }, [analyticsData, datePreset]);
+
+  // Handle date preset change
+  const handlePresetChange = (newPreset) => {
+    setDatePreset(newPreset);
+    pollCountRef.current = 0; // Reset poll count
+    fetchAnalytics(true, newPreset); // Skip cache and fetch with new preset
+  };
 
   useEffect(() => {
     fetchAnalytics();
-  }, []);
+  }, [fetchAnalytics]);
   
   // Poll for updates if some projects are still loading
   useEffect(() => {
@@ -84,14 +117,31 @@ function AnalyticsPage() {
 
   const loadingProgress = getLoadingProgress();
 
+  // Get current date range for display
+  const currentDates = DATE_PRESETS[datePreset].getDates();
+
   return (
     <div className="analytics-page">
       <header className="page-header">
         <div>
           <h1>Analytics</h1>
-          <p className="date-label">Last 90 days · Adobe Analytics</p>
+          <p className="date-label">{currentDates.start} to {currentDates.end} · Adobe Analytics</p>
         </div>
       </header>
+
+      {/* Date Range Filter */}
+      <div className="date-filter-bar">
+        {Object.entries(DATE_PRESETS).map(([key, preset]) => (
+          <button
+            key={key}
+            className={`date-filter-btn ${datePreset === key ? 'active' : ''}`}
+            onClick={() => handlePresetChange(key)}
+            disabled={loading}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
 
       <div className="page-description">
         <p>
@@ -112,9 +162,7 @@ function AnalyticsPage() {
       {error && <div className="error-banner">{error}</div>}
 
       {loading ? (
-        <div className="loading-section">
-          <LoadingSpinner size="large" text="Loading analytics..." />
-        </div>
+        <LoadingSpinner text="Loading analytics..." />
       ) : !analyticsData || analyticsData.projects?.length === 0 ? (
         <div className="no-data-message">
           <p>No analytics configured</p>
@@ -154,6 +202,8 @@ function AnalyticsPage() {
           onClose={() => setSelectedPage(null)}
           launchDate={DEFAULT_LAUNCH_DATE}
           tooltipLabel="Bet Clicks"
+          datePresets={DATE_PRESETS}
+          currentPreset={datePreset}
         />
       )}
     </div>
@@ -220,11 +270,6 @@ function AnalyticsCard({ page, analyticsData, pollCount, onSelect }) {
     >
       <div className="card-header">
         <h3>{page.label}</h3>
-        {comparison?.changePercent !== undefined && (
-          <span className={`change-badge ${comparison.changePercent >= 0 ? 'positive' : 'negative'}`}>
-            {comparison.changePercent >= 0 ? '+' : ''}{comparison.changePercent}%
-          </span>
-        )}
       </div>
       
       <div className="card-stats">

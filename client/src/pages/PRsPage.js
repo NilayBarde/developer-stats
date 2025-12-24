@@ -8,6 +8,7 @@ import { getItemStatus, getItemRepo, getItemUrl, getMergedDate } from '../utils/
 import { createFilter, createSorter, extractFilterOptions } from '../utils/filterHelpers';
 import clientCache from '../utils/clientCache';
 import GitSection from '../components/GitSection';
+import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { renderErrorSection } from '../utils/sectionHelpers';
 import './PRsPage.css';
 
@@ -193,10 +194,7 @@ function PRsPage() {
 
       {/* Stats Section */}
       {statsLoading ? (
-        <div className="loading-section">
-          <div className="loading-spinner"></div>
-          <p>Loading stats...</p>
-        </div>
+        <LoadingSpinner text="Loading stats..." />
       ) : displayStats && (
         <div className="stats-section">
           <GitSection githubStats={displayStats.github} gitlabStats={displayStats.gitlab} compact={true} />
@@ -236,10 +234,7 @@ function PRsPage() {
       {!error && (
         <div className="table-section">
           {loading ? (
-            <div className="loading-section">
-              <div className="loading-spinner"></div>
-              <p>Loading PRs/MRs...</p>
-            </div>
+            <LoadingSpinner text="Loading PRs/MRs..." />
           ) : (
             <>
               {/* Filters */}

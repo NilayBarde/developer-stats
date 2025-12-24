@@ -61,6 +61,13 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Clear all caches
+app.post('/api/clear-cache', (req, res) => {
+  cache.clear();
+  console.log('🗑️ Cache cleared');
+  res.json({ status: 'ok', message: 'Cache cleared' });
+});
+
 // Debug endpoint
 app.get('/api/debug/env', (req, res) => {
   res.json({
@@ -289,7 +296,12 @@ app.get('/api/projects/:epicKey/analytics', async (req, res) => {
 // Get all project analytics (for Analytics page) - AUTO-DISCOVERS pages with bet clicks
 app.get('/api/project-analytics', async (req, res) => {
   const launchDate = req.query.launchDate || '2025-12-01'; // DraftKings launch date
-  const cacheKey = `all-project-analytics-v2:${launchDate}`;
+  const startDate = req.query.startDate; // Optional custom start date
+  const endDate = req.query.endDate; // Optional custom end date
+  
+  // Build cache key with date range
+  const dateRangeKey = startDate && endDate ? `${startDate}_${endDate}` : 'default';
+  const cacheKey = `all-project-analytics-v3:${launchDate}:${dateRangeKey}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log('✓ Project analytics served from cache');
@@ -298,8 +310,11 @@ app.get('/api/project-analytics', async (req, res) => {
   }
 
   try {
+    // Build custom date range if provided
+    const customDateRange = startDate && endDate ? { startDate, endDate } : null;
+    
     // Auto-discover all pages with bet clicks from evar67
-    const discovered = await adobeAnalyticsService.discoverAllBetClicks(launchDate);
+    const discovered = await adobeAnalyticsService.discoverAllBetClicks(launchDate, customDateRange);
     
     if (!discovered?.pages?.length) {
       return res.json({ projects: [], others: [], method: 'auto-discovery', totalClicks: 0 });

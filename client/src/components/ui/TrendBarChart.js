@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { formatNumber, formatShortDate, parseDate, getLabelInterval } from '../../utils/analyticsHelpers';
 import './TrendBarChart.css';
 
+// Location gating went to prod on Feb 19, 2025
+const LOCATION_GATING_DATE = '2025-02-19';
+
 /**
  * A reusable trend bar chart component that shows data over time
  * with optional launch date marker and before/after coloring.
@@ -11,6 +14,7 @@ function TrendBarChart({
   valueKey = 'value',
   dateKey = 'date',
   launchDate = null,
+  locationGatingDate = LOCATION_GATING_DATE,
   height = 180,
   showLegend = true,
   showYAxis = true,
@@ -48,6 +52,12 @@ function TrendBarChart({
     ? sortedData.findIndex(d => parseDate(d[dateKey]) >= launchDateObj)
     : -1;
 
+  // Find location gating date index (Feb 19, 2025)
+  const locationGatingDateObj = locationGatingDate ? parseDate(locationGatingDate) : null;
+  const locationGatingIndex = locationGatingDateObj
+    ? sortedData.findIndex(d => parseDate(d[dateKey]) >= locationGatingDateObj)
+    : -1;
+
   const labelInterval = getLabelInterval(sortedData.length);
 
   return (
@@ -67,6 +77,7 @@ function TrendBarChart({
             const barHeight = (item._value / maxValue) * 100;
             const isAfterLaunch = launchDateIndex >= 0 && index >= launchDateIndex;
             const isLaunchDay = index === launchDateIndex;
+            const isGeoGateDay = index === locationGatingIndex;
             const isHovered = hoveredBar === index;
             
             return (
@@ -77,7 +88,7 @@ function TrendBarChart({
                 onMouseLeave={() => setHoveredBar(null)}
               >
                 <div
-                  className={`chart-bar ${isAfterLaunch ? 'after-launch' : 'before-launch'} ${isLaunchDay ? 'launch-day' : ''} ${isHovered ? 'hovered' : ''}`}
+                  className={`chart-bar ${isAfterLaunch ? 'after-launch' : 'before-launch'} ${isLaunchDay ? 'launch-day' : ''} ${isGeoGateDay ? 'geo-gate-day' : ''} ${isHovered ? 'hovered' : ''}`}
                   style={{
                     height: `${Math.max(barHeight, 2)}%`,
                     '--before-color': beforeColor,
@@ -86,7 +97,11 @@ function TrendBarChart({
                 />
                 {isHovered && (
                   <div className="chart-tooltip">
-                    <div className="tooltip-date">{formatShortDate(item[dateKey])}</div>
+                    <div className="tooltip-date">
+                      {formatShortDate(item[dateKey])}
+                      {isGeoGateDay && <span className="tooltip-event geo-gate"> · Geo-gate</span>}
+                      {isLaunchDay && <span className="tooltip-event launch"> · Launch</span>}
+                    </div>
                     <div className="tooltip-row">
                       <span className="tooltip-label">{tooltipLabel}:</span>
                       <span className="tooltip-value">{item._value.toLocaleString()}</span>
@@ -122,13 +137,23 @@ function TrendBarChart({
           </div>
         )}
         
+        {/* Location gating marker (Feb 19, 2025) */}
+        {locationGatingIndex >= 0 && (
+          <div
+            className="event-marker location-gating"
+            style={{ left: `${(locationGatingIndex / (sortedData.length - 1)) * 100}%` }}
+          >
+            <span className="event-label">Geo-gate</span>
+          </div>
+        )}
+        
         {/* Launch date marker */}
         {launchDateIndex >= 0 && (
           <div
-            className="launch-marker"
+            className="event-marker launch"
             style={{ left: `${(launchDateIndex / (sortedData.length - 1)) * 100}%` }}
           >
-            <span className="launch-label">Launch</span>
+            <span className="event-label">Launch</span>
           </div>
         )}
       </div>

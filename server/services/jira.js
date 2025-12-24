@@ -1647,15 +1647,6 @@ async function getProjectsByEpic(dateRange = null) {
       // Silently fail - will try common field IDs
     }
     
-    // Also try to get it from editmeta of a sample issue
-    if (!epicLinkFieldId && userIssuesInDateRange.length === 0) {
-      try {
-        // We'll try this after we get at least one issue
-      } catch (error) {
-        // Ignore
-      }
-    }
-
     // Get user's issues filtered by date range - but fetch with epic/parent fields properly
     // We'll fetch issues directly with all epic-related fields
     const userIssuesInDateRange = [];
@@ -1709,16 +1700,17 @@ async function getProjectsByEpic(dateRange = null) {
           expand: ['names', 'parent'] // Expand parent to get full details
         });
 
-        if (response.data.issues.length === 0) {
+        const issues = response.data?.issues || [];
+        if (issues.length === 0) {
           hasMore = false;
         } else {
-          userIssuesInDateRange.push(...response.data.issues);
+          userIssuesInDateRange.push(...issues);
           startAt += maxResults;
           
-          if (response.data.issues.length < maxResults || userIssuesInDateRange.length >= response.data.total) {
+          if (issues.length < maxResults || userIssuesInDateRange.length >= (response.data?.total || 0)) {
             hasMore = false;
-                    }
-                }
+          }
+        }
               } catch (error) {
         if (error.response?.status === 403 && jqlIndex < jqlQueries.length - 1) {
           jqlIndex++;

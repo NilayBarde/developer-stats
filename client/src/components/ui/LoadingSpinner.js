@@ -2,16 +2,18 @@ import React from 'react';
 import './LoadingSpinner.css';
 
 /**
- * A reusable loading spinner component with optional text
+ * A simple reusable loading spinner
+ * 
+ * @param {string} size - 'small', 'medium', 'large'
+ * @param {string} text - Optional text to display below spinner (null by default)
  */
-function LoadingSpinner({ size = 'medium', text = 'Loading data...' }) {
+function LoadingSpinner({ size = 'medium', text = null }) {
   return (
-    <div className={`loading-spinner ${size}`}>
-      <div className="spinner-ring"></div>
-      {text && <span className="spinner-text">{text}</span>}
+    <div className={`loading-spinner-container ${size}`}>
+      <div className="loading-spinner-circle"></div>
+      {text && <p className="loading-spinner-text">{text}</p>}
     </div>
   );
 }
 
 export default LoadingSpinner;
-
