@@ -139,14 +139,6 @@ export function getMockProjectAnalytics(projectName, epicKey) {
   };
 }
 
-// Format large numbers for display
-export function formatNumber(num) {
-  if (num >= 1000000) {
-    return (num / 1000000).toFixed(1) + 'M';
-  }
-  if (num >= 1000) {
-    return (num / 1000).toFixed(1) + 'K';
-  }
-  return num.toString();
-}
+// Re-export formatNumber from shared helpers for backward compatibility
+export { formatNumber } from './analyticsHelpers';
 

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { getMockProjectAnalytics, formatNumber } from '../utils/mockAnalyticsData';
+import { getMockProjectAnalytics } from '../utils/mockAnalyticsData';
+import { formatNumber } from '../utils/analyticsHelpers';
 import './ProjectAnalytics.css';
 
 // Mini area chart for project cards

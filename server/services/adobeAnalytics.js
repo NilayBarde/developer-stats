@@ -1062,4 +1062,921 @@ async function getOddsPageClicks(launchDate = null, pageToken = 'topeventsodds')
   };
 }
 
-module.exports = { getStats, getAnalyticsData, getProjectAnalytics, getTopPages, findPage, listReportSuites, getClickAnalytics, getTopClickEvents, getClicksBySource, getOddsPageClicks, testAuth };
+/**
+ * Get ALL bet clicks grouped by page type (fast - only queries evar74)
+ */
+async function getAllBetClicksByPage() {
+  if (!ADOBE_REPORT_SUITE_ID) {
+    throw new Error('ADOBE_REPORT_SUITE_ID is required');
+  }
+
+  const today = new Date();
+  const ninetyDaysAgo = new Date(today);
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  
+  const startDate = ninetyDaysAgo.toISOString().split('T')[0];
+  const endDate = today.toISOString().split('T')[0];
+
+  // Query evar74 for BOTH betting interaction (new) and espn bet interaction (legacy)
+  const [bettingData, espnBetData] = await Promise.all([
+    apiRequest('/reports', {
+      method: 'POST',
+      data: {
+        rsid: ADOBE_REPORT_SUITE_ID,
+        globalFilters: [{
+          type: 'dateRange',
+          dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999`
+        }],
+        metricContainer: {
+          metrics: [{ id: 'metrics/occurrences', columnId: '0' }]
+        },
+        dimension: 'variables/evar74',
+        search: { clause: `BEGINS-WITH 'betting interaction'` },
+        settings: { countRepeatInstances: true, limit: 500 }
+      }
+    }),
+    apiRequest('/reports', {
+      method: 'POST',
+      data: {
+        rsid: ADOBE_REPORT_SUITE_ID,
+        globalFilters: [{
+          type: 'dateRange',
+          dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999`
+        }],
+        metricContainer: {
+          metrics: [{ id: 'metrics/occurrences', columnId: '0' }]
+        },
+        dimension: 'variables/evar74',
+        search: { clause: `BEGINS-WITH 'espn bet interaction'` },
+        settings: { countRepeatInstances: true, limit: 500 }
+      }
+    })
+  ]);
+  
+  // Combine rows from both queries
+  const allRows = [...(bettingData?.rows || []), ...(espnBetData?.rows || [])];
+  const data = { rows: allRows };
+
+  // Group by page type
+  const pageGroups = {};
+  const pagePatterns = {
+    'gamecast': /gamecast/i,
+    'scoreboard': /scoreboard/i,
+    'schedule': /schedule/i,
+    'topeventsodds': /topeventsodds/i,
+    ':odds': /:odds/i,
+    ':scores': /:scores$/i,
+    'index': /:index:/i,
+    'home': /home|frontpage/i,
+  };
+
+  (data?.rows || []).forEach(row => {
+    const value = row.value || '';
+    const clicks = row.data?.[0] || 0;
+    
+    // Find which page type this belongs to
+    let matched = false;
+    for (const [pageType, pattern] of Object.entries(pagePatterns)) {
+      if (pattern.test(value)) {
+        if (!pageGroups[pageType]) {
+          pageGroups[pageType] = { total: 0, samples: [] };
+        }
+        pageGroups[pageType].total += clicks;
+        if (pageGroups[pageType].samples.length < 3) {
+          pageGroups[pageType].samples.push(value);
+        }
+        matched = true;
+        break;
+      }
+    }
+    
+    if (!matched && clicks > 1000) {
+      if (!pageGroups['other']) {
+        pageGroups['other'] = { total: 0, samples: [] };
+      }
+      pageGroups['other'].total += clicks;
+      if (pageGroups['other'].samples.length < 5) {
+        pageGroups['other'].samples.push({ value, clicks });
+      }
+    }
+  });
+
+  // Sort by total clicks
+  const sorted = Object.entries(pageGroups)
+    .map(([page, data]) => ({ page, ...data }))
+    .sort((a, b) => b.total - a.total);
+
+  return {
+    pageGroups: sorted,
+    dateRange: { start: startDate, end: endDate },
+    totalRows: data?.rows?.length || 0
+  };
+}
+
+/**
+ * Get bet clicks broken down by actual page name (using segment + page dimension)
+ */
+async function getBetClicksByPageName() {
+  if (!ADOBE_REPORT_SUITE_ID) {
+    throw new Error('ADOBE_REPORT_SUITE_ID is required');
+  }
+
+  const today = new Date();
+  const ninetyDaysAgo = new Date(today);
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  
+  const startDate = ninetyDaysAgo.toISOString().split('T')[0];
+  const endDate = today.toISOString().split('T')[0];
+
+  // Use evar74 which has page context: "betting interaction:scoreboard:draft kings" etc
+  // Parse out the page type from position 2 (after event name and sometimes partner)
+  const data = await apiRequest('/reports', {
+    method: 'POST',
+    data: {
+      rsid: ADOBE_REPORT_SUITE_ID,
+      globalFilters: [{
+        type: 'dateRange',
+        dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999`
+      }],
+      metricContainer: {
+        metrics: [{ id: 'metrics/occurrences', columnId: '0' }]
+      },
+      dimension: 'variables/evar74',
+      search: { clause: `BEGINS-WITH 'betting interaction' OR BEGINS-WITH 'espn bet interaction'` },
+      settings: { countRepeatInstances: true, limit: 1000 }
+    }
+  });
+  
+  // Parse exact page names from the evar74 values
+  // Formats:
+  //   "betting interaction:scoreboard:draft kings" -> scoreboard
+  //   "betting interaction:draft kings:football:game:gamecast:see-more-on-draft kings" -> football:game:gamecast
+  //   "betting interaction:draft kings:espn:nfl:odds:total:o42.5" -> espn:nfl:odds
+  //   "espn bet interaction:::espnbet:espn:nfl:schedule:total:44.5:espn:nfl:schedule:" -> espn:nfl:schedule
+  const pageClicks = {};
+  const rawExamples = {}; // Store examples for each page
+  
+  (data?.rows || []).forEach(row => {
+    const value = row.value || '';
+    const clicks = row.data?.[0] || 0;
+    
+    let pageName = null;
+    
+    // Pattern 1: ESPN Bet legacy - page name appears at end like "espn:nfl:schedule:"
+    // Format: "espn bet interaction:::...:espn:SPORT:PAGETYPE:"
+    const espnBetMatch = value.match(/:espn:([a-z]+):([a-z]+):?$/i);
+    if (espnBetMatch) {
+      pageName = `espn:${espnBetMatch[1]}:${espnBetMatch[2]}`;
+    }
+    
+    // Pattern 2: DraftKings - "betting interaction:draft kings:espn:SPORT:PAGETYPE:action"
+    if (!pageName) {
+      const dkMatch = value.match(/draft kings:espn:([a-z]+):([a-z:]+?):(total|moneyline|pointspread|see-more|success)/i);
+      if (dkMatch) {
+        pageName = `espn:${dkMatch[1]}:${dkMatch[2]}`;
+      }
+    }
+    
+    // Pattern 3: DraftKings with sport but no espn prefix - "draft kings:football:game:gamecast:see-more"
+    if (!pageName) {
+      const sportMatch = value.match(/draft kings:(football|basketball|hockey|baseball|soccer):([a-z:]+?):(see-more|success)/i);
+      if (sportMatch) {
+        // Map sport names to ESPN codes
+        const sportMap = { football: 'nfl', basketball: 'nba', hockey: 'nhl', baseball: 'mlb', soccer: 'soccer' };
+        const espnSport = sportMap[sportMatch[1].toLowerCase()] || sportMatch[1];
+        pageName = `espn:${espnSport}:${sportMatch[2]}`;
+      }
+    }
+    
+    // Pattern 4: Simple format - "betting interaction:scoreboard:draft kings"
+    if (!pageName) {
+      const simpleMatch = value.match(/betting interaction:([a-z]+):(draft kings|success)/i);
+      if (simpleMatch) {
+        pageName = simpleMatch[1];
+      }
+    }
+    
+    // Pattern 5: Watch ESPN / Home pages
+    if (!pageName && value.includes('watchespn:home')) {
+      pageName = 'watchespn:home';
+    }
+    
+    // Fallback
+    if (!pageName) {
+      pageName = 'other';
+    }
+    
+    // Clean up page name
+    pageName = pageName.replace(/:+$/, '').replace(/^:+/, '');
+    
+    if (!pageClicks[pageName]) {
+      pageClicks[pageName] = 0;
+      rawExamples[pageName] = [];
+    }
+    pageClicks[pageName] += clicks;
+    if (rawExamples[pageName].length < 2) {
+      rawExamples[pageName].push(value);
+    }
+  });
+
+  // Convert to sorted array with examples
+  const pages = Object.entries(pageClicks)
+    .map(([page, clicks]) => ({ 
+      page, 
+      clicks,
+      examples: rawExamples[page] || []
+    }))
+    .sort((a, b) => b.clicks - a.clicks);
+
+  return {
+    pages,
+    totalPages: pages.length,
+    totalClicks: pages.reduce((sum, p) => sum + p.clicks, 0),
+    dateRange: { start: startDate, end: endDate },
+    rawRows: data?.rows?.length || 0
+  };
+}
+
+/**
+ * Get ALL bet clicks grouped by source page using evar66 (event_name)
+ * evar66 contains values like "betting interaction", "espn bet interaction"
+ * This auto-discovers all pages with bet clicks - no manual filter config needed
+ */
+async function getBetClicksBySourcePage(launchDate = null) {
+  if (!ADOBE_REPORT_SUITE_ID) {
+    throw new Error('ADOBE_REPORT_SUITE_ID is required');
+  }
+
+  const cacheKey = `bet-clicks-by-page:${launchDate || 'all'}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const today = new Date();
+  const ninetyDaysAgo = new Date(today);
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  
+  const startDate = ninetyDaysAgo.toISOString().split('T')[0];
+  const endDate = today.toISOString().split('T')[0];
+
+  // Query for bet clicks (evar66 = event_name) broken down by page
+  // Using segment to filter by evar66 values, then break down by pageName
+  const betEventNames = [
+    'betting interaction',
+    'espn bet interaction', 
+    'bet interaction',
+    'betting ui interaction'
+  ];
+
+  // Get all bet clicks grouped by page
+  const data = await apiRequest('/reports', {
+    method: 'POST',
+    data: {
+      rsid: ADOBE_REPORT_SUITE_ID,
+      globalFilters: [{
+        type: 'dateRange',
+        dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999`
+      }],
+      metricContainer: {
+        metrics: [{ id: 'metrics/occurrences', columnId: '0' }]
+      },
+      dimension: 'variables/page',
+      search: {
+        // First filter to only bet click events via evar66
+        clause: betEventNames.map(e => `'${e}'`).join(' OR ')
+      },
+      settings: { countRepeatInstances: true, limit: 1000 }
+    }
+  });
+
+  // That search won't work on evar66 when dimension is page
+  // We need a different approach: use segment or breakdown
+  
+  // Alternative: Query evar66 for bet events, get the page from cross-dimension
+  // For now, let's query each bet event type and aggregate
+  
+  const results = {};
+  
+  for (const eventName of ['betting interaction', 'espn bet interaction']) {
+    try {
+      // Get pages where this bet event occurred
+      const pageData = await apiRequest('/reports', {
+        method: 'POST', 
+        data: {
+          rsid: ADOBE_REPORT_SUITE_ID,
+          globalFilters: [{
+            type: 'dateRange',
+            dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999`
+          }],
+          metricContainer: {
+            metrics: [{ id: 'metrics/occurrences', columnId: '0' }],
+            metricFilters: [{
+              id: 'betFilter',
+              type: 'breakdown',
+              dimension: 'variables/evar66',
+              itemId: eventName
+            }]
+          },
+          dimension: 'variables/page',
+          settings: { countRepeatInstances: true, limit: 500 }
+        }
+      });
+
+      // Aggregate results
+      (pageData?.rows || []).forEach(row => {
+        const pageName = row.value;
+        const clicks = row.data?.[0] || 0;
+        if (clicks > 0) {
+          results[pageName] = (results[pageName] || 0) + clicks;
+        }
+      });
+    } catch (err) {
+      console.log(`Error fetching ${eventName}:`, err.message);
+      
+      // Fallback: search evar67 for the event name pattern and extract page
+      try {
+        const fallbackData = await apiRequest('/reports', {
+          method: 'POST',
+          data: {
+            rsid: ADOBE_REPORT_SUITE_ID,
+            globalFilters: [{
+              type: 'dateRange', 
+              dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999`
+            }],
+            metricContainer: {
+              metrics: [{ id: 'metrics/occurrences', columnId: '0' }]
+            },
+            dimension: 'variables/evar67',
+            search: { clause: `CONTAINS '${eventName}'` },
+            settings: { countRepeatInstances: true, limit: 1000 }
+          }
+        });
+
+        // Parse page context from evar67 values
+        (fallbackData?.rows || []).forEach(row => {
+          const value = row.value || '';
+          const clicks = row.data?.[0] || 0;
+          
+          // Extract page pattern from evar67
+          // Format: "draft kings:espn:nfl:game:gamecast:pointSpread:..."
+          // or: "espn bet interaction:::espnbet:espn:nfl:schedule:..."
+          let pageName = null;
+          
+          // Try to extract espn:sport:pagetype pattern
+          const pageMatch = value.match(/espn:([a-z]+):([a-z:]+?)(?::|$)/i);
+          if (pageMatch) {
+            pageName = `espn:${pageMatch[1]}:${pageMatch[2].split(':')[0]}`;
+          }
+          
+          if (pageName && clicks > 0) {
+            results[pageName] = (results[pageName] || 0) + clicks;
+          }
+        });
+      } catch (fallbackErr) {
+        console.log(`Fallback also failed for ${eventName}:`, fallbackErr.message);
+      }
+    }
+    
+    // Small delay to avoid rate limits
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  // Convert to sorted array
+  const pages = Object.entries(results)
+    .map(([page, clicks]) => ({ page, clicks }))
+    .filter(p => p.clicks >= 100) // Only pages with significant clicks
+    .sort((a, b) => b.clicks - a.clicks);
+
+  // Calculate before/after launch if provided
+  let pagesWithComparison = pages;
+  if (launchDate) {
+    // For each page, we'd need daily breakdown - too expensive for all pages
+    // Just return totals for now, daily breakdown can be fetched per-page
+    pagesWithComparison = pages.map(p => ({
+      ...p,
+      launchDate
+    }));
+  }
+
+  const result = {
+    pages: pagesWithComparison,
+    totalPages: pages.length,
+    totalClicks: pages.reduce((sum, p) => sum + p.clicks, 0),
+    dateRange: { start: startDate, end: endDate },
+    launchDate,
+    method: 'evar66 (event_name) grouped by page'
+  };
+
+  cache.set(cacheKey, result, 600); // Cache for 10 minutes
+  return result;
+}
+
+/**
+ * Get daily bet clicks for a specific page (for chart)
+ */
+async function getPageDailyBetClicks(pageName, launchDate = null) {
+  if (!ADOBE_REPORT_SUITE_ID) {
+    throw new Error('ADOBE_REPORT_SUITE_ID is required');
+  }
+
+  const cacheKey = `page-daily-clicks:${pageName}:${launchDate || 'all'}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const today = new Date();
+  const ninetyDaysAgo = new Date(today);
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  
+  const startDate = ninetyDaysAgo.toISOString().split('T')[0];
+  const endDate = today.toISOString().split('T')[0];
+
+  // Search evar67 for this page pattern with bet click identifiers
+  const searchPattern = pageName.replace('espn:', '');
+  
+  const [newData, legacyData] = await Promise.all([
+    apiRequest('/reports', {
+      method: 'POST',
+      data: {
+        rsid: ADOBE_REPORT_SUITE_ID,
+        globalFilters: [{
+          type: 'dateRange',
+          dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999`
+        }],
+        metricContainer: {
+          metrics: [{ id: 'metrics/occurrences', columnId: '0' }]
+        },
+        dimension: 'variables/evar67',
+        search: { clause: `CONTAINS 'draft kings' AND CONTAINS '${searchPattern}'` },
+        settings: { countRepeatInstances: true, limit: 500 }
+      }
+    }).catch(() => ({ rows: [] })),
+    apiRequest('/reports', {
+      method: 'POST',
+      data: {
+        rsid: ADOBE_REPORT_SUITE_ID,
+        globalFilters: [{
+          type: 'dateRange',
+          dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999`
+        }],
+        metricContainer: {
+          metrics: [{ id: 'metrics/occurrences', columnId: '0' }]
+        },
+        dimension: 'variables/evar67',
+        search: { clause: `CONTAINS 'espnbet' AND CONTAINS '${searchPattern}'` },
+        settings: { countRepeatInstances: true, limit: 500 }
+      }
+    }).catch(() => ({ rows: [] }))
+  ]);
+
+  // Get itemIds for daily breakdown
+  const allItemIds = [
+    ...(newData?.rows || []).map(r => r.itemId),
+    ...(legacyData?.rows || []).map(r => r.itemId)
+  ].filter(Boolean).slice(0, 50);
+
+  const totalClicks = [
+    ...(newData?.rows || []),
+    ...(legacyData?.rows || [])
+  ].reduce((sum, r) => sum + (r.data?.[0] || 0), 0);
+
+  // Get daily breakdown if we have items
+  let dailyClicks = {};
+  if (allItemIds.length > 0) {
+    try {
+      const dailyData = await apiRequest('/reports', {
+        method: 'POST',
+        data: {
+          rsid: ADOBE_REPORT_SUITE_ID,
+          globalFilters: [{
+            type: 'dateRange',
+            dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999`
+          }],
+          metricContainer: {
+            metrics: [{ id: 'metrics/occurrences', columnId: '0' }],
+            metricFilters: [{
+              id: 'evarFilter',
+              type: 'breakdown',
+              dimension: 'variables/evar67',
+              itemIds: allItemIds
+            }]
+          },
+          dimension: 'variables/daterangeday',
+          settings: { countRepeatInstances: true, limit: 400 }
+        }
+      });
+
+      (dailyData?.rows || []).forEach(row => {
+        const dateStr = row.value;
+        if (dateStr && /^\w{3} \d{1,2}, \d{4}$/.test(dateStr)) {
+          const date = new Date(dateStr).toISOString().split('T')[0];
+          dailyClicks[date] = (dailyClicks[date] || 0) + (row.data?.[0] || 0);
+        }
+      });
+    } catch (err) {
+      console.log(`Error getting daily breakdown for ${pageName}:`, err.message);
+    }
+  }
+
+  // Calculate before/after comparison
+  let comparison = null;
+  if (launchDate && Object.keys(dailyClicks).length > 0) {
+    const launchDateNoon = new Date(launchDate + 'T12:00:00');
+    let beforeTotal = 0, afterTotal = 0;
+    let beforeDays = 0, afterDays = 0;
+
+    Object.entries(dailyClicks).forEach(([date, clicks]) => {
+      const dateObj = new Date(date + 'T12:00:00');
+      if (dateObj < launchDateNoon) {
+        beforeTotal += clicks;
+        beforeDays++;
+      } else {
+        afterTotal += clicks;
+        afterDays++;
+      }
+    });
+
+    const avgBefore = beforeDays > 0 ? Math.round(beforeTotal / beforeDays) : 0;
+    const avgAfter = afterDays > 0 ? Math.round(afterTotal / afterDays) : 0;
+    const changePercent = avgBefore > 0 
+      ? Math.round(((avgAfter - avgBefore) / avgBefore) * 100)
+      : (avgAfter > 0 ? 100 : 0);
+
+    comparison = {
+      avgClicksBefore: avgBefore,
+      avgClicksAfter: avgAfter,
+      daysBefore: beforeDays,
+      daysAfter: afterDays,
+      changePercent
+    };
+  }
+
+  const result = {
+    page: pageName,
+    totalClicks,
+    dailyClicks,
+    comparison,
+    dateRange: { start: startDate, end: endDate }
+  };
+
+  cache.set(cacheKey, result, 300);
+  return result;
+}
+
+/**
+ * NEW: Get ALL bet clicks using evar66 (event_name) = "betting interaction" etc
+ * Then break down by pageName to see where clicks came from
+ * This auto-discovers all pages - no manual config needed!
+ */
+async function discoverAllBetClicks(launchDate = '2025-12-01') {
+  if (!ADOBE_REPORT_SUITE_ID) {
+    throw new Error('ADOBE_REPORT_SUITE_ID is required');
+  }
+
+  const cacheKey = `discover-bet-clicks:${launchDate}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const today = new Date();
+  const ninetyDaysAgo = new Date(today);
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  
+  const startDate = ninetyDaysAgo.toISOString().split('T')[0];
+  const endDate = today.toISOString().split('T')[0];
+
+  console.log('Discovering all bet clicks by page...');
+
+  // Query evar67 for ALL bet click events (contains espnbet or draft kings)
+  // These events have the page context embedded in the value
+  const [draftKingsData, espnBetData] = await Promise.all([
+    apiRequest('/reports', {
+      method: 'POST',
+      data: {
+        rsid: ADOBE_REPORT_SUITE_ID,
+        globalFilters: [{
+          type: 'dateRange',
+          dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999`
+        }],
+        metricContainer: {
+          metrics: [{ id: 'metrics/occurrences', columnId: '0' }]
+        },
+        dimension: 'variables/evar67',
+        search: { clause: `CONTAINS 'draft kings'` },
+        settings: { countRepeatInstances: true, limit: 2000 }
+      }
+    }).catch(err => {
+      console.log('Error fetching draft kings data:', err.message);
+      return { rows: [] };
+    }),
+    apiRequest('/reports', {
+      method: 'POST',
+      data: {
+        rsid: ADOBE_REPORT_SUITE_ID,
+        globalFilters: [{
+          type: 'dateRange',
+          dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999`
+        }],
+        metricContainer: {
+          metrics: [{ id: 'metrics/occurrences', columnId: '0' }]
+        },
+        dimension: 'variables/evar67',
+        search: { clause: `CONTAINS 'espnbet'` },
+        settings: { countRepeatInstances: true, limit: 2000 }
+      }
+    }).catch(err => {
+      console.log('Error fetching espnbet data:', err.message);
+      return { rows: [] };
+    })
+  ]);
+
+  // Parse page context from evar67 values and aggregate by page
+  const pageClicks = {};
+  const pageItemIds = {}; // Store itemIds for daily breakdown
+  
+  function parsePageFromEvar67(value) {
+    // Examples:
+    // "draft kings:espn:nfl:game:gamecast:pointSpread:DAL -7" -> "nfl:gamecast"
+    // "draft kings:espn:nfl:odds:total:o42.5" -> "nfl:odds"
+    // "espnbet:espn:nfl:schedule:moneyline:..." -> "nfl:schedule"
+    // "draft kings:espn:ncaaf:game:gamecast:..." -> "ncaaf:gamecast"
+    // "draft kings:espn:soccer:match:gamecast:..." -> "soccer:gamecast"
+    
+    const valueLower = value.toLowerCase();
+    
+    // Known sports
+    const sports = ['nfl', 'nba', 'nhl', 'mlb', 'ncaaf', 'ncaab', 'ncaam', 'soccer', 'mma', 'wnba', 'college-football', 'mens-college-basketball'];
+    
+    // Known page types (order matters - check more specific first)
+    const pageTypes = ['gamecast', 'scoreboard', 'schedule', 'odds', 'standings', 'boxscore', 'fightcenter', 'index', 'scores'];
+    
+    // Find sport in the value
+    let foundSport = null;
+    for (const sport of sports) {
+      if (valueLower.includes(`:${sport}:`) || valueLower.includes(`espn:${sport}`)) {
+        foundSport = sport;
+        // Normalize college sports
+        if (foundSport === 'college-football') foundSport = 'ncaaf';
+        if (foundSport === 'mens-college-basketball') foundSport = 'ncaab';
+        break;
+      }
+    }
+    
+    // Find page type
+    let foundPageType = null;
+    for (const pt of pageTypes) {
+      if (valueLower.includes(`:${pt}:`) || valueLower.includes(`:${pt}`)) {
+        foundPageType = pt;
+        break;
+      }
+    }
+    
+    // Special case: match:gamecast for soccer
+    if (valueLower.includes(':match:gamecast')) {
+      foundPageType = 'gamecast';
+      if (!foundSport) foundSport = 'soccer';
+    }
+    
+    // Special case: game:gamecast
+    if (valueLower.includes(':game:gamecast')) {
+      foundPageType = 'gamecast';
+    }
+    
+    // Return sport:pageType if both found
+    if (foundSport && foundPageType) {
+      return `${foundSport}:${foundPageType}`;
+    }
+    
+    // If only pageType found (generic)
+    if (foundPageType) {
+      return `other:${foundPageType}`;
+    }
+    
+    return null;
+  }
+
+  // Process DraftKings data
+  (draftKingsData?.rows || []).forEach(row => {
+    const pageName = parsePageFromEvar67(row.value || '');
+    const clicks = row.data?.[0] || 0;
+    if (pageName && clicks > 0) {
+      if (!pageClicks[pageName]) {
+        pageClicks[pageName] = { total: 0, draftKings: 0, espnBet: 0, itemIds: [] };
+      }
+      pageClicks[pageName].total += clicks;
+      pageClicks[pageName].draftKings += clicks;
+      if (row.itemId) pageClicks[pageName].itemIds.push(row.itemId);
+    }
+  });
+
+  // Process ESPN Bet data
+  (espnBetData?.rows || []).forEach(row => {
+    const pageName = parsePageFromEvar67(row.value || '');
+    const clicks = row.data?.[0] || 0;
+    if (pageName && clicks > 0) {
+      if (!pageClicks[pageName]) {
+        pageClicks[pageName] = { total: 0, draftKings: 0, espnBet: 0, itemIds: [] };
+      }
+      pageClicks[pageName].total += clicks;
+      pageClicks[pageName].espnBet += clicks;
+      if (row.itemId) pageClicks[pageName].itemIds.push(row.itemId);
+    }
+  });
+
+  // Convert to sorted array
+  const pages = Object.entries(pageClicks)
+    .map(([page, data]) => ({
+      page,
+      label: formatPageLabel(page),
+      clicks: data.total,
+      draftKingsClicks: data.draftKings,
+      espnBetClicks: data.espnBet,
+      itemIds: data.itemIds.slice(0, 50) // Keep for daily breakdown
+    }))
+    .filter(p => p.clicks >= 50) // Filter out noise
+    .sort((a, b) => b.clicks - a.clicks);
+
+  console.log(`Found ${pages.length} pages with bet clicks`);
+
+  // Get daily breakdown for ALL pages (not just top 20)
+  const launchDateObj = launchDate ? new Date(launchDate + 'T12:00:00') : null;
+
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
+    
+    // Small delay to avoid rate limits
+    if (i > 0) await new Promise(r => setTimeout(r, 300));
+    
+    try {
+      // Build search pattern for this page
+      const parts = page.page.split(':');
+      const sport = parts[0];
+      const pageType = parts[1];
+      
+      // Use the existing getOddsPageClicks function which works correctly
+      // It searches evar67 for patterns and gets daily breakdown
+      let searchPattern;
+      if (sport === 'other') {
+        // Generic: just match page type
+        searchPattern = pageType;
+      } else if (sport === 'ncaaf' && pageType === 'schedule') {
+        // Special case for college football schedule (uses different naming)
+        searchPattern = 'college-football:schedule';
+      } else if (pageType === 'gamecast') {
+        // Gamecasts use "game:gamecast" format in evar67
+        if (sport === 'soccer') {
+          searchPattern = 'match:gamecast'; // Soccer uses match:gamecast
+        } else {
+          searchPattern = `${sport}:game:gamecast`;
+        }
+      } else {
+        // Sport-specific: e.g., "nfl:odds", "nba:schedule"
+        searchPattern = `${sport}:${pageType}`;
+      }
+      
+      // Call the working getOddsPageClicks function
+      const clickData = await getOddsPageClicks(launchDate, searchPattern);
+      
+      if (clickData?.dailyClicks?.length > 0) {
+        // Convert array to map
+        const dailyClicksMap = {};
+        clickData.dailyClicks.forEach(d => {
+          dailyClicksMap[d.date] = { clicks: d.clicks };
+        });
+        page.dailyClicks = dailyClicksMap;
+        page.comparison = clickData.comparison;
+        console.log(`  ✓ ${page.label}: ${clickData.totalClicks.toLocaleString()} clicks, ${clickData.dailyClicks.length} days`);
+      } else {
+        console.log(`  ⚠ ${page.label}: No daily data (pattern: ${searchPattern})`);
+      }
+    } catch (err) {
+      console.log(`  ✗ Error for ${page.page}:`, err.message);
+    }
+  }
+
+  // Dynamically group pages by page type
+  // First, collect all page types and their total clicks
+  const pageTypeStats = {};
+  pages.forEach(page => {
+    const pageType = page.page.split(':')[1] || 'other';
+    if (!pageTypeStats[pageType]) {
+      pageTypeStats[pageType] = { totalClicks: 0, pages: [] };
+    }
+    pageTypeStats[pageType].totalClicks += page.clicks;
+    pageTypeStats[pageType].pages.push(page);
+  });
+
+  // Sort page types by total clicks (most clicks first)
+  const sortedPageTypes = Object.entries(pageTypeStats)
+    .sort((a, b) => b[1].totalClicks - a[1].totalClicks)
+    .map(([type]) => type);
+
+  // Sort pages within each type by clicks
+  Object.values(pageTypeStats).forEach(stats => {
+    stats.pages.sort((a, b) => b.clicks - a.clicks);
+  });
+
+  // Create grouped structure for frontend (ordered by total clicks per type)
+  const grouped = {};
+  sortedPageTypes.forEach(pageType => {
+    const stats = pageTypeStats[pageType];
+    grouped[pageType] = {
+      label: formatPageTypeLabel(pageType),
+      totalClicks: stats.totalClicks,
+      pages: stats.pages
+    };
+  });
+
+  // Flatten back to sorted array (grouped by type, then by clicks within type)
+  const sortedPages = sortedPageTypes.flatMap(type => pageTypeStats[type].pages);
+
+  const result = {
+    pages: sortedPages,
+    grouped,
+    pageTypes: sortedPageTypes,
+    totalPages: pages.length,
+    totalClicks: pages.reduce((sum, p) => sum + p.clicks, 0),
+    dateRange: { start: startDate, end: endDate },
+    launchDate,
+    method: 'Auto-discovered from evar67 (event_detail)'
+  };
+
+  cache.set(cacheKey, result, 600); // Cache 10 min
+  return result;
+}
+
+// Format page type to friendly label (dynamic - capitalizes and adds emoji)
+function formatPageTypeLabel(pageType) {
+  const emoji = {
+    'odds': '🎰',
+    'gamecast': '📺',
+    'schedule': '📅',
+    'scoreboard': '📊',
+    'standings': '🏆',
+    'boxscore': '📋',
+    'index': '🏠',
+    'scores': '⚽',
+    'fightcenter': '🥊'
+  };
+  const icon = emoji[pageType] || '📄';
+  const label = pageType.charAt(0).toUpperCase() + pageType.slice(1);
+  return `${icon} ${label} Pages`;
+}
+
+// Format page name to friendly label
+function formatPageLabel(page) {
+  const sportNames = {
+    'nfl': 'NFL',
+    'nba': 'NBA', 
+    'nhl': 'NHL',
+    'mlb': 'MLB',
+    'ncaaf': 'College Football',
+    'ncaab': 'College Basketball',
+    'ncaam': 'College Basketball',
+    'soccer': 'Soccer',
+    'mma': 'MMA',
+    'wnba': 'WNBA',
+    'other': 'Other'
+  };
+  
+  const pageTypes = {
+    'gamecast': 'Gamecast',
+    'scoreboard': 'Scoreboard',
+    'schedule': 'Schedule',
+    'odds': 'Odds',
+    'standings': 'Standings',
+    'boxscore': 'Box Score',
+    'fightcenter': 'Fight Center',
+    'index': 'Index',
+    'scores': 'Scores'
+  };
+  
+  const parts = page.split(':');
+  const sport = sportNames[parts[0]] || parts[0]?.toUpperCase();
+  const pageType = pageTypes[parts[1]] || parts[1];
+  
+  if (parts[0] === 'other') {
+    return pageType ? `All ${pageType}s` : page;
+  }
+  
+  if (sport && pageType) {
+    return `${sport} ${pageType}`;
+  }
+  return page;
+}
+
+module.exports = { 
+  getStats, 
+  getAnalyticsData, 
+  getProjectAnalytics, 
+  getTopPages, 
+  findPage, 
+  listReportSuites, 
+  getClickAnalytics, 
+  getTopClickEvents, 
+  getClicksBySource, 
+  getOddsPageClicks, 
+  getAllBetClicksByPage, 
+  getBetClicksByPageName, 
+  getBetClicksBySourcePage,
+  getPageDailyBetClicks,
+  discoverAllBetClicks,
+  testAuth 
+};

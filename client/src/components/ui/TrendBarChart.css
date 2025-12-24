@@ -1,0 +1,243 @@
+/* TrendBarChart - Reusable trend chart component */
+
+.trend-bar-chart {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  position: relative;
+}
+
+.chart-y-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding-right: 8px;
+  min-width: 40px;
+  text-align: right;
+}
+
+.chart-y-axis .y-label {
+  font-size: 10px;
+  color: var(--text-secondary, #64748b);
+  line-height: 1;
+}
+
+.chart-main {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-bars {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  padding-bottom: 24px;
+}
+
+.chart-bar-container {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  position: relative;
+  cursor: pointer;
+}
+
+.chart-bar {
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.chart-bar.before-launch {
+  background-color: var(--before-color, #94a3b8);
+}
+
+.chart-bar.after-launch {
+  background-color: var(--after-color, #667eea);
+}
+
+.chart-bar.launch-day {
+  background-color: var(--launch-day-color, #f59e0b);
+}
+
+.chart-bar.hovered {
+  opacity: 1;
+  transform: scaleY(1.02);
+}
+
+.chart-bar-container:hover .chart-bar {
+  filter: brightness(1.1);
+}
+
+/* Tooltip */
+.chart-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--tooltip-bg, #1e293b);
+  color: var(--tooltip-text, #f1f5f9);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 100;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  margin-bottom: 8px;
+}
+
+.chart-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--tooltip-bg, #1e293b);
+}
+
+.tooltip-date {
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--tooltip-date-color, #94a3b8);
+}
+
+.tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tooltip-label {
+  color: var(--tooltip-label-color, #94a3b8);
+}
+
+.tooltip-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* X-axis */
+.chart-x-axis {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+}
+
+.chart-x-axis .x-label {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--text-secondary, #64748b);
+  white-space: nowrap;
+}
+
+/* Launch marker */
+.launch-marker {
+  position: absolute;
+  top: 0;
+  bottom: 24px;
+  width: 2px;
+  background: var(--launch-marker-color, #f59e0b);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.launch-marker::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 8px;
+  background: var(--launch-marker-color, #f59e0b);
+  border-radius: 50%;
+}
+
+.launch-label {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--launch-marker-color, #f59e0b);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Legend */
+.chart-legend {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  padding-top: 12px;
+  font-size: 11px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary, #64748b);
+}
+
+.legend-item::before {
+  content: '';
+  width: 12px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.legend-item.before::before {
+  background-color: var(--chart-before-color, #94a3b8);
+}
+
+.legend-item.after::before {
+  background-color: var(--chart-after-color, #667eea);
+}
+
+/* Chart empty state */
+.chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 100px;
+  color: var(--text-secondary, #64748b);
+  font-size: 13px;
+  background: var(--empty-bg, #f8fafc);
+  border-radius: 8px;
+}
+
+/* Small variant for compact cards */
+.trend-bar-chart.small .chart-y-axis {
+  display: none;
+}
+
+.trend-bar-chart.small .chart-legend {
+  display: none;
+}
+
+.trend-bar-chart.small .launch-label {
+  display: none;
+}
+
+.trend-bar-chart.small .chart-x-axis {
+  display: none;
+}
+
+.trend-bar-chart.small .chart-bars {
+  padding-bottom: 0;
+}
+

@@ -1,6 +1,6 @@
 import React from 'react';
 import './AnalyticsChart.css';
-import { formatNumber } from '../utils/mockAnalyticsData';
+import { formatNumber } from '../utils/analyticsHelpers';
 
 // Simple bar chart component
 export function BarChart({ data, dataKey, labelKey, title, color = '#667eea' }) {

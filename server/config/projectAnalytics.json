@@ -1,59 +1,6 @@
 {
-  "projects": {
-    "topeventsodds": {
-      "label": "Top Events Odds",
-      "clickEventFilter": "topeventsodds",
-      "launchDate": "2025-12-01",
-      "parentProject": "SEWEB-59645",
-      "parentLabel": "DraftKings Integration",
-      "metricType": "betClicks",
-      "enabled": true,
-      "trackClicks": true,
-      "trackPageViews": false
-    },
-    "sport-odds": {
-      "label": "Sport Odds (NFL, NBA, etc)",
-      "clickEventFilter": ":odds",
-      "launchDate": "2025-12-01",
-      "parentProject": "SEWEB-59645",
-      "parentLabel": "DraftKings Integration",
-      "metricType": "betClicks",
-      "enabled": true,
-      "trackClicks": true,
-      "trackPageViews": false
-    },
-    "gamecast": {
-      "label": "Gamecast",
-      "clickEventFilter": "gamecast",
-      "launchDate": "2025-12-01",
-      "parentProject": "SEWEB-59645",
-      "parentLabel": "DraftKings Integration",
-      "metricType": "betClicks",
-      "enabled": true,
-      "trackClicks": true,
-      "trackPageViews": false
-    },
-    "scoreboard": {
-      "label": "Scoreboard",
-      "clickEventFilter": "scoreboard",
-      "launchDate": "2025-12-01",
-      "parentProject": "SEWEB-59645",
-      "parentLabel": "DraftKings Integration",
-      "metricType": "betClicks",
-      "enabled": true,
-      "trackClicks": true,
-      "trackPageViews": false
-    },
-    "schedule": {
-      "label": "Schedule",
-      "clickEventFilter": "schedule",
-      "launchDate": "2025-12-01",
-      "parentProject": "SEWEB-59645",
-      "parentLabel": "DraftKings Integration",
-      "metricType": "betClicks",
-      "enabled": true,
-      "trackClicks": true,
-      "trackPageViews": false
-    }
-  }
+  "_comment": "Config for project analytics. Pages are now auto-discovered via evar66 (event_name).",
+  "launchDate": "2025-12-01",
+  "parentProject": "SEWEB-59645",
+  "parentLabel": "DraftKings Integration"
 }

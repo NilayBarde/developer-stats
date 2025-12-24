@@ -1,0 +1,181 @@
+/* ChartModal - Expanded chart view overlay */
+
+.chart-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.chart-modal {
+  background: var(--modal-bg, #ffffff);
+  border-radius: 16px;
+  max-width: 800px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.chart-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+.chart-modal-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary, #1e293b);
+}
+
+.modal-subtitle {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
+}
+
+.modal-subtitle code {
+  background: var(--code-bg, #f1f5f9);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.modal-close-btn {
+  background: var(--close-btn-bg, #f1f5f9);
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--text-secondary, #64748b);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.modal-close-btn:hover {
+  background: var(--close-btn-hover-bg, #e2e8f0);
+  color: var(--text-primary, #1e293b);
+}
+
+/* Stats row */
+.chart-modal-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 16px;
+  padding: 20px 24px;
+  background: var(--stats-bg, #f8fafc);
+}
+
+.modal-stat {
+  text-align: center;
+}
+
+.modal-stat .stat-value {
+  display: block;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+  font-variant-numeric: tabular-nums;
+}
+
+.modal-stat .stat-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.modal-stat.highlight.positive .stat-value {
+  color: var(--positive-color, #10b981);
+}
+
+.modal-stat.highlight.negative .stat-value {
+  color: var(--negative-color, #ef4444);
+}
+
+/* Chart area */
+.chart-modal-chart {
+  padding: 24px;
+}
+
+/* Comparison section */
+.chart-modal-comparison {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 20px 24px 24px;
+  border-top: 1px solid var(--border-color, #e2e8f0);
+}
+
+.modal-comparison-item {
+  text-align: center;
+  padding: 16px 24px;
+  border-radius: 12px;
+  min-width: 160px;
+}
+
+.modal-comparison-item.before {
+  background: var(--before-bg, #f1f5f9);
+}
+
+.modal-comparison-item.after {
+  background: var(--after-bg, #eef2ff);
+}
+
+.modal-comparison-item .label {
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  margin-bottom: 4px;
+}
+
+.modal-comparison-item .value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary, #1e293b);
+  font-variant-numeric: tabular-nums;
+}
+
+.modal-comparison-arrow {
+  font-size: 24px;
+  color: var(--arrow-color, #94a3b8);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .chart-modal-overlay {
+    padding: 16px;
+  }
+  
+  .chart-modal-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .chart-modal-comparison {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .modal-comparison-arrow {
+    transform: rotate(90deg);
+  }
+}
+

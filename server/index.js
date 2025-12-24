@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const { exec } = require('child_process');
 const cache = require('./utils/cache');
 const { parseDateRange, setCacheHeaders } = require('./utils/requestHelpers');
 const { createCachedEndpoint, createSimpleEndpoint } = require('./utils/endpointHelpers');
@@ -12,6 +13,45 @@ const adobeAnalyticsService = require('./services/adobeAnalytics');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Kill any existing process on the port
+function killProcessOnPort(port) {
+  return new Promise((resolve) => {
+    const command = process.platform === 'win32'
+      ? `netstat -ano | findstr :${port} | findstr LISTENING`
+      : `lsof -ti:${port}`;
+    
+    exec(command, (error, stdout) => {
+      if (error || !stdout.trim()) {
+        // No process found on port
+        resolve();
+        return;
+      }
+      
+      const pids = stdout.trim().split('\n').filter(Boolean);
+      if (pids.length === 0) {
+        resolve();
+        return;
+      }
+      
+      console.log(`Found existing process(es) on port ${port}: ${pids.join(', ')}`);
+      
+      const killCommand = process.platform === 'win32'
+        ? `taskkill /PID ${pids[0]} /F`
+        : `kill -9 ${pids.join(' ')}`;
+      
+      exec(killCommand, (killError) => {
+        if (killError) {
+          console.log(`Could not kill process: ${killError.message}`);
+        } else {
+          console.log(`Killed process(es) on port ${port}`);
+        }
+        // Small delay to ensure port is released
+        setTimeout(resolve, 100);
+      });
+    });
+  });
+}
 
 app.use(cors());
 app.use(express.json());
@@ -246,9 +286,10 @@ app.get('/api/projects/:epicKey/analytics', async (req, res) => {
   }
 });
 
-// Get all project analytics (for Analytics page)
+// Get all project analytics (for Analytics page) - AUTO-DISCOVERS pages with bet clicks
 app.get('/api/project-analytics', async (req, res) => {
-  const cacheKey = 'all-project-analytics';
+  const launchDate = req.query.launchDate || '2025-12-01'; // DraftKings launch date
+  const cacheKey = `all-project-analytics-v2:${launchDate}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log('✓ Project analytics served from cache');
@@ -257,50 +298,91 @@ app.get('/api/project-analytics', async (req, res) => {
   }
 
   try {
-    const projects = Object.entries(projectAnalyticsConfig.projects || {})
-      .filter(([_, config]) => config.enabled)
-      .map(([epicKey, config]) => ({ epicKey, ...config }));
-
-    if (projects.length === 0) {
-      return res.json({ projects: [] });
+    // Auto-discover all pages with bet clicks from evar67
+    console.log('🔍 Auto-discovering pages with bet clicks...');
+    const discovered = await adobeAnalyticsService.discoverAllBetClicks(launchDate);
+    
+    if (!discovered?.pages?.length) {
+      return res.json({ projects: [], others: [], method: 'auto-discovery', totalClicks: 0 });
     }
 
-    // Fetch sequentially with delays to avoid rate limiting
-    const analyticsResults = [];
-    for (const project of projects) {
-      try {
-        const analytics = await adobeAnalyticsService.getProjectAnalytics(project);
-        analyticsResults.push({
-          epicKey: project.epicKey,
-          label: project.label,
-          pageFilter: project.pageFilter,
-          launchDate: project.launchDate,
-          parentProject: project.parentProject,
-          parentLabel: project.parentLabel,
-          metricType: project.metricType,
-          ...analytics
-        });
-      } catch (error) {
-        analyticsResults.push({
-          epicKey: project.epicKey,
-          label: project.label,
-          parentProject: project.parentProject,
-          parentLabel: project.parentLabel,
-          error: error.message
-        });
+    console.log(`📊 Found ${discovered.pages.length} pages with ${discovered.totalClicks.toLocaleString()} total bet clicks`);
+
+    // Format ALL pages for charts, grouped by page type
+    const projects = discovered.pages.map(page => ({
+      epicKey: page.page,
+      label: page.label,
+      pageType: page.page.split(':')[1] || 'other',
+      launchDate,
+      parentProject: 'SEWEB-59645',
+      parentLabel: 'DraftKings Integration',
+      metricType: 'betClicks',
+      clicks: {
+        totalClicks: page.clicks,
+        draftKingsClicks: page.draftKingsClicks,
+        espnBetClicks: page.espnBetClicks,
+        dailyClicks: page.dailyClicks || {},
+        comparison: page.comparison
       }
-      // Small delay between requests to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
+    }));
 
-    const result = { projects: analyticsResults };
-    cache.set(cacheKey, result, 300);
+    const result = { 
+      projects,
+      grouped: discovered.grouped,
+      method: 'auto-discovery from evar67 (event_detail)',
+      totalClicks: discovered.totalClicks,
+      totalPages: discovered.totalPages,
+      dateRange: discovered.dateRange,
+      launchDate
+    };
+    
+    cache.set(cacheKey, result, 600); // Cache for 10 minutes
     setCacheHeaders(res, false);
     res.json(result);
   } catch (error) {
+    console.error('Error in project-analytics:', error);
     res.status(500).json({ error: error.message });
   }
 });
+
+// Helper to format page names into readable labels
+function formatPageLabel(pageName) {
+  // "espn:nfl:game:gamecast" -> "NFL Gamecast"
+  // "espn:nba:schedule" -> "NBA Schedule"
+  const parts = pageName.replace('espn:', '').split(':');
+  
+  const sportMap = {
+    'nfl': 'NFL', 'nba': 'NBA', 'nhl': 'NHL', 'mlb': 'MLB',
+    'ncaaf': 'College Football', 'ncaab': 'College Basketball',
+    'soccer': 'Soccer', 'mma': 'MMA', 'golf': 'Golf',
+    'tennis': 'Tennis', 'boxing': 'Boxing', 'f1': 'F1'
+  };
+  
+  const pageTypeMap = {
+    'scoreboard': 'Scoreboard', 'schedule': 'Schedule', 
+    'gamecast': 'Gamecast', 'odds': 'Odds',
+    'standings': 'Standings', 'stats': 'Stats',
+    'scores': 'Scores', 'game': '', 'match': ''
+  };
+
+  let sport = sportMap[parts[0]?.toLowerCase()] || parts[0]?.toUpperCase() || '';
+  let pageType = '';
+  
+  // Find the page type in the parts
+  for (const part of parts.slice(1)) {
+    if (pageTypeMap[part.toLowerCase()] !== undefined) {
+      if (pageTypeMap[part.toLowerCase()]) {
+        pageType = pageTypeMap[part.toLowerCase()];
+      }
+    }
+  }
+  
+  if (!pageType && parts.length > 1) {
+    pageType = parts[parts.length - 1].charAt(0).toUpperCase() + parts[parts.length - 1].slice(1);
+  }
+
+  return `${sport} ${pageType}`.trim() || pageName;
+}
 
 // Debug: Get top pages from Adobe Analytics (to find the right filter)
 app.get('/api/analytics/top-pages', async (req, res) => {
@@ -372,6 +454,26 @@ app.get('/api/analytics/page-clicks', async (req, res) => {
   }
 });
 
+// Get ALL bet clicks grouped by page type (fast)
+app.get('/api/analytics/all-clicks-by-page', async (req, res) => {
+  try {
+    const data = await adobeAnalyticsService.getAllBetClicksByPage();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get bet clicks by actual page name (exact pages)
+app.get('/api/analytics/bet-clicks-by-page-name', async (req, res) => {
+  try {
+    const data = await adobeAnalyticsService.getBetClicksByPageName();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Legacy endpoint - keep for backwards compatibility
 app.get('/api/analytics/odds-page-clicks', async (req, res) => {
   try {
@@ -417,6 +519,67 @@ app.post('/api/cache/clear', (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+// Pre-warm cache function - auto-discovers pages with bet clicks
+async function prewarmCache() {
+  console.log('🔥 Pre-warming cache (auto-discovery mode)...');
+  
+  try {
+    const launchDate = '2025-12-01';
+    const startTime = Date.now();
+    
+    // Use new discoverAllBetClicks which does everything in one call
+    console.log('  → Discovering all pages with bet clicks from evar67...');
+    const discovered = await adobeAnalyticsService.discoverAllBetClicks(launchDate);
+    
+    if (discovered?.pages?.length) {
+      // Format and cache results - use all pages from discovery
+      const projects = discovered.pages.map(page => ({
+        epicKey: page.page,
+        label: page.label,
+        launchDate,
+        parentProject: 'SEWEB-59645',
+        parentLabel: 'DraftKings Integration',
+        metricType: 'betClicks',
+        clicks: {
+          totalClicks: page.clicks,
+          draftKingsClicks: page.draftKingsClicks,
+          espnBetClicks: page.espnBetClicks,
+          dailyClicks: page.dailyClicks || {},
+          comparison: page.comparison
+        }
+      }));
+
+      const result = { 
+        projects,
+        grouped: discovered.grouped,
+        pageTypes: discovered.pageTypes,
+        method: discovered.method,
+        totalClicks: discovered.totalClicks,
+        totalPages: discovered.totalPages,
+        dateRange: discovered.dateRange,
+        launchDate
+      };
+      
+      cache.set(`all-project-analytics-v2:${launchDate}`, result, 600);
+      
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`  ✓ Found ${discovered.pages.length} pages with ${discovered.totalClicks.toLocaleString()} clicks in ${elapsed}s`);
+    } else {
+      console.log('  ⚠ No pages with bet clicks found');
+    }
+  } catch (error) {
+    console.error('  ✗ Pre-warm failed:', error.message);
+  }
+}
+
+// Start server after killing any existing process on the port
+killProcessOnPort(PORT).then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    
+    // Pre-warm cache after server starts
+    setTimeout(() => {
+      prewarmCache();
+    }, 1000);
+  });
 });
