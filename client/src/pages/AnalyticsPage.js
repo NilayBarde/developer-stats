@@ -351,8 +351,8 @@ function AnalyticsPage() {
         <p>
           Auto-discovered bet clicks across ESPN pages (DraftKings launch: Dec 1, 2025)
           <span className="legend-inline">
-            <span className="legend-dot before"></span> Before launch
-            <span className="legend-dot after"></span> After launch
+            <span className="legend-item"><span className="legend-dot before"></span>Before launch</span>
+            <span className="legend-item"><span className="legend-dot after"></span>After launch</span>
           </span>
         </p>
         {loadingProgress && (

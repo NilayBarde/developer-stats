@@ -131,18 +131,25 @@
 }
 
 .legend-inline {
-  display: flex;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.9em;
+}
+
+.legend-inline .legend-item {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.9em;
 }
 
 .legend-dot {
   width: 12px;
   height: 12px;
   border-radius: 2px;
-  display: inline-block;
-  margin-right: 4px;
+  flex-shrink: 0;
+  position: relative;
+  top: 1px;
 }
 
 .legend-dot.before {
