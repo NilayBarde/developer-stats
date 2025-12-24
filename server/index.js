@@ -10,116 +10,16 @@ const githubService = require('./services/github');
 const gitlabService = require('./services/gitlab');
 const jiraService = require('./services/jira');
 const adobeAnalyticsService = require('./services/adobeAnalytics');
+const { 
+  generateMockAnalyticsData, 
+  generateMockPRsData, 
+  generateMockMRsData, 
+  generateMockIssuesData, 
+  generateMockProjectsData,
+  generateMockStatsData
+} = require('./utils/mockData');
 
 const app = express();
-
-// Generate mock analytics data for development (avoids API rate limits)
-function generateMockAnalyticsData(startDate, endDate, launchDate) {
-  const start = startDate || '2025-03-01';
-  const end = endDate || new Date().toISOString().split('T')[0];
-  const launch = launchDate || '2025-12-01';
-  
-  // Mock pages with realistic data
-  const mockPages = [
-    { page: 'mlb:gamecast', label: 'MLB Gamecast', baseClicks: 250000 },
-    { page: 'nfl:gamecast', label: 'NFL Gamecast', baseClicks: 220000 },
-    { page: 'nba:gamecast', label: 'NBA Gamecast', baseClicks: 180000 },
-    { page: 'nfl:schedule', label: 'NFL Schedule', baseClicks: 150000 },
-    { page: 'nfl:odds', label: 'NFL Odds', baseClicks: 140000 },
-    { page: 'ncaaf:gamecast', label: 'College Football Gamecast', baseClicks: 120000 },
-    { page: 'ncaab:gamecast', label: 'College Basketball Gamecast', baseClicks: 100000 },
-    { page: 'soccer:gamecast', label: 'Soccer Gamecast', baseClicks: 80000 },
-    { page: 'nhl:gamecast', label: 'NHL Gamecast', baseClicks: 70000 },
-    { page: 'mlb:schedule', label: 'MLB Schedule', baseClicks: 60000 },
-  ];
-  
-  // Generate daily data
-  const generateDailyClicks = (baseClicks, startStr, endStr, launchStr) => {
-    const dailyClicks = {};
-    const startD = new Date(startStr);
-    const endD = new Date(endStr);
-    const launchD = new Date(launchStr);
-    const days = Math.ceil((endD - startD) / (1000 * 60 * 60 * 24));
-    const avgPerDay = Math.round(baseClicks / days);
-    
-    let beforeTotal = 0, afterTotal = 0;
-    let beforeDays = 0, afterDays = 0;
-    
-    for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
-      const variance = 0.5 + Math.random();
-      const clicks = Math.round(avgPerDay * variance);
-      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      dailyClicks[dateStr] = { clicks };
-      
-      if (d < launchD) {
-        beforeTotal += clicks;
-        beforeDays++;
-      } else {
-        afterTotal += clicks;
-        afterDays++;
-      }
-    }
-    
-    return {
-      dailyClicks,
-      comparison: {
-        avgClicksBefore: beforeDays > 0 ? Math.round(beforeTotal / beforeDays) : 0,
-        avgClicksAfter: afterDays > 0 ? Math.round(afterTotal / afterDays) : 0
-      }
-    };
-  };
-  
-  // Build projects
-  const projects = mockPages.map(p => {
-    const { dailyClicks, comparison } = generateDailyClicks(p.baseClicks, start, end, launch);
-    const totalClicks = Object.values(dailyClicks).reduce((sum, d) => sum + d.clicks, 0);
-    
-    return {
-      epicKey: p.page,
-      label: p.label,
-      pageType: p.page.split(':')[1] || 'other',
-      launchDate: launch,
-      metricType: 'betClicks',
-      clicks: {
-        totalClicks,
-        dailyClicks,
-        comparison
-      }
-    };
-  });
-  
-  // Group by page type
-  const grouped = {};
-  projects.forEach(project => {
-    const pageType = project.pageType;
-    if (!grouped[pageType]) {
-      grouped[pageType] = {
-        label: `📄 ${pageType.charAt(0).toUpperCase() + pageType.slice(1)} Pages`,
-        totalClicks: 0,
-        pages: []
-      };
-    }
-    grouped[pageType].totalClicks += project.clicks.totalClicks;
-    grouped[pageType].pages.push({
-      page: project.epicKey,
-      label: project.label,
-      clicks: project.clicks.totalClicks,
-      dailyClicks: project.clicks.dailyClicks,
-      comparison: project.clicks.comparison
-    });
-  });
-  
-  return {
-    projects,
-    grouped,
-    method: 'MOCK DATA (mock=true)',
-    totalClicks: projects.reduce((sum, p) => sum + p.clicks.totalClicks, 0),
-    totalPages: projects.length,
-    dateRange: { start, end },
-    launchDate: launch,
-    timing: { totalSeconds: 0, note: 'Mock data - instant' }
-  };
-}
 const PORT = process.env.PORT || 3001;
 
 // Kill any existing process on the port
@@ -196,8 +96,14 @@ app.get('/api/debug/env', (req, res) => {
   });
 });
 
-// Get all stats
+// Get all stats (with mock support)
 app.get('/api/stats', async (req, res) => {
+  // Mock data support
+  if (req.query.mock === 'true') {
+    console.log('⚠ Using MOCK Stats data');
+    return res.json(generateMockStatsData());
+  }
+  
   const startTime = Date.now();
   const dateRange = parseDateRange(req.query);
   const cacheKey = `stats:${JSON.stringify(dateRange)}`;
@@ -258,59 +164,95 @@ app.get('/api/stats/gitlab', createSimpleEndpoint({
   fetchFn: (dateRange) => gitlabService.getStats(dateRange)
 }));
 
-// Get Git stats (GitHub + GitLab)
-app.get('/api/stats/git', createSimpleEndpoint({
-  fetchFn: async (dateRange) => {
-    const [githubStats, gitlabStats] = await Promise.allSettled([
-      githubService.getStats(dateRange),
-      gitlabService.getStats(dateRange)
-    ]);
-    
-    return {
-      github: githubStats.status === 'fulfilled' ? githubStats.value : { error: githubStats.reason?.message },
-      gitlab: gitlabStats.status === 'fulfilled' ? gitlabStats.value : { error: gitlabStats.reason?.message },
+// Get Git stats (GitHub + GitLab) with mock support
+app.get('/api/stats/git', (req, res, next) => {
+  if (req.query.mock === 'true') {
+    console.log('⚠ Using MOCK Git stats');
+    const mockStats = generateMockStatsData();
+    return res.json({
+      github: mockStats.github,
+      gitlab: mockStats.gitlab,
       timestamp: new Date().toISOString()
-    };
+    });
   }
-}));
+  return createSimpleEndpoint({
+    fetchFn: async (dateRange) => {
+      const [githubStats, gitlabStats] = await Promise.allSettled([
+        githubService.getStats(dateRange),
+        gitlabService.getStats(dateRange)
+      ]);
+      
+      return {
+        github: githubStats.status === 'fulfilled' ? githubStats.value : { error: githubStats.reason?.message },
+        gitlab: gitlabStats.status === 'fulfilled' ? gitlabStats.value : { error: gitlabStats.reason?.message },
+        timestamp: new Date().toISOString()
+      };
+    }
+  })(req, res, next);
+});
 
-// Get Jira stats
-app.get('/api/stats/jira', createSimpleEndpoint({
-  fetchFn: (dateRange) => jiraService.getStats(dateRange)
-}));
+// Get Jira stats (with mock support)
+app.get('/api/stats/jira', (req, res, next) => {
+  if (req.query.mock === 'true') {
+    console.log('⚠ Using MOCK Jira stats');
+    return res.json(generateMockStatsData().jira);
+  }
+  return createSimpleEndpoint({
+    fetchFn: (dateRange) => jiraService.getStats(dateRange)
+  })(req, res, next);
+});
 
 // Get GitHub PRs
-app.get('/api/prs', createCachedEndpoint({
-  cacheKeyPrefix: 'prs',
-  fetchFn: (dateRange) => githubService.getAllPRsForPage(dateRange),
-  ttl: 300,
-  transformResponse: (prs) => ({
-    prs,
-    baseUrl: process.env.GITHUB_BASE_URL?.replace(/\/$/, '') || 'https://github.com'
-  })
-}));
+// Get GitHub PRs (with mock support)
+app.get('/api/prs', (req, res, next) => {
+  if (req.query.mock === 'true') {
+    console.log('⚠ Using MOCK PRs data');
+    return res.json(generateMockPRsData());
+  }
+  return createCachedEndpoint({
+    cacheKeyPrefix: 'prs',
+    fetchFn: (dateRange) => githubService.getAllPRsForPage(dateRange),
+    ttl: 300,
+    transformResponse: (prs) => ({
+      prs,
+      baseUrl: process.env.GITHUB_BASE_URL?.replace(/\/$/, '') || 'https://github.com'
+    })
+  })(req, res, next);
+});
 
-// Get GitLab MRs
-app.get('/api/mrs', createCachedEndpoint({
-  cacheKeyPrefix: 'mrs',
-  fetchFn: (dateRange) => gitlabService.getAllMRsForPage(dateRange),
-  ttl: 300,
-  transformResponse: (mrs) => ({
-    mrs,
-    baseUrl: process.env.GITLAB_BASE_URL?.replace(/\/$/, '') || 'https://gitlab.com'
-  })
-}));
+// Get GitLab MRs (with mock support)
+app.get('/api/mrs', (req, res, next) => {
+  if (req.query.mock === 'true') {
+    console.log('⚠ Using MOCK MRs data');
+    return res.json(generateMockMRsData());
+  }
+  return createCachedEndpoint({
+    cacheKeyPrefix: 'mrs',
+    fetchFn: (dateRange) => gitlabService.getAllMRsForPage(dateRange),
+    ttl: 300,
+    transformResponse: (mrs) => ({
+      mrs,
+      baseUrl: process.env.GITLAB_BASE_URL?.replace(/\/$/, '') || 'https://gitlab.com'
+    })
+  })(req, res, next);
+});
 
-// Get Jira issues
-app.get('/api/issues', createCachedEndpoint({
-  cacheKeyPrefix: 'issues',
-  fetchFn: (dateRange) => jiraService.getAllIssuesForPage(dateRange),
-  ttl: 120,
-  transformResponse: (issues) => ({
-    issues,
-    baseUrl: process.env.JIRA_BASE_URL?.replace(/\/$/, '')
-  })
-}));
+// Get Jira issues (with mock support)
+app.get('/api/issues', (req, res, next) => {
+  if (req.query.mock === 'true') {
+    console.log('⚠ Using MOCK Issues data');
+    return res.json(generateMockIssuesData());
+  }
+  return createCachedEndpoint({
+    cacheKeyPrefix: 'issues',
+    fetchFn: (dateRange) => jiraService.getAllIssuesForPage(dateRange),
+    ttl: 120,
+    transformResponse: (issues) => ({
+      issues,
+      baseUrl: process.env.JIRA_BASE_URL?.replace(/\/$/, '')
+    })
+  })(req, res, next);
+});
 
 // Load project analytics config
 const fs = require('fs');
@@ -327,6 +269,12 @@ try {
 
 // Get projects grouped by epic (with optional analytics)
 app.get('/api/projects', async (req, res) => {
+  // Mock data support
+  if (req.query.mock === 'true') {
+    console.log('⚠ Using MOCK Projects data');
+    return res.json(generateMockProjectsData());
+  }
+  
   const startTime = Date.now();
   const dateRange = parseDateRange(req.query);
   const cacheKey = `projects-v3:${JSON.stringify(dateRange)}`;

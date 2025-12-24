@@ -11,6 +11,9 @@ function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [baseUrl, setBaseUrl] = useState(null);
+  
+  // Check for mock mode
+  const mockParam = new URLSearchParams(window.location.search).get('mock') === 'true' ? '?mock=true' : '';
 
   // Fetch all projects (no date filtering)
   const fetchProjects = useCallback(async () => {
@@ -28,7 +31,7 @@ function ProjectsPage() {
     try {
       setLoading(true);
       setError(null);
-      const response = await axios.get('/api/projects');
+      const response = await axios.get('/api/projects' + mockParam);
       setProjects(response.data);
       setBaseUrl(response.data.baseUrl);
       clientCache.set(cacheKey, null, response.data);
@@ -38,7 +41,7 @@ function ProjectsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [mockParam]);
 
   useEffect(() => {
     fetchProjects();

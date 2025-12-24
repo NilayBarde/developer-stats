@@ -22,6 +22,11 @@ function App() {
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   
+  // Preserve query params (like ?mock=true) when navigating
+  const queryString = location.search;
+  const isMockMode = new URLSearchParams(queryString).get('mock') === 'true';
+  const mockParam = isMockMode ? '&mock=true' : '';
+  
   const workYearStart = getCurrentWorkYearStart();
   const [dateRange, setDateRange] = useState({
     label: formatWorkYearLabel(workYearStart),
@@ -33,7 +38,7 @@ function App() {
   const fetchStats = useCallback(async () => {
     try {
       setLoading(true);
-      const url = buildApiUrl('/api/stats', dateRange);
+      const url = buildApiUrl('/api/stats', dateRange) + mockParam;
       const response = await axios.get(url);
       setStats(response.data);
       setLastUpdated(new Date());
@@ -44,7 +49,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [dateRange]);
+  }, [dateRange, mockParam]);
 
   useEffect(() => {
     // Only fetch stats on the dashboard route
@@ -58,21 +63,22 @@ function App() {
   return (
     <div className="app">
       <nav className="main-nav">
-        <Link to="/" className={location.pathname === '/' ? 'active' : ''}>
+        <Link to={`/${queryString}`} className={location.pathname === '/' ? 'active' : ''}>
           Dashboard
         </Link>
-        <Link to="/issues" className={location.pathname === '/issues' ? 'active' : ''}>
+        <Link to={`/issues${queryString}`} className={location.pathname === '/issues' ? 'active' : ''}>
           Jira Issues
         </Link>
-        <Link to="/prs" className={location.pathname === '/prs' ? 'active' : ''}>
+        <Link to={`/prs${queryString}`} className={location.pathname === '/prs' ? 'active' : ''}>
           PRs/MRs
         </Link>
-        <Link to="/projects" className={location.pathname === '/projects' ? 'active' : ''}>
+        <Link to={`/projects${queryString}`} className={location.pathname === '/projects' ? 'active' : ''}>
           Projects
         </Link>
-        <Link to="/analytics" className={location.pathname === '/analytics' ? 'active' : ''}>
+        <Link to={`/analytics${queryString}`} className={location.pathname === '/analytics' ? 'active' : ''}>
           Analytics
         </Link>
+        {isMockMode && <span className="mock-indicator">🧪 MOCK MODE</span>}
       </nav>
       
       <Routes>

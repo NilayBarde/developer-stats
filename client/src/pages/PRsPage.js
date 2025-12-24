@@ -22,6 +22,9 @@ function PRsPage() {
   const [filters, setFilters] = useState({ status: 'all', source: 'all', repo: 'all' });
   const [sort, setSort] = useState({ by: 'updated', order: 'desc' });
   
+  // Check for mock mode
+  const mockParam = new URLSearchParams(window.location.search).get('mock') === 'true' ? '&mock=true' : '';
+  
   const workYearStart = getCurrentWorkYearStart();
   const [dateRange, setDateRange] = useState({
     label: formatWorkYearLabel(workYearStart),
@@ -49,8 +52,8 @@ function PRsPage() {
       setError(null);
       
       const [prsRes, mrsRes] = await Promise.all([
-        axios.get(buildApiUrl('/api/prs', dateRange)),
-        axios.get(buildApiUrl('/api/mrs', dateRange))
+        axios.get(buildApiUrl('/api/prs', dateRange) + mockParam),
+        axios.get(buildApiUrl('/api/mrs', dateRange) + mockParam)
       ]);
       
       const prsData = (prsRes.data.prs || []).map(pr => ({ ...pr, _source: 'github' }));
@@ -81,7 +84,7 @@ function PRsPage() {
 
     try {
       setStatsLoading(true);
-      const response = await axios.get(buildApiUrl('/api/stats/git', dateRange));
+      const response = await axios.get(buildApiUrl('/api/stats/git', dateRange) + mockParam);
       setStats(response.data);
       clientCache.set('/api/stats/git', dateRange, response.data);
     } catch (err) {

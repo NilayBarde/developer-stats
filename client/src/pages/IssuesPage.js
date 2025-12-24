@@ -23,6 +23,9 @@ function IssuesPage() {
   const [filters, setFilters] = useState({ status: 'all', project: 'all', sprint: 'all' });
   const [sort, setSort] = useState({ by: 'inProgress', order: 'desc' });
   
+  // Check for mock mode
+  const mockParam = new URLSearchParams(window.location.search).get('mock') === 'true' ? '&mock=true' : '';
+  
   const workYearStart = getCurrentWorkYearStart();
   const [dateRange, setDateRange] = useState({
     label: formatWorkYearLabel(workYearStart),
@@ -46,7 +49,7 @@ function IssuesPage() {
     try {
       setLoading(true);
       setError(null);
-      const response = await axios.get(buildApiUrl('/api/issues', dateRange));
+      const response = await axios.get(buildApiUrl('/api/issues', dateRange) + mockParam);
       const data = {
         issues: response.data.issues || [],
         baseUrl: response.data.baseUrl
@@ -60,7 +63,7 @@ function IssuesPage() {
     } finally {
       setLoading(false);
     }
-  }, [dateRange]);
+  }, [dateRange, mockParam]);
 
   // Fetch stats
   const fetchStats = useCallback(async () => {
@@ -74,7 +77,7 @@ function IssuesPage() {
 
     try {
       setStatsLoading(true);
-      const response = await axios.get(buildApiUrl('/api/stats/jira', dateRange));
+      const response = await axios.get(buildApiUrl('/api/stats/jira', dateRange) + mockParam);
       setStats(response.data);
       clientCache.set('/api/stats/jira', dateRange, response.data);
     } catch (err) {
@@ -82,7 +85,7 @@ function IssuesPage() {
     } finally {
       setStatsLoading(false);
     }
-  }, [dateRange]);
+  }, [dateRange, mockParam]);
 
   useEffect(() => {
     fetchIssues();
