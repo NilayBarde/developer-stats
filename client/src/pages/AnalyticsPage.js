@@ -31,15 +31,57 @@ const DATE_PRESETS = {
   }},
 };
 
+// Estimated load times (updated based on actual timing data)
+// With 3 concurrent pages + 3s delay between batches
+const ESTIMATED_LOAD_SECONDS = {
+  discovery: 5,        // Initial discovery phase (2 queries)
+  perPage: 3.5,        // Per page: ~6s API calls / 3 concurrent + 3s delay / 3 = ~3.5s effective
+  expectedPages: 31    // Typical number of pages
+};
+// Total estimate: 5 + (3.5 * 31) = ~114 seconds
+
 function AnalyticsPage() {
-  const [analyticsData, setAnalyticsData] = useState(null);
+  const [analyticsData, setAnalyticsData] = useState(null);  // Currently displayed (possibly filtered)
+  const [fullData, setFullData] = useState(null);  // Original unfiltered data from server
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedPage, setSelectedPage] = useState(null);
   const [datePreset, setDatePreset] = useState('sinceMarch'); // Default to since March 1
+  const [loadProgress, setLoadProgress] = useState({ elapsed: 0, estimated: 0, phase: 'Starting...' });
 
   const pollIntervalRef = useRef(null);
   const pollCountRef = useRef(0);
+  const loadStartRef = useRef(null);
+  const progressIntervalRef = useRef(null);
+
+  // Start progress timer
+  const startProgressTimer = useCallback(() => {
+    loadStartRef.current = Date.now();
+    const estimatedTotal = ESTIMATED_LOAD_SECONDS.discovery + 
+      (ESTIMATED_LOAD_SECONDS.perPage * ESTIMATED_LOAD_SECONDS.expectedPages);
+    
+    setLoadProgress({ elapsed: 0, estimated: estimatedTotal, phase: 'Discovering pages...' });
+    
+    // Clear any existing interval
+    if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+    
+    progressIntervalRef.current = setInterval(() => {
+      const elapsed = Math.round((Date.now() - loadStartRef.current) / 1000);
+      let phase = 'Discovering pages...';
+      if (elapsed > ESTIMATED_LOAD_SECONDS.discovery) {
+        const pageProgress = Math.floor((elapsed - ESTIMATED_LOAD_SECONDS.discovery) / ESTIMATED_LOAD_SECONDS.perPage);
+        phase = `Processing pages (${Math.min(pageProgress, ESTIMATED_LOAD_SECONDS.expectedPages)}/${ESTIMATED_LOAD_SECONDS.expectedPages})...`;
+      }
+      setLoadProgress(prev => ({ ...prev, elapsed, phase }));
+    }, 1000);
+  }, []);
+  
+  const stopProgressTimer = useCallback(() => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+  }, []);
 
   const fetchAnalytics = useCallback(async (skipCache = false, preset = datePreset) => {
     const dates = DATE_PRESETS[preset].getDates();
@@ -49,6 +91,13 @@ function AnalyticsPage() {
       const cached = clientCache.get(cacheKey, null);
       if (cached) {
         setAnalyticsData(cached);
+        // Also set fullData if this is the widest range we have
+        const cachedRange = cached?.dateRange;
+        const existingRange = fullData?.dateRange;
+        if (!existingRange || 
+            (cachedRange && cachedRange.start <= existingRange.start && cachedRange.end >= existingRange.end)) {
+          setFullData(cached);
+        }
         setLoading(false);
         return cached;
       }
@@ -57,28 +106,157 @@ function AnalyticsPage() {
     try {
       if (!analyticsData) setLoading(true);
       setError(null);
+      startProgressTimer();
       const response = await axios.get(`/api/project-analytics?startDate=${dates.start}&endDate=${dates.end}`);
+      stopProgressTimer();
+      
+      // Update estimated times based on actual timing
+      if (response.data?.timing) {
+        console.log('Server timing:', response.data.timing);
+        // Could update ESTIMATED_LOAD_SECONDS here for future predictions
+      }
+      
+      // Store displayed data
       setAnalyticsData(response.data);
+      
+      // Only update fullData if this is wider than what we have
+      // (keeps the widest date range for client-side filtering)
+      const newRange = response.data?.dateRange;
+      const existingRange = fullData?.dateRange;
+      if (!existingRange || 
+          (newRange && newRange.start <= existingRange.start && newRange.end >= existingRange.end)) {
+        setFullData(response.data);
+      }
       clientCache.set(cacheKey, null, response.data);
       return response.data;
     } catch (err) {
+      stopProgressTimer();
       setError(err.response?.data?.error || 'Failed to fetch analytics');
       console.error('Error fetching analytics:', err);
       return null;
     } finally {
+      stopProgressTimer();
       setLoading(false);
     }
-  }, [analyticsData, datePreset]);
+  }, [analyticsData, datePreset, fullData, startProgressTimer, stopProgressTimer]);
 
-  // Handle date preset change
+  // Handle date preset change - try to filter existing data first
   const handlePresetChange = (newPreset) => {
     setDatePreset(newPreset);
-    pollCountRef.current = 0; // Reset poll count
-    fetchAnalytics(true, newPreset); // Skip cache and fetch with new preset
+    pollCountRef.current = 0;
+    
+    const newDates = DATE_PRESETS[newPreset].getDates();
+    // Use FULL data's date range for comparison (not the filtered analyticsData)
+    const originalDates = fullData?.dateRange;
+    
+    // Check if new range is a subset of ORIGINAL data (can filter client-side)
+    if (fullData && originalDates && 
+        newDates.start >= originalDates.start && 
+        newDates.end <= originalDates.end) {
+      
+      console.log(`Filtering client-side for ${newPreset}`);
+      
+      // Helper to parse date string to comparable format (YYYY-MM-DD)
+      const parseToISO = (dateStr) => {
+        // Handle ISO format (2025-03-01)
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+        // Handle human format (Mar 1, 2025)
+        const d = new Date(dateStr);
+        if (!isNaN(d)) {
+          return d.toISOString().split('T')[0];
+        }
+        return dateStr;
+      };
+      
+      const filterStart = newDates.start;
+      const filterEnd = newDates.end;
+      
+      // Filter each project's daily clicks from FULL DATA to the new date range
+      const filteredProjects = fullData.projects?.map(project => {
+        const dailyClicks = project.clicks?.dailyClicks || {};
+        const filteredDailyClicks = {};
+        let totalClicks = 0;
+        
+        Object.entries(dailyClicks).forEach(([date, data]) => {
+          const isoDate = parseToISO(date);
+          if (isoDate >= filterStart && isoDate <= filterEnd) {
+            filteredDailyClicks[date] = data;
+            totalClicks += data?.clicks || 0;
+          }
+        });
+        
+        return {
+          ...project,
+          clicks: {
+            ...project.clicks,
+            dailyClicks: filteredDailyClicks,
+            totalClicks
+          }
+        };
+      });
+      
+      // Recalculate grouped totals - maintain server structure
+      // Server grouped structure: { pageType: { label, totalClicks, pages: [{page, label, clicks (number), dailyClicks, ...}] } }
+      const grouped = {};
+      const originalGrouped = fullData.grouped || {};
+      
+      filteredProjects?.forEach(project => {
+        const pageType = project.pageType || project.epicKey?.split(':')[1] || 'other';
+        const originalGroup = originalGrouped[pageType];
+        
+        if (!grouped[pageType]) {
+          grouped[pageType] = { 
+            label: originalGroup?.label || pageType, 
+            totalClicks: 0, 
+            pages: [] 
+          };
+        }
+        
+        const projectTotalClicks = project.clicks?.totalClicks || 0;
+        grouped[pageType].totalClicks += projectTotalClicks;
+        
+        // Convert to the page structure that matches server response
+        // Server pages have: { page, label, clicks (number), dailyClicks, comparison, ... }
+        grouped[pageType].pages.push({
+          page: project.epicKey,
+          label: project.label,
+          clicks: projectTotalClicks,  // Number, not object!
+          dailyClicks: project.clicks?.dailyClicks || {},
+          comparison: project.clicks?.comparison,
+          draftKingsClicks: project.clicks?.draftKingsClicks,
+          espnBetClicks: project.clicks?.espnBetClicks
+        });
+      });
+      
+      // Sort pages within each group by clicks
+      Object.values(grouped).forEach(group => {
+        group.pages.sort((a, b) => b.clicks - a.clicks);
+      });
+      
+      setAnalyticsData({
+        ...fullData,  // Preserve all original data properties
+        projects: filteredProjects,
+        grouped,
+        dateRange: { start: newDates.start, end: newDates.end },
+        totalClicks: filteredProjects?.reduce((sum, p) => sum + (p.clicks?.totalClicks || 0), 0) || 0
+      });
+      
+      return;
+    }
+    
+    // Need to fetch from server (new range extends beyond current data)
+    console.log(`Fetching from server for ${newPreset} (outside cached range)`);
+    fetchAnalytics(true, newPreset);
   };
 
+  // Only fetch on initial mount, not when datePreset changes
+  // (handlePresetChange handles date changes with client-side filtering)
+  const initialFetchDone = useRef(false);
   useEffect(() => {
+    if (!initialFetchDone.current) {
+      initialFetchDone.current = true;
     fetchAnalytics();
+    }
   }, [fetchAnalytics]);
   
   // Poll for updates if some projects are still loading
@@ -98,6 +276,9 @@ function AnalyticsPage() {
     return () => {
       if (pollIntervalRef.current) {
         clearTimeout(pollIntervalRef.current);
+      }
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
       }
     };
   }, [analyticsData, loading, fetchAnalytics]);
@@ -152,17 +333,35 @@ function AnalyticsPage() {
           </span>
         </p>
         {loadingProgress && (
-          <p className="loading-progress">
-            <span className="spinner-small"></span>
+              <p className="loading-progress">
+                <span className="spinner-small"></span>
             Loading daily data... {loadingProgress.pagesWithData}/{loadingProgress.totalPages} pages
-          </p>
+              </p>
         )}
       </div>
 
       {error && <div className="error-banner">{error}</div>}
 
       {loading ? (
-        <LoadingSpinner text="Loading analytics..." />
+        <div className="analytics-loading">
+          <LoadingSpinner />
+          <div className="loading-progress">
+            <div className="loading-phase">{loadProgress.phase}</div>
+            <div className="loading-time">
+              <span className="elapsed">{loadProgress.elapsed}s</span>
+              <span className="separator"> / </span>
+              <span className="estimated">~{loadProgress.estimated}s estimated</span>
+            </div>
+            {loadProgress.estimated > 0 && (
+              <div className="progress-bar">
+                <div 
+                  className="progress-fill" 
+                  style={{ width: `${Math.min(100, (loadProgress.elapsed / loadProgress.estimated) * 100)}%` }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
       ) : !analyticsData || analyticsData.projects?.length === 0 ? (
         <div className="no-data-message">
           <p>No analytics configured</p>
@@ -216,14 +415,14 @@ function AnalyticsPage() {
 function PageTypeGroup({ pageType, group, analyticsData, pollCount, onSelectPage }) {
   return (
     <div className="page-type-group">
-      <div className="group-header-row">
-        <h2 className="group-header">{group.label}</h2>
-        <span className="group-stats">
-          {group.pages.length} pages · {formatNumber(group.totalClicks || group.pages.reduce((sum, p) => sum + p.clicks, 0))} clicks
-        </span>
-      </div>
-      
-      <div className="analytics-grid">
+              <div className="group-header-row">
+                <h2 className="group-header">{group.label}</h2>
+                <span className="group-stats">
+                  {group.pages.length} pages · {formatNumber(group.totalClicks || group.pages.reduce((sum, p) => sum + p.clicks, 0))} clicks
+                </span>
+              </div>
+              
+              <div className="analytics-grid">
         {group.pages.map((page) => (
           <AnalyticsCard
             key={page.page}
@@ -243,73 +442,73 @@ function PageTypeGroup({ pageType, group, analyticsData, pollCount, onSelectPage
  */
 function AnalyticsCard({ page, analyticsData, pollCount, onSelect }) {
   const project = analyticsData.projects?.find(p => p.epicKey === page.page) || page;
-  const dailyClicks = project.clicks?.dailyClicks || page.dailyClicks || {};
-  const comparison = project.clicks?.comparison || page.comparison;
-  const totalClicks = project.clicks?.totalClicks || page.clicks || 0;
-  const hasData = Object.keys(dailyClicks).length > 0;
-  
+                  const dailyClicks = project.clicks?.dailyClicks || page.dailyClicks || {};
+                  const comparison = project.clicks?.comparison || page.comparison;
+                  const totalClicks = project.clicks?.totalClicks || page.clicks || 0;
+                  const hasData = Object.keys(dailyClicks).length > 0;
+                  
   // Check if still loading
   const isStillLoading = totalClicks > 0 && !hasData && pollCount < 10;
   
   // Prepare chart data
   const chartData = dailyClicksToArray(dailyClicks);
-  
-  // Prepare page data for modal
-  const pageData = {
-    ...page,
-    dailyClicks,
-    comparison,
-    clicks: totalClicks
-  };
-  
-  return (
-    <div 
-      className={`analytics-card compact ${hasData ? 'clickable' : ''}`}
+                  
+                  // Prepare page data for modal
+                  const pageData = {
+                    ...page,
+                    dailyClicks,
+                    comparison,
+                    clicks: totalClicks
+                  };
+                  
+                  return (
+                    <div 
+                      className={`analytics-card compact ${hasData ? 'clickable' : ''}`}
       onClick={() => hasData && onSelect(pageData)}
-      style={{ cursor: hasData ? 'pointer' : 'default' }}
-    >
-      <div className="card-header">
-        <h3>{page.label}</h3>
-      </div>
-      
-      <div className="card-stats">
-        <span className="total-clicks">{formatNumber(totalClicks)}</span>
-        <span className="clicks-label">total clicks</span>
-      </div>
+                      style={{ cursor: hasData ? 'pointer' : 'default' }}
+                    >
+                      <div className="card-header">
+                        <h3>{page.label}</h3>
+                      </div>
+                      
+                      <div className="card-stats">
+                        <span className="total-clicks">{formatNumber(totalClicks)}</span>
+                        <span className="clicks-label">total clicks</span>
+                      </div>
 
-      {/* Chart */}
-      {hasData ? (
-        <div className="chart-clickable">
+                      {/* Chart */}
+                      {hasData ? (
+                        <div className="chart-clickable">
           <TrendBarChart
             data={chartData}
             valueKey="clicks"
             dateKey="date"
             launchDate={project.launchDate || DEFAULT_LAUNCH_DATE}
-            height={120}
+                            height={120}
             showLegend={false}
             showYAxis={false}
             showXAxis={false}
             tooltipLabel="Bet Clicks"
-          />
-        </div>
-      ) : isStillLoading ? (
+                          />
+                        </div>
+                      ) : isStillLoading ? (
         <LoadingSpinner size="small" text="Loading..." />
-      ) : (
-        <div className="chart-empty small">No daily data</div>
-      )}
+                      ) : (
+                        <div className="chart-empty small">No daily data</div>
+                      )}
 
-      {/* Before/After */}
-      {comparison && (
-        <div className="mini-comparison">
-          <span className="before">{formatNumber(comparison.avgClicksBefore)}/day</span>
-          <span className="arrow">→</span>
-          <span className="after">{formatNumber(comparison.avgClicksAfter)}/day</span>
-        </div>
-      )}
-      
-      <div className="card-footer">
-        <code>{page.page}</code>
-      </div>
+                      {/* Before/After */}
+                      {comparison && (
+                        <div className="mini-comparison">
+                          <span className="before">{formatNumber(comparison.avgClicksBefore)}/day</span>
+                          <span className="arrow">→</span>
+                          <span className="after">{formatNumber(comparison.avgClicksAfter)}/day</span>
+                        </div>
+                      )}
+                      
+                      <div className="card-footer">
+                        <code>{page.page}</code>
+                      </div>
     </div>
   );
 }

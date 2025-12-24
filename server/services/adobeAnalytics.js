@@ -79,7 +79,7 @@ async function apiRequest(endpoint, options = {}) {
       'Content-Type': 'application/json'
     },
     data: options.data,
-    timeout: 30000
+    timeout: 30000  // Adobe allows up to 30s, give buffer
   }).then(res => res.data);
 }
 
@@ -1017,7 +1017,7 @@ async function getOddsPageClicks(launchDate = null, pageToken = 'topeventsodds',
         clicks: row.data?.[0] || 0
       }));
     } catch (err) {
-      console.error(`Error getting daily breakdown for ${label}:`, err.message);
+      console.error(`Error getting daily breakdown for ${label} (page: ${pageToken}):`, err.message);
       return [];
     }
   };
@@ -1682,7 +1682,17 @@ async function discoverAllBetClicks(launchDate = '2025-12-01', customDateRange =
 }
 
 async function _doDiscovery(launchDate, startDate, endDate, cacheKey) {
+  const discoveryStartTime = Date.now();
+  const timing = {
+    totalMs: 0,
+    phases: {},
+    pagesProcessed: 0,
+    avgMsPerPage: 0
+  };
 
+  // Phase 1: Initial discovery queries
+  const phase1Start = Date.now();
+  
   // Query evar67 for ALL bet click events (contains espnbet or draft kings)
   // These events have the page context embedded in the value
   const [draftKingsData, espnBetData] = await Promise.all([
@@ -1833,64 +1843,50 @@ async function _doDiscovery(launchDate, startDate, endDate, cacheKey) {
     .filter(p => p.clicks >= 50) // Filter out noise
     .sort((a, b) => b.clicks - a.clicks);
 
-  console.log(`Found ${pages.length} pages with bet clicks`);
+  timing.phases.discovery = Date.now() - phase1Start;
+  console.log(`Found ${pages.length} pages with bet clicks (discovery took ${(timing.phases.discovery / 1000).toFixed(1)}s)`);
 
-  // Get daily breakdown for ALL pages (not just top 20)
+  // Phase 2: Get daily breakdown for ALL pages (not just top 20)
   const launchDateObj = launchDate ? new Date(launchDate + 'T12:00:00') : null;
 
-  for (let i = 0; i < pages.length; i++) {
-    const page = pages[i];
+  // Fetch daily data in parallel batches
+  // Adobe limits: 12 requests/6 sec (2/sec), max 5 concurrent
+  // Each page makes 4 API calls internally, so we need to be conservative
+  // Strategy: 3 pages concurrent (= 12 internal calls), wait 3 sec between batches
+  const CONCURRENCY = 3;  // 3 pages = ~12 API calls max
+  const DELAY_BETWEEN_BATCHES = 3000; // ms - ~12 calls per batch, ~1.3 req/sec avg (under 2/sec limit)
+  
+  // Helper to build search pattern for a page
+  const buildSearchPattern = (page) => {
+    const parts = page.page.split(':');
+    const sport = parts[0];
+    const pageType = parts[1];
     
-    // Small delay to avoid rate limits
-    if (i > 0) await new Promise(r => setTimeout(r, 300));
+    const sportToEvar67Schedule = {
+      'ncaaf': 'college-football',
+      'ncaab': 'mens-college-basketball',
+      'ncaam': 'mens-college-basketball',
+      'ncaaw': 'womens-college-basketball'
+    };
     
+    if (sport === 'other') {
+      return pageType;
+    } else if (pageType === 'gamecast') {
+      return sport === 'soccer' ? 'match:gamecast' : `${sport}:game:gamecast`;
+    } else if (pageType === 'schedule') {
+      const evar67Sport = sportToEvar67Schedule[sport] || sport;
+      return `${evar67Sport}:schedule`;
+    }
+    return `${sport}:${pageType}`;
+  };
+  
+  // Process a single page
+  const processPage = async (page) => {
     try {
-      // Build search pattern for this page
-      const parts = page.page.split(':');
-      const sport = parts[0];
-      const pageType = parts[1];
-      
-      // Use the existing getOddsPageClicks function which works correctly
-      // It searches evar67 for patterns and gets daily breakdown
-      let searchPattern;
-      
-      // Map normalized sport codes to evar67 names - varies by page type!
-      // Schedule pages use long names, gamecasts use short codes
-      const sportToEvar67Schedule = {
-        'ncaaf': 'college-football',
-        'ncaab': 'mens-college-basketball',
-        'ncaam': 'mens-college-basketball',
-        'ncaaw': 'womens-college-basketball'
-      };
-      
-      if (sport === 'other') {
-        // Generic: just match page type
-        searchPattern = pageType;
-      } else if (pageType === 'gamecast') {
-        // Gamecasts use SHORT codes: "ncaaf:game:gamecast", "ncaam:game:gamecast"
-        if (sport === 'soccer') {
-          searchPattern = 'match:gamecast';
-        } else {
-          // Use the original sport code (ncaaf, ncaam, nfl, etc.)
-          searchPattern = `${sport}:game:gamecast`;
-        }
-      } else if (pageType === 'schedule') {
-        // Schedule pages use LONG names for college sports
-        const evar67Sport = sportToEvar67Schedule[sport] || sport;
-        searchPattern = `${evar67Sport}:schedule`;
-      } else {
-        // Other pages (odds, scoreboard, etc.) - use original sport code
-        searchPattern = `${sport}:${pageType}`;
-      }
-      
-      // Call the working getOddsPageClicks function with custom date range
+      const searchPattern = buildSearchPattern(page);
       const clickData = await getOddsPageClicks(launchDate, searchPattern, { startDate, endDate });
       
-      // Small delay to avoid rate limiting
-      await new Promise(r => setTimeout(r, 200));
-      
       if (clickData?.dailyClicks?.length > 0) {
-        // Convert array to map
         const dailyClicksMap = {};
         clickData.dailyClicks.forEach(d => {
           dailyClicksMap[d.date] = { clicks: d.clicks };
@@ -1899,15 +1895,42 @@ async function _doDiscovery(launchDate, startDate, endDate, cacheKey) {
         page.comparison = clickData.comparison;
         page.espnBetClicks = clickData.espnBetClicks;
         page.draftKingsClicks = clickData.draftKingsClicks;
-        
-        console.log(`  ✓ ${page.label}: ${clickData.totalClicks.toLocaleString()} clicks, ${clickData.dailyClicks.length} days`);
+        console.log(`  ✓ ${page.label}: ${clickData.totalClicks.toLocaleString()} clicks`);
       } else {
-        console.log(`  ⚠ ${page.label}: No daily data (pattern: ${searchPattern})`);
+        console.log(`  ⚠ ${page.label}: No daily data`);
       }
     } catch (err) {
       console.log(`  ✗ Error for ${page.page}:`, err.message);
     }
+  };
+  
+  // Process pages in parallel batches
+  const phase2Start = Date.now();
+  const totalBatches = Math.ceil(pages.length / CONCURRENCY);
+  
+  for (let i = 0; i < pages.length; i += CONCURRENCY) {
+    const batchNum = Math.floor(i / CONCURRENCY) + 1;
+    const batchStart = Date.now();
+    const batch = pages.slice(i, i + CONCURRENCY);
+    
+    await Promise.all(batch.map(processPage));
+    timing.pagesProcessed += batch.length;
+    
+    const batchTime = Date.now() - batchStart;
+    const elapsed = Date.now() - phase2Start;
+    const remaining = pages.length - timing.pagesProcessed;
+    const avgTimePerPage = elapsed / timing.pagesProcessed;
+    const estimatedRemaining = Math.round((remaining * avgTimePerPage + remaining / CONCURRENCY * DELAY_BETWEEN_BATCHES) / 1000);
+    
+    console.log(`  Batch ${batchNum}/${totalBatches} done (${(batchTime/1000).toFixed(1)}s). Processed ${timing.pagesProcessed}/${pages.length} pages. Est. ${estimatedRemaining}s remaining.`);
+    
+    // Small delay between batches to avoid rate limits
+    if (i + CONCURRENCY < pages.length) {
+      await new Promise(r => setTimeout(r, DELAY_BETWEEN_BATCHES));
+    }
   }
+  
+  timing.phases.pageProcessing = Date.now() - phase2Start;
 
   // Dynamically group pages by page type
   // First, collect all page types and their total clicks
@@ -1947,6 +1970,15 @@ async function _doDiscovery(launchDate, startDate, endDate, cacheKey) {
   // Flatten back to sorted array (grouped by type, then by clicks within type)
   const sortedPages = sortedPageTypes.flatMap(type => pageTypeStats[type].pages);
 
+  // Finalize timing
+  timing.totalMs = Date.now() - discoveryStartTime;
+  timing.avgMsPerPage = timing.pagesProcessed > 0 ? Math.round(timing.totalMs / timing.pagesProcessed) : 0;
+  
+  console.log(`\n✅ Discovery complete in ${(timing.totalMs / 1000).toFixed(1)}s`);
+  console.log(`   - Initial discovery: ${(timing.phases.discovery / 1000).toFixed(1)}s`);
+  console.log(`   - Page processing: ${(timing.phases.pageProcessing / 1000).toFixed(1)}s`);
+  console.log(`   - Avg per page: ${(timing.avgMsPerPage / 1000).toFixed(2)}s`);
+
   const result = {
     pages: sortedPages,
     grouped,
@@ -1955,7 +1987,14 @@ async function _doDiscovery(launchDate, startDate, endDate, cacheKey) {
     totalClicks: pages.reduce((sum, p) => sum + p.clicks, 0),
     dateRange: { start: startDate, end: endDate },
     launchDate,
-    method: 'Auto-discovered from evar67 (event_detail)'
+    method: 'Auto-discovered from evar67 (event_detail)',
+    timing: {
+      totalSeconds: Math.round(timing.totalMs / 1000),
+      discoverySeconds: Math.round(timing.phases.discovery / 1000),
+      pageProcessingSeconds: Math.round(timing.phases.pageProcessing / 1000),
+      pagesProcessed: timing.pagesProcessed,
+      avgSecondsPerPage: Number((timing.avgMsPerPage / 1000).toFixed(2))
+    }
   };
 
   cache.set(cacheKey, result, 600); // Cache 10 min

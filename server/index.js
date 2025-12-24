@@ -345,7 +345,8 @@ app.get('/api/project-analytics', async (req, res) => {
       totalClicks: discovered.totalClicks,
       totalPages: discovered.totalPages,
       dateRange: discovered.dateRange,
-      launchDate
+      launchDate,
+      timing: discovered.timing // Include timing info for client progress estimates
     };
     
     cache.set(cacheKey, result, 600); // Cache for 10 minutes
