@@ -4,6 +4,9 @@
       "label": "Top Events Odds",
       "clickEventFilter": "topeventsodds",
       "launchDate": "2025-12-01",
+      "parentProject": "SEWEB-59645",
+      "parentLabel": "DraftKings Integration",
+      "metricType": "betClicks",
       "enabled": true,
       "trackClicks": true,
       "trackPageViews": false
@@ -12,6 +15,9 @@
       "label": "Sport Odds (NFL, NBA, etc)",
       "clickEventFilter": ":odds",
       "launchDate": "2025-12-01",
+      "parentProject": "SEWEB-59645",
+      "parentLabel": "DraftKings Integration",
+      "metricType": "betClicks",
       "enabled": true,
       "trackClicks": true,
       "trackPageViews": false
@@ -20,6 +26,9 @@
       "label": "Gamecast",
       "clickEventFilter": "gamecast",
       "launchDate": "2025-12-01",
+      "parentProject": "SEWEB-59645",
+      "parentLabel": "DraftKings Integration",
+      "metricType": "betClicks",
       "enabled": true,
       "trackClicks": true,
       "trackPageViews": false
@@ -28,6 +37,9 @@
       "label": "Scoreboard",
       "clickEventFilter": "scoreboard",
       "launchDate": "2025-12-01",
+      "parentProject": "SEWEB-59645",
+      "parentLabel": "DraftKings Integration",
+      "metricType": "betClicks",
       "enabled": true,
       "trackClicks": true,
       "trackPageViews": false
@@ -36,6 +48,9 @@
       "label": "Schedule",
       "clickEventFilter": "schedule",
       "launchDate": "2025-12-01",
+      "parentProject": "SEWEB-59645",
+      "parentLabel": "DraftKings Integration",
+      "metricType": "betClicks",
       "enabled": true,
       "trackClicks": true,
       "trackPageViews": false

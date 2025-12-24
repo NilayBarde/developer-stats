@@ -292,6 +292,16 @@ function AnalyticsPage() {
         </div>
       </header>
 
+      <div className="page-description">
+        <p>
+          Tracking metrics before and after project launches. 
+          <span className="legend-inline">
+            <span className="legend-dot before"></span> Before launch
+            <span className="legend-dot after"></span> After launch
+          </span>
+        </p>
+      </div>
+
       {error && <div className="error-banner">{error}</div>}
 
       {loading ? (
@@ -310,10 +320,26 @@ function AnalyticsPage() {
             .sort((a, b) => (b.clicks?.totalClicks || 0) - (a.clicks?.totalClicks || 0))
             .map((project) => (
             <div key={project.epicKey} className="analytics-card">
+              {project.parentProject && (
+                <div className="parent-project-tag">
+                  <a 
+                    href={`https://jira.disney.com/browse/${project.parentProject}`} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                  >
+                    {project.parentProject}
+                  </a>
+                  {project.parentLabel && <span className="parent-label">{project.parentLabel}</span>}
+                </div>
+              )}
               <div className="analytics-header">
                 <div>
                   <h2>{project.label}</h2>
-                  <span className="epic-key">{project.epicKey}</span>
+                  {project.metricType && (
+                    <span className={`metric-type-badge ${project.metricType}`}>
+                      {project.metricType === 'betClicks' ? 'Bet Clicks' : project.metricType}
+                    </span>
+                  )}
                 </div>
                 {project.launchDate && (
                   <div className="launch-date">

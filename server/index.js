@@ -275,12 +275,17 @@ app.get('/api/project-analytics', async (req, res) => {
           label: project.label,
           pageFilter: project.pageFilter,
           launchDate: project.launchDate,
+          parentProject: project.parentProject,
+          parentLabel: project.parentLabel,
+          metricType: project.metricType,
           ...analytics
         });
       } catch (error) {
         analyticsResults.push({
           epicKey: project.epicKey,
           label: project.label,
+          parentProject: project.parentProject,
+          parentLabel: project.parentLabel,
           error: error.message
         });
       }

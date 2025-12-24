@@ -23,6 +23,95 @@
   margin: 5px 0 0 0;
 }
 
+.page-description {
+  background: #f8f9fa;
+  padding: 16px 24px;
+  border-radius: 8px;
+  margin-bottom: 24px;
+}
+
+.page-description p {
+  margin: 0;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.legend-inline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.9em;
+}
+
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  display: inline-block;
+  margin-right: 4px;
+}
+
+.legend-dot.before {
+  background: #adb5bd;
+}
+
+.legend-dot.after {
+  background: #667eea;
+}
+
+.parent-project-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eee;
+}
+
+.parent-project-tag a {
+  background: #667eea;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 600;
+  font-family: monospace;
+  text-decoration: none;
+}
+
+.parent-project-tag a:hover {
+  background: #5a6fd6;
+}
+
+.parent-project-tag .parent-label {
+  color: #666;
+  font-size: 0.85em;
+}
+
+.metric-type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7em;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-left: 8px;
+}
+
+.metric-type-badge.betClicks {
+  background: #f5576c20;
+  color: #f5576c;
+}
+
+.metric-type-badge.pageViews {
+  background: #667eea20;
+  color: #667eea;
+}
+
 .error-banner {
   background: #fee;
   color: #c33;
