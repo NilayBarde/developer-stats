@@ -393,6 +393,23 @@
   font-weight: 600;
 }
 
+.mini-comparison .percent-change {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.mini-comparison .percent-change.positive {
+  background: #d4edda;
+  color: #155724;
+}
+
+.mini-comparison .percent-change.negative {
+  background: #f8d7da;
+  color: #721c24;
+}
+
 .card-footer {
   margin-top: 16px;
   padding-top: 12px;

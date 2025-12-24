@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import clientCache from '../utils/clientCache';
-import { formatNumber, isProjectLoading, dailyClicksToArray, DEFAULT_LAUNCH_DATE } from '../utils/analyticsHelpers';
+import { formatNumber, isProjectLoading, dailyClicksToArray, DEFAULT_LAUNCH_DATE, parseToISO, parseDate } from '../utils/analyticsHelpers';
 import TrendBarChart from '../components/ui/TrendBarChart';
 import ChartModal from '../components/ui/ChartModal';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
@@ -21,11 +21,11 @@ const DATE_PRESETS = {
     start.setDate(start.getDate() - 90);
     return { start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] };
   }},
-  'sinceMarch': { label: 'Since March 1', getDates: () => {
+  'sinceMarch': { label: 'Since Mar 1, 2025', getDates: () => {
     const end = new Date();
     return { start: '2025-03-01', end: end.toISOString().split('T')[0] };
   }},
-  'sinceDecLaunch': { label: 'Since Dec 1 Launch', getDates: () => {
+  'sinceDecLaunch': { label: 'Since Dec 1, 2025', getDates: () => {
     const end = new Date();
     return { start: '2025-12-01', end: end.toISOString().split('T')[0] };
   }},
@@ -34,11 +34,11 @@ const DATE_PRESETS = {
 // Estimated load times (updated based on actual timing data)
 // With 3 concurrent pages + 3s delay between batches
 const ESTIMATED_LOAD_SECONDS = {
-  discovery: 5,        // Initial discovery phase (2 queries)
-  perPage: 3.5,        // Per page: ~6s API calls / 3 concurrent + 3s delay / 3 = ~3.5s effective
+  discovery: 10,       // Initial discovery phase (2 queries)
+  perPage: 6,          // Per page: actual observed ~6s per page
   expectedPages: 31    // Typical number of pages
 };
-// Total estimate: 5 + (3.5 * 31) = ~114 seconds
+// Total estimate: 10 + (6 * 31) = ~200 seconds
 
 function AnalyticsPage() {
   const [analyticsData, setAnalyticsData] = useState(null);  // Currently displayed (possibly filtered)
@@ -107,7 +107,12 @@ function AnalyticsPage() {
       if (!analyticsData) setLoading(true);
       setError(null);
       startProgressTimer();
-      const response = await axios.get(`/api/project-analytics?startDate=${dates.start}&endDate=${dates.end}`);
+      
+      // Check for mock mode via URL param (e.g., ?mock=true)
+      const urlParams = new URLSearchParams(window.location.search);
+      const mockParam = urlParams.get('mock') === 'true' ? '&mock=true' : '';
+      
+      const response = await axios.get(`/api/project-analytics?startDate=${dates.start}&endDate=${dates.end}${mockParam}`);
       stopProgressTimer();
       
       // Update estimated times based on actual timing
@@ -156,20 +161,34 @@ function AnalyticsPage() {
       
       console.log(`Filtering client-side for ${newPreset}`);
       
-      // Helper to parse date string to comparable format (YYYY-MM-DD)
-      const parseToISO = (dateStr) => {
-        // Handle ISO format (2025-03-01)
-        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
-        // Handle human format (Mar 1, 2025)
-        const d = new Date(dateStr);
-        if (!isNaN(d)) {
-          return d.toISOString().split('T')[0];
-        }
-        return dateStr;
-      };
-      
       const filterStart = newDates.start;
       const filterEnd = newDates.end;
+      
+      // Helper to calculate comparison for filtered data
+      const calculateFilteredComparison = (dailyClicks, launchDate) => {
+        const launchDateObj = parseDate(launchDate);
+        if (!launchDateObj) return null;
+        
+        let beforeTotal = 0, beforeDays = 0;
+        let afterTotal = 0, afterDays = 0;
+        
+        Object.entries(dailyClicks).forEach(([date, data]) => {
+          const dateObj = parseDate(date);
+          const clicks = data?.clicks || 0;
+          if (dateObj && dateObj < launchDateObj) {
+            beforeTotal += clicks;
+            beforeDays++;
+          } else if (dateObj) {
+            afterTotal += clicks;
+            afterDays++;
+          }
+        });
+        
+        const avgClicksBefore = beforeDays > 0 ? Math.round(beforeTotal / beforeDays) : 0;
+        const avgClicksAfter = afterDays > 0 ? Math.round(afterTotal / afterDays) : 0;
+        
+        return { avgClicksBefore, avgClicksAfter, beforeDays, afterDays };
+      };
       
       // Filter each project's daily clicks from FULL DATA to the new date range
       const filteredProjects = fullData.projects?.map(project => {
@@ -185,12 +204,16 @@ function AnalyticsPage() {
           }
         });
         
+        // Recalculate comparison based on filtered data
+        const comparison = calculateFilteredComparison(filteredDailyClicks, DEFAULT_LAUNCH_DATE);
+        
         return {
           ...project,
           clicks: {
             ...project.clicks,
             dailyClicks: filteredDailyClicks,
-            totalClicks
+            totalClicks,
+            comparison
           }
         };
       });
@@ -503,6 +526,12 @@ function AnalyticsCard({ page, analyticsData, pollCount, onSelect }) {
                           <span className="before">{formatNumber(comparison.avgClicksBefore)}/day</span>
                           <span className="arrow">→</span>
                           <span className="after">{formatNumber(comparison.avgClicksAfter)}/day</span>
+                          {comparison.avgClicksBefore > 0 && (
+                            <span className={`percent-change ${comparison.avgClicksAfter >= comparison.avgClicksBefore ? 'positive' : 'negative'}`}>
+                              {comparison.avgClicksAfter >= comparison.avgClicksBefore ? '+' : ''}
+                              {Math.round(((comparison.avgClicksAfter - comparison.avgClicksBefore) / comparison.avgClicksBefore) * 100)}%
+                            </span>
+                          )}
                         </div>
                       )}
                       

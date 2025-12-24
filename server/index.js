@@ -12,6 +12,114 @@ const jiraService = require('./services/jira');
 const adobeAnalyticsService = require('./services/adobeAnalytics');
 
 const app = express();
+
+// Generate mock analytics data for development (avoids API rate limits)
+function generateMockAnalyticsData(startDate, endDate, launchDate) {
+  const start = startDate || '2025-03-01';
+  const end = endDate || new Date().toISOString().split('T')[0];
+  const launch = launchDate || '2025-12-01';
+  
+  // Mock pages with realistic data
+  const mockPages = [
+    { page: 'mlb:gamecast', label: 'MLB Gamecast', baseClicks: 250000 },
+    { page: 'nfl:gamecast', label: 'NFL Gamecast', baseClicks: 220000 },
+    { page: 'nba:gamecast', label: 'NBA Gamecast', baseClicks: 180000 },
+    { page: 'nfl:schedule', label: 'NFL Schedule', baseClicks: 150000 },
+    { page: 'nfl:odds', label: 'NFL Odds', baseClicks: 140000 },
+    { page: 'ncaaf:gamecast', label: 'College Football Gamecast', baseClicks: 120000 },
+    { page: 'ncaab:gamecast', label: 'College Basketball Gamecast', baseClicks: 100000 },
+    { page: 'soccer:gamecast', label: 'Soccer Gamecast', baseClicks: 80000 },
+    { page: 'nhl:gamecast', label: 'NHL Gamecast', baseClicks: 70000 },
+    { page: 'mlb:schedule', label: 'MLB Schedule', baseClicks: 60000 },
+  ];
+  
+  // Generate daily data
+  const generateDailyClicks = (baseClicks, startStr, endStr, launchStr) => {
+    const dailyClicks = {};
+    const startD = new Date(startStr);
+    const endD = new Date(endStr);
+    const launchD = new Date(launchStr);
+    const days = Math.ceil((endD - startD) / (1000 * 60 * 60 * 24));
+    const avgPerDay = Math.round(baseClicks / days);
+    
+    let beforeTotal = 0, afterTotal = 0;
+    let beforeDays = 0, afterDays = 0;
+    
+    for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
+      const variance = 0.5 + Math.random();
+      const clicks = Math.round(avgPerDay * variance);
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      dailyClicks[dateStr] = { clicks };
+      
+      if (d < launchD) {
+        beforeTotal += clicks;
+        beforeDays++;
+      } else {
+        afterTotal += clicks;
+        afterDays++;
+      }
+    }
+    
+    return {
+      dailyClicks,
+      comparison: {
+        avgClicksBefore: beforeDays > 0 ? Math.round(beforeTotal / beforeDays) : 0,
+        avgClicksAfter: afterDays > 0 ? Math.round(afterTotal / afterDays) : 0
+      }
+    };
+  };
+  
+  // Build projects
+  const projects = mockPages.map(p => {
+    const { dailyClicks, comparison } = generateDailyClicks(p.baseClicks, start, end, launch);
+    const totalClicks = Object.values(dailyClicks).reduce((sum, d) => sum + d.clicks, 0);
+    
+    return {
+      epicKey: p.page,
+      label: p.label,
+      pageType: p.page.split(':')[1] || 'other',
+      launchDate: launch,
+      metricType: 'betClicks',
+      clicks: {
+        totalClicks,
+        dailyClicks,
+        comparison
+      }
+    };
+  });
+  
+  // Group by page type
+  const grouped = {};
+  projects.forEach(project => {
+    const pageType = project.pageType;
+    if (!grouped[pageType]) {
+      grouped[pageType] = {
+        label: `📄 ${pageType.charAt(0).toUpperCase() + pageType.slice(1)} Pages`,
+        totalClicks: 0,
+        pages: []
+      };
+    }
+    grouped[pageType].totalClicks += project.clicks.totalClicks;
+    grouped[pageType].pages.push({
+      page: project.epicKey,
+      label: project.label,
+      clicks: project.clicks.totalClicks,
+      dailyClicks: project.clicks.dailyClicks,
+      comparison: project.clicks.comparison
+    });
+  });
+  
+  return {
+    projects,
+    grouped,
+    method: 'MOCK DATA (mock=true)',
+    totalClicks: projects.reduce((sum, p) => sum + p.clicks.totalClicks, 0),
+    totalPages: projects.length,
+    dateRange: { start, end },
+    launchDate: launch,
+    timing: { totalSeconds: 0, note: 'Mock data - instant' }
+  };
+}
 const PORT = process.env.PORT || 3001;
 
 // Kill any existing process on the port
@@ -298,6 +406,14 @@ app.get('/api/project-analytics', async (req, res) => {
   const launchDate = req.query.launchDate || '2025-12-01'; // DraftKings launch date
   const startDate = req.query.startDate; // Optional custom start date
   const endDate = req.query.endDate; // Optional custom end date
+  const useMock = req.query.mock === 'true'; // Use mock data for dev
+  
+  // Mock data for development (avoids API rate limits)
+  if (useMock) {
+    console.log('⚠ Using MOCK data (mock=true)');
+    const mockResult = generateMockAnalyticsData(startDate, endDate, launchDate);
+    return res.json(mockResult);
+  }
   
   // Build cache key with date range
   const dateRangeKey = startDate && endDate ? `${startDate}_${endDate}` : 'default';

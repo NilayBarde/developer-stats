@@ -53,8 +53,15 @@ function TrendBarChart({
     : -1;
 
   // Find location gating date index (Feb 19, 2025)
+  // Only show if the date is actually within the visible data range
   const locationGatingDateObj = locationGatingDate ? parseDate(locationGatingDate) : null;
-  const locationGatingIndex = locationGatingDateObj
+  const firstDataDate = sortedData.length > 0 ? parseDate(sortedData[0][dateKey]) : null;
+  const lastDataDate = sortedData.length > 0 ? parseDate(sortedData[sortedData.length - 1][dateKey]) : null;
+  
+  const locationGatingInRange = locationGatingDateObj && firstDataDate && lastDataDate &&
+    locationGatingDateObj >= firstDataDate && locationGatingDateObj <= lastDataDate;
+  
+  const locationGatingIndex = locationGatingInRange
     ? sortedData.findIndex(d => parseDate(d[dateKey]) >= locationGatingDateObj)
     : -1;
 

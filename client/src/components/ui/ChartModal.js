@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import TrendBarChart from './TrendBarChart';
-import { formatNumber, dailyClicksToArray } from '../../utils/analyticsHelpers';
+import { formatNumber, dailyClicksToArray, parseToISO, parseDate } from '../../utils/analyticsHelpers';
 import './ChartModal.css';
 
 /**
@@ -28,8 +28,47 @@ function ChartModal({
     setChartData(data);
   }, [pageData]);
 
-  const comparison = pageData.comparison;
+  // Calculate changePercent if not present
+  const rawComparison = pageData.comparison;
+  const comparison = rawComparison ? {
+    ...rawComparison,
+    changePercent: rawComparison.changePercent !== undefined 
+      ? rawComparison.changePercent 
+      : (rawComparison.avgClicksBefore || rawComparison.avgBefore) > 0
+        ? Math.round((((rawComparison.avgClicksAfter || rawComparison.avgAfter) - (rawComparison.avgClicksBefore || rawComparison.avgBefore)) / (rawComparison.avgClicksBefore || rawComparison.avgBefore)) * 100)
+        : null
+  } : null;
+  
   const totalClicks = pageData.clicks || pageData.totalClicks || 0;
+
+  // Calculate comparison for filtered data
+  const calculateFilteredComparison = (dailyClicks) => {
+    const launchDateObj = parseDate(launchDate);
+    if (!launchDateObj) return null;
+    
+    let beforeTotal = 0, beforeDays = 0;
+    let afterTotal = 0, afterDays = 0;
+    
+    Object.entries(dailyClicks).forEach(([date, data]) => {
+      const dateObj = parseDate(date);
+      const clicks = data?.clicks || (typeof data === 'number' ? data : 0);
+      if (dateObj && dateObj < launchDateObj) {
+        beforeTotal += clicks;
+        beforeDays++;
+      } else if (dateObj) {
+        afterTotal += clicks;
+        afterDays++;
+      }
+    });
+    
+    const avgClicksBefore = beforeDays > 0 ? Math.round(beforeTotal / beforeDays) : 0;
+    const avgClicksAfter = afterDays > 0 ? Math.round(afterTotal / afterDays) : 0;
+    const changePercent = avgClicksBefore > 0 
+      ? Math.round(((avgClicksAfter - avgClicksBefore) / avgClicksBefore) * 100)
+      : null;
+    
+    return { avgClicksBefore, avgClicksAfter, beforeDays, afterDays, changePercent };
+  };
 
   // Handle date preset change - filter existing data if possible
   const handlePresetChange = (preset) => {
@@ -50,7 +89,8 @@ function ChartModal({
       let totalClicks = 0;
       
       existingDates.forEach(date => {
-        if (date >= dates.start && date <= dates.end) {
+        const isoDate = parseToISO(date);
+        if (isoDate >= dates.start && isoDate <= dates.end) {
           filteredClicks[date] = existingDailyClicks[date];
           const clicks = existingDailyClicks[date]?.clicks || existingDailyClicks[date] || 0;
           totalClicks += typeof clicks === 'number' ? clicks : 0;
@@ -60,12 +100,15 @@ function ChartModal({
       // Check if we have data for this range (at least some dates)
       const filteredDates = Object.keys(filteredClicks);
       if (filteredDates.length > 0) {
+        // Recalculate comparison for filtered data
+        const comparison = calculateFilteredComparison(filteredClicks);
+        
         // Use filtered data - no need to fetch!
         setPageData({
           ...page,
           dailyClicks: filteredClicks,
           clicks: totalClicks,
-          comparison: null // Comparison doesn't apply to filtered data
+          comparison
         });
         return;
       }

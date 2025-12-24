@@ -110,6 +110,21 @@ export function isProjectLoading(project) {
 export const DEFAULT_LAUNCH_DATE = '2025-12-01';
 
 /**
+ * Parse date string to ISO format (YYYY-MM-DD) for comparison
+ * Handles both ISO format and human-readable format (Mar 1, 2025)
+ */
+export function parseToISO(dateStr) {
+  // Already ISO format (2025-03-01)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+  // Human format (Mar 1, 2025)
+  const d = new Date(dateStr);
+  if (!isNaN(d)) {
+    return d.toISOString().split('T')[0];
+  }
+  return dateStr;
+}
+
+/**
  * Get comparison data between before and after launch
  */
 export function calculateComparison(dailyData, launchDate, valueKey = 'clicks') {
