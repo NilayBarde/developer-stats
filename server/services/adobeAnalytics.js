@@ -1808,11 +1808,15 @@ async function _doDiscovery(launchDate, startDate, endDate, cacheKey) {
     const clicks = row.data?.[0] || 0;
     if (pageName && clicks > 0) {
       if (!pageClicks[pageName]) {
-        pageClicks[pageName] = { total: 0, draftKings: 0, espnBet: 0, itemIds: [] };
+        pageClicks[pageName] = { total: 0, draftKings: 0, espnBet: 0, itemIds: [], rawSamples: [] };
       }
       pageClicks[pageName].total += clicks;
       pageClicks[pageName].draftKings += clicks;
       if (row.itemId) pageClicks[pageName].itemIds.push(row.itemId);
+      // Store raw samples for "other" pages to help identify them
+      if (pageName.startsWith('other:') && pageClicks[pageName].rawSamples.length < 5) {
+        pageClicks[pageName].rawSamples.push({ value: row.value, clicks });
+      }
     }
   });
 
@@ -1822,11 +1826,15 @@ async function _doDiscovery(launchDate, startDate, endDate, cacheKey) {
     const clicks = row.data?.[0] || 0;
     if (pageName && clicks > 0) {
       if (!pageClicks[pageName]) {
-        pageClicks[pageName] = { total: 0, draftKings: 0, espnBet: 0, itemIds: [] };
+        pageClicks[pageName] = { total: 0, draftKings: 0, espnBet: 0, itemIds: [], rawSamples: [] };
       }
       pageClicks[pageName].total += clicks;
       pageClicks[pageName].espnBet += clicks;
       if (row.itemId) pageClicks[pageName].itemIds.push(row.itemId);
+      // Store raw samples for "other" pages to help identify them
+      if (pageName.startsWith('other:') && pageClicks[pageName].rawSamples.length < 5) {
+        pageClicks[pageName].rawSamples.push({ value: row.value, clicks });
+      }
     }
   });
 
@@ -1838,7 +1846,8 @@ async function _doDiscovery(launchDate, startDate, endDate, cacheKey) {
       clicks: data.total,
       draftKingsClicks: data.draftKings,
       espnBetClicks: data.espnBet,
-      itemIds: data.itemIds.slice(0, 50) // Keep for daily breakdown
+      itemIds: data.itemIds.slice(0, 50), // Keep for daily breakdown
+      rawSamples: data.rawSamples || [] // Include raw samples for "other" pages
     }))
     .filter(p => p.clicks >= 50) // Filter out noise
     .sort((a, b) => b.clicks - a.clicks);
@@ -1937,8 +1946,8 @@ async function _doDiscovery(launchDate, startDate, endDate, cacheKey) {
   const pageTypeStats = {};
   pages.forEach(page => {
     const parts = page.page.split(':');
-    // If first part is "other", group under "other" not the page type
-    const pageType = parts[0] === 'other' ? 'other' : (parts[1] || 'other');
+    // Always use the page type (second part) for grouping, even for "other:gamecast" etc.
+    const pageType = parts[1] || parts[0] || 'other';
     if (!pageTypeStats[pageType]) {
       pageTypeStats[pageType] = { totalClicks: 0, pages: [] };
     }
@@ -2054,7 +2063,7 @@ function formatPageLabel(page) {
   const pageType = pageTypes[parts[1]] || parts[1];
   
   if (parts[0] === 'other') {
-    return pageType ? `All ${pageType}s` : page;
+    return pageType ? `Other ${pageType}s` : page;
   }
   
   if (sport && pageType) {
