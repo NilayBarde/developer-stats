@@ -1800,7 +1800,7 @@ async function _doDiscoveryWithSegment(launchDate, startDate, endDate, cacheKey)
         dimension: 'variables/evar13', // PageName
         settings: {
           countRepeatInstances: true,
-          limit: 100 // Top 100 pages
+          limit: 200 // Top 200 pages per batch to ensure we catch all leagues
         }
       }
     });
@@ -1918,9 +1918,11 @@ async function _doDiscoveryWithSegment(launchDate, startDate, endDate, cacheKey)
 
   console.log(`  → Found ${pages.length} pages with ${totalClicks} total bet clicks`);
   console.log(`  → Engagement clicks (excl. interstitial): ${engagementClicks}`);
-
-  const topPages = pages.filter(p => !p.isInterstitial).slice(0, 50);
   
+  // Sort by clicks descending, then take top 50 (excluding interstitials)
+  const sortedPages = pages.sort((a, b) => b.clicks - a.clicks);
+  const topPages = sortedPages.filter(p => !p.isInterstitial).slice(0, 50);
+    
   const dateLabels = days.map(d => d.isoDate);
   
   const result = {
