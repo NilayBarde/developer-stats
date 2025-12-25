@@ -217,6 +217,48 @@
   font-size: 0.8em;
 }
 
+/* Raw samples for "other" pages */
+.raw-samples {
+  font-size: 0.7em;
+  margin-top: 4px;
+}
+
+.raw-samples summary {
+  cursor: pointer;
+  color: #888;
+  font-weight: normal;
+}
+
+.raw-samples summary:hover {
+  color: #667eea;
+}
+
+.raw-samples ul {
+  margin: 4px 0 0 0;
+  padding: 0;
+  list-style: none;
+  background: #f8f9fa;
+  border-radius: 4px;
+  padding: 6px 8px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.raw-samples li {
+  color: #666;
+  font-family: monospace;
+  font-size: 0.9em;
+  padding: 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.raw-samples .sample-clicks {
+  color: #999;
+  margin-left: 4px;
+}
+
 .metric-type-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -1293,6 +1335,156 @@
   margin-top: 8px;
 }
 
+/* Analytics Summary Section */
+.analytics-summary-section {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 24px;
+  margin-top: 30px;
+  margin-bottom: 20px;
+}
+
+/* League Breakdown */
+.league-breakdown {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.league-breakdown h3 {
+  margin: 0 0 20px 0;
+  font-size: 1.1em;
+  color: #333;
+}
+
+.league-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.league-bar-item {
+  display: grid;
+  grid-template-columns: 80px 1fr 80px;
+  align-items: center;
+  gap: 12px;
+}
+
+.league-label {
+  font-size: 0.9em;
+  font-weight: 500;
+  color: #333;
+}
+
+.league-bar-container {
+  height: 24px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.league-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.league-clicks {
+  font-size: 0.9em;
+  font-weight: 600;
+  color: #333;
+  text-align: right;
+}
+
+/* Click Breakdown Card */
+.confirmation-card {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.confirmation-card h3 {
+  margin: 0 0 16px 0;
+  font-size: 1.1em;
+  color: #333;
+}
+
+.click-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.breakdown-bar-container {
+  display: flex;
+  height: 32px;
+  background: #f0f0f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.breakdown-bar {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.breakdown-bar.engagement {
+  background: linear-gradient(90deg, #667eea, #764ba2);
+}
+
+.breakdown-bar.interstitial {
+  background: #e0e0e0;
+}
+
+.breakdown-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.legend-color.engagement {
+  background: linear-gradient(90deg, #667eea, #764ba2);
+}
+
+.legend-color.interstitial {
+  background: #e0e0e0;
+}
+
+.legend-text {
+  flex: 1;
+  font-size: 0.9em;
+  color: #555;
+}
+
+.legend-value {
+  font-weight: 600;
+  font-size: 0.95em;
+  color: #333;
+}
+
+.confirmation-note {
+  margin: 16px 0 0 0;
+  font-size: 0.8em;
+  color: #999;
+  text-align: center;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .analytics-card {
@@ -1321,6 +1513,14 @@
   
   .others-col.clicks {
     width: 80px;
+  }
+  
+  .analytics-summary-section {
+    grid-template-columns: 1fr;
+  }
+  
+  .confirmation-stats {
+    flex-wrap: wrap;
   }
 }
 

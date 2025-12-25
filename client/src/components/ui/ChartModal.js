@@ -28,16 +28,30 @@ function ChartModal({
     setChartData(data);
   }, [pageData]);
 
-  // Calculate changePercent if not present
+  // Calculate changePercent if not present, with proper edge case handling
   const rawComparison = pageData.comparison;
-  const comparison = rawComparison ? {
-    ...rawComparison,
-    changePercent: rawComparison.changePercent !== undefined 
-      ? rawComparison.changePercent 
-      : (rawComparison.avgClicksBefore || rawComparison.avgBefore) > 0
-        ? Math.round((((rawComparison.avgClicksAfter || rawComparison.avgAfter) - (rawComparison.avgClicksBefore || rawComparison.avgBefore)) / (rawComparison.avgClicksBefore || rawComparison.avgBefore)) * 100)
-        : null
-  } : null;
+  const comparison = rawComparison ? (() => {
+    const avgBefore = rawComparison.avgClicksBefore ?? rawComparison.avgBefore ?? 0;
+    const avgAfter = rawComparison.avgClicksAfter ?? rawComparison.avgAfter ?? 0;
+    
+    let changePercent = rawComparison.changePercent;
+    if (changePercent === undefined || changePercent === null || isNaN(changePercent)) {
+      if (avgBefore > 0) {
+        changePercent = Math.round(((avgAfter - avgBefore) / avgBefore) * 100);
+      } else if (avgAfter > 0) {
+        changePercent = 100; // From 0 to something
+      } else {
+        changePercent = null; // Both are 0, can't calculate
+      }
+    }
+    
+    return {
+      ...rawComparison,
+      avgClicksBefore: avgBefore,
+      avgClicksAfter: avgAfter,
+      changePercent
+    };
+  })() : null;
   
   const totalClicks = pageData.clicks || pageData.totalClicks || 0;
 
@@ -182,7 +196,7 @@ function ChartModal({
                 <span className="stat-value">{formatNumber(comparison.avgClicksAfter || comparison.avgAfter)}</span>
                 <span className="stat-label">Avg After Launch</span>
               </div>
-              {comparison.changePercent !== null && comparison.changePercent !== undefined && (
+              {comparison.changePercent !== null && comparison.changePercent !== undefined && !isNaN(comparison.changePercent) && (
                 <div className={`modal-stat highlight ${comparison.changePercent >= 0 ? 'positive' : 'negative'}`}>
                   <span className="stat-value">
                     {comparison.changePercent >= 0 ? '+' : ''}{comparison.changePercent}%
@@ -208,13 +222,13 @@ function ChartModal({
         {comparison && (
           <div className="chart-modal-comparison">
             <div className="modal-comparison-item before">
-              <div className="label">Before Launch ({comparison.daysBefore} days)</div>
-              <div className="value">{formatNumber(comparison.avgClicksBefore || comparison.avgBefore)}/day</div>
+              <div className="label">Before Launch ({comparison.beforeDays ?? comparison.daysBefore ?? 0} days)</div>
+              <div className="value">{formatNumber(comparison.avgClicksBefore)}/day</div>
             </div>
             <div className="modal-comparison-arrow">→</div>
             <div className="modal-comparison-item after">
-              <div className="label">After Launch ({comparison.daysAfter} days)</div>
-              <div className="value">{formatNumber(comparison.avgClicksAfter || comparison.avgAfter)}/day</div>
+              <div className="label">After Launch ({comparison.afterDays ?? comparison.daysAfter ?? 0} days)</div>
+              <div className="value">{formatNumber(comparison.avgClicksAfter)}/day</div>
             </div>
           </div>
         )}

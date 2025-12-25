@@ -377,40 +377,84 @@ app.get('/api/project-analytics', async (req, res) => {
     // Build custom date range if provided
     const customDateRange = startDate && endDate ? { startDate, endDate } : null;
     
-    // Auto-discover all pages with bet clicks from evar67
+    // Auto-discover all pages with bet clicks using segment
     const discovered = await adobeAnalyticsService.discoverAllBetClicks(launchDate, customDateRange);
     
     if (!discovered?.pages?.length) {
-      return res.json({ projects: [], others: [], method: 'auto-discovery', totalClicks: 0 });
+      return res.json({ projects: [], others: [], method: 'segment-based-discovery', totalClicks: 0 });
     }
 
-    // Format ALL pages for charts, grouped by page type
+    // Format ALL pages for charts
     const projects = discovered.pages.map(page => ({
       epicKey: page.page,
       label: page.label,
-      pageType: page.page.split(':')[1] || 'other',
+      pageType: page.pageType || 'other',
+      league: page.league,
+      isInterstitial: page.isInterstitial,
       launchDate,
       parentProject: 'SEWEB-59645',
       parentLabel: 'DraftKings Integration',
       metricType: 'betClicks',
       clicks: {
         totalClicks: page.clicks,
-        draftKingsClicks: page.draftKingsClicks,
-        espnBetClicks: page.espnBetClicks,
         dailyClicks: page.dailyClicks || {},
         comparison: page.comparison
       }
     }));
 
+    // Group pages by pageType (excluding interstitials from main groups)
+    const grouped = {};
+    const pageTypeLabels = {
+      'gamecast': 'Gamecast',
+      'scoreboard': 'Scoreboard', 
+      'odds': 'Odds',
+      'schedule': 'Schedule',
+      'story': 'Stories',
+      'index': 'Index Pages',
+      'interstitial': 'Confirmation (Interstitial)',
+      'other': 'Other Pages'
+    };
+
+    projects.forEach(project => {
+      const pageType = project.pageType || 'other';
+      if (!grouped[pageType]) {
+        grouped[pageType] = {
+          label: pageTypeLabels[pageType] || pageType,
+          totalClicks: 0,
+          pages: []
+        };
+      }
+      grouped[pageType].totalClicks += project.clicks.totalClicks;
+      grouped[pageType].pages.push({
+        page: project.epicKey,
+        label: project.label,
+        league: project.league,
+        clicks: project.clicks.totalClicks,
+        dailyClicks: project.clicks.dailyClicks,
+        comparison: project.clicks.comparison
+      });
+    });
+
+    // Sort pages within each group by clicks
+    Object.values(grouped).forEach(group => {
+      group.pages.sort((a, b) => b.clicks - a.clicks);
+    });
+
     const result = { 
       projects,
-      grouped: discovered.grouped,
-      method: 'auto-discovery from evar67 (event_detail)',
+      grouped,
+      byLeague: discovered.byLeague,
+      byPageType: discovered.byPageType,
+      method: discovered.method || 'segment-based-discovery',
+      segmentId: discovered.segmentId,
       totalClicks: discovered.totalClicks,
+      engagementClicks: discovered.engagementClicks,
+      interstitialClicks: discovered.interstitialClicks,
+      confirmationRate: discovered.confirmationRate,
       totalPages: discovered.totalPages,
       dateRange: discovered.dateRange,
       launchDate,
-      timing: discovered.timing // Include timing info for client progress estimates
+      timing: discovered.timing
     };
     
     cache.set(cacheKey, result, 600); // Cache for 10 minutes
@@ -519,6 +563,31 @@ app.get('/api/analytics/clicks-by-source', async (req, res) => {
   }
 });
 
+// Debug: Get daily bet clicks for a specific page (to see when clicks actually happened)
+app.get('/api/analytics/page-daily-clicks', async (req, res) => {
+  try {
+    const pageName = req.query.page;
+    const startDate = req.query.startDate || '2025-03-01';
+    const endDate = req.query.endDate || new Date().toISOString().split('T')[0];
+    
+    if (!pageName) {
+      return res.status(400).json({ 
+        error: 'Missing ?page= parameter',
+        example: '/api/analytics/page-daily-clicks?page=espn:mlb:game:gamecast'
+      });
+    }
+    
+    const data = await adobeAnalyticsService.getPageDailyBetClicks(pageName, null, { startDate, endDate });
+    res.json({
+      page: pageName,
+      dateRange: { startDate, endDate },
+      ...data
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get clicks filtered by page token (e.g., topeventsodds, gamecast, scoreboard)
 app.get('/api/analytics/page-clicks', async (req, res) => {
   try {
@@ -551,11 +620,106 @@ app.get('/api/analytics/bet-clicks-by-page-name', async (req, res) => {
   }
 });
 
+// TEST: Multi-column Page × Day matrix (ONE API call!)
+app.get('/api/analytics/test-page-day-matrix', async (req, res) => {
+  try {
+    const numDays = parseInt(req.query.days) || 7;
+    const data = await adobeAnalyticsService.testPageDayMatrix(numDays);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Legacy endpoint - keep for backwards compatibility
 app.get('/api/analytics/odds-page-clicks', async (req, res) => {
   try {
     const launchDate = req.query.launchDate || null;
     const data = await adobeAnalyticsService.getOddsPageClicks(launchDate, 'topeventsodds');
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Debug: Explore all dimensions available for bet clicks
+// Usage: /api/analytics/explore-bet-clicks?dim=variables/page (or evar67, pagename, etc)
+app.get('/api/analytics/explore-bet-clicks', async (req, res) => {
+  try {
+    const dimension = req.query.dim || 'variables/page';
+    const data = await adobeAnalyticsService.exploreBetClickDimension(dimension);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get bet clicks grouped by clean page names (parsed from evar67)
+app.get('/api/analytics/bet-clicks-by-page', async (req, res) => {
+  try {
+    const data = await adobeAnalyticsService.getBetClicksByPage();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get bet clicks with actual page breakdown (shows real page name where click occurred)
+app.get('/api/analytics/bet-clicks-page-breakdown', async (req, res) => {
+  try {
+    const data = await adobeAnalyticsService.getBetClicksWithPageBreakdown();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Explore ALL attributes available for bet click events
+app.get('/api/analytics/bet-click-attributes', async (req, res) => {
+  try {
+    const data = await adobeAnalyticsService.exploreBetClickAttributes();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Explore correlation between ambiguous evar67 values and actual page (to get league)
+// This breaks down bet clicks like "football:game:gamecast" by the actual page dimension
+// to determine if they're NFL, NCAAF, etc.
+app.get('/api/analytics/evar67-league-correlation', async (req, res) => {
+  try {
+    const data = await adobeAnalyticsService.exploreEvar67LeagueCorrelation();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// List all dimensions in the report suite (find c.league, c.sport mappings)
+app.get('/api/analytics/dimensions', async (req, res) => {
+  try {
+    const data = await adobeAnalyticsService.listAllDimensions();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Find evars/props that contain league/sport values
+app.get('/api/analytics/find-league-sport-vars', async (req, res) => {
+  try {
+    const data = await adobeAnalyticsService.findLeagueSportVars();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get bet clicks by page using inline segment (attempts to properly filter to bet clicks)
+app.get('/api/analytics/bet-clicks-by-page-direct', async (req, res) => {
+  try {
+    const data = await adobeAnalyticsService.getBetClicksByPageDirect();
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });

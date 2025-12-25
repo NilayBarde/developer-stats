@@ -30,6 +30,7 @@ function TrendBarChart({
   }
 
   // Sort data chronologically and ensure numeric values
+  // Use parseDate for consistent timezone handling with ISO dates
   const sortedData = [...data]
     .map(d => {
       // Handle different data formats - value might be nested or direct
@@ -42,7 +43,11 @@ function TrendBarChart({
         _value: Number(value) || 0
       };
     })
-    .sort((a, b) => new Date(a[dateKey]) - new Date(b[dateKey]));
+    .sort((a, b) => {
+      const dateA = parseDate(a[dateKey]);
+      const dateB = parseDate(b[dateKey]);
+      return (dateA?.getTime() || 0) - (dateB?.getTime() || 0);
+    });
   
   const maxValue = Math.max(...sortedData.map(d => d._value), 1);
   
@@ -145,20 +150,22 @@ function TrendBarChart({
         )}
         
         {/* Location gating marker (Feb 19, 2025) */}
+        {/* Position at left edge of bar: index/length (not index/(length-1)) to match flex bars */}
         {locationGatingIndex >= 0 && (
           <div
             className="event-marker location-gating"
-            style={{ left: `${(locationGatingIndex / (sortedData.length - 1)) * 100}%` }}
+            style={{ left: `${(locationGatingIndex / sortedData.length) * 100}%` }}
           >
             <span className="event-label">Geo-gate</span>
           </div>
         )}
         
         {/* Launch date marker */}
+        {/* Position at left edge of bar: index/length (not index/(length-1)) to match flex bars */}
         {launchDateIndex >= 0 && (
           <div
             className="event-marker launch"
-            style={{ left: `${(launchDateIndex / (sortedData.length - 1)) * 100}%` }}
+            style={{ left: `${(launchDateIndex / sortedData.length) * 100}%` }}
           >
             <span className="event-label">Launch</span>
           </div>

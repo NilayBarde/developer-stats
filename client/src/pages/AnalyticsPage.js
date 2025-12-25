@@ -32,13 +32,15 @@ const DATE_PRESETS = {
 };
 
 // Estimated load times (updated based on actual timing data)
-// With 3 concurrent pages + 3s delay between batches
+// Discovery: ~35s for initial query + page list
+// Daily data: 20 pages, 2 per batch, 10 batches × ~9s (3s delay + API time) = ~90s
+// Total: ~120-130 seconds
 const ESTIMATED_LOAD_SECONDS = {
-  discovery: 10,       // Initial discovery phase (2 queries)
-  perPage: 6,          // Per page: actual observed ~6s per page
-  expectedPages: 31    // Typical number of pages
+  discovery: 35,       // Initial discovery phase (segment query + page list)
+  perBatch: 9,         // Per batch: 3s delay + ~6s API time
+  expectedBatches: 10  // 20 pages / 2 per batch = 10 batches
 };
-// Total estimate: 10 + (6 * 31) = ~200 seconds
+// Total estimate: 35 + (9 * 10) = ~125 seconds
 
 function AnalyticsPage() {
   const [analyticsData, setAnalyticsData] = useState(null);  // Currently displayed (possibly filtered)
@@ -59,7 +61,7 @@ function AnalyticsPage() {
   const startProgressTimer = useCallback(() => {
     loadStartRef.current = Date.now();
     const estimatedTotal = ESTIMATED_LOAD_SECONDS.discovery + 
-      (ESTIMATED_LOAD_SECONDS.perPage * ESTIMATED_LOAD_SECONDS.expectedPages);
+      (ESTIMATED_LOAD_SECONDS.perBatch * ESTIMATED_LOAD_SECONDS.expectedBatches);
     
     setLoadProgress({ elapsed: 0, estimated: estimatedTotal, phase: 'Discovering pages...' });
     
@@ -70,8 +72,8 @@ function AnalyticsPage() {
       const elapsed = Math.round((Date.now() - loadStartRef.current) / 1000);
       let phase = 'Discovering pages...';
       if (elapsed > ESTIMATED_LOAD_SECONDS.discovery) {
-        const pageProgress = Math.floor((elapsed - ESTIMATED_LOAD_SECONDS.discovery) / ESTIMATED_LOAD_SECONDS.perPage);
-        phase = `Processing pages (${Math.min(pageProgress, ESTIMATED_LOAD_SECONDS.expectedPages)}/${ESTIMATED_LOAD_SECONDS.expectedPages})...`;
+        const batchProgress = Math.floor((elapsed - ESTIMATED_LOAD_SECONDS.discovery) / ESTIMATED_LOAD_SECONDS.perBatch);
+        phase = `Fetching daily data (batch ${Math.min(batchProgress + 1, ESTIMATED_LOAD_SECONDS.expectedBatches)}/${ESTIMATED_LOAD_SECONDS.expectedBatches})...`;
       }
       setLoadProgress(prev => ({ ...prev, elapsed, phase }));
     }, 1000);
@@ -287,6 +289,11 @@ function AnalyticsPage() {
   useEffect(() => {
     if (!analyticsData || loading) return;
     
+    // If we have timing data, discovery is complete - no need to poll
+    if (analyticsData.timing?.pagesWithDailyData !== undefined) {
+      return;
+    }
+    
     const hasLoadingProjects = analyticsData.projects?.some(isProjectLoading);
     
     if (hasLoadingProjects && pollCountRef.current < 10) {
@@ -308,14 +315,24 @@ function AnalyticsPage() {
   }, [analyticsData, loading, fetchAnalytics]);
 
   // Calculate loading progress
+  // Note: Server only fetches daily data for top 20 pages, so compare against
+  // timing.pagesWithDailyData (actual pages with data) not totalPages (all discovered)
   const getLoadingProgress = () => {
     if (!analyticsData) return null;
+    
+    // If we have timing data, the server is done - no more loading
+    if (analyticsData.timing?.pagesWithDailyData !== undefined) {
+      return null; // Discovery complete
+    }
+    
+    // Otherwise show progress based on projects with daily data
     const pagesWithData = analyticsData.projects?.filter(p => 
       Object.keys(p.clicks?.dailyClicks || {}).length > 0
     ).length || 0;
-    const totalPages = analyticsData.totalPages || 0;
-    if (pagesWithData < totalPages && pollCountRef.current < 10) {
-      return { pagesWithData, totalPages };
+    const expectedPages = Math.min(analyticsData.totalPages || 0, 20); // We only fetch top 20
+    
+    if (pagesWithData < expectedPages && pollCountRef.current < 10) {
+      return { pagesWithData, totalPages: expectedPages };
     }
     return null;
   };
@@ -434,7 +451,71 @@ function AnalyticsPage() {
         </div>
       )}
 
-      {/* Summary */}
+      {/* Summary Stats */}
+      {analyticsData && (
+        <div className="analytics-summary-section">
+          {/* League Breakdown */}
+          {analyticsData.byLeague && analyticsData.byLeague.length > 0 && (
+            <div className="league-breakdown">
+              <h3>Bet Clicks by League</h3>
+              <div className="league-bars">
+                {analyticsData.byLeague.map(league => (
+                  <div key={league.league} className="league-bar-item">
+                    <div className="league-label">{league.league}</div>
+                    <div className="league-bar-container">
+                      <div 
+                        className="league-bar-fill"
+                        style={{ 
+                          width: `${Math.min(100, (league.totalClicks / (analyticsData.engagementClicks || analyticsData.totalClicks)) * 100)}%` 
+                        }}
+                      />
+                    </div>
+                    <div className="league-clicks">{formatNumber(league.totalClicks)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Click Breakdown Card */}
+          {analyticsData.totalClicks > 0 && (
+            <div className="confirmation-card">
+              <h3>Click Breakdown</h3>
+              <div className="click-breakdown">
+                <div className="breakdown-item">
+                  <div className="breakdown-bar-container">
+                    <div 
+                      className="breakdown-bar engagement"
+                      style={{ width: `${((analyticsData.engagementClicks || 0) / analyticsData.totalClicks) * 100}%` }}
+                    />
+                    <div 
+                      className="breakdown-bar interstitial"
+                      style={{ width: `${((analyticsData.interstitialClicks || 0) / analyticsData.totalClicks) * 100}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="breakdown-legend">
+                  <div className="legend-row">
+                    <span className="legend-color engagement"></span>
+                    <span className="legend-text">Content Pages</span>
+                    <span className="legend-value">{formatNumber(analyticsData.engagementClicks || 0)}</span>
+                  </div>
+                  <div className="legend-row">
+                    <span className="legend-color interstitial"></span>
+                    <span className="legend-text">Interstitial Modal</span>
+                    <span className="legend-value">{formatNumber(analyticsData.interstitialClicks || 0)}</span>
+                  </div>
+                </div>
+              </div>
+              <p className="confirmation-note">
+                Interstitial = disclaimer modal before leaving ESPN
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Summary Footer */}
       {analyticsData && (
         <div className="analytics-summary">
           <p>
@@ -523,6 +604,19 @@ function AnalyticsCard({ page, analyticsData, pollCount, onSelect }) {
                     >
                       <div className="card-header">
                         <h3>{page.label}</h3>
+                        {page.rawSamples && page.rawSamples.length > 0 && (
+                          <details className="raw-samples">
+                            <summary>View sources ({page.rawSamples.length})</summary>
+                            <ul>
+                              {page.rawSamples.map((sample, i) => (
+                                <li key={i} title={sample.value}>
+                                  {sample.value.length > 60 ? sample.value.substring(0, 60) + '...' : sample.value}
+                                  <span className="sample-clicks">({formatNumber(sample.clicks)})</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
                       </div>
                       
                       <div className="card-stats">

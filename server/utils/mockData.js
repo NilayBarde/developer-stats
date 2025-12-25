@@ -9,21 +9,28 @@ function generateMockAnalyticsData(startDate, endDate, launchDate) {
   const end = endDate || new Date().toISOString().split('T')[0];
   const launch = launchDate || '2025-12-01';
   
-  // Mock pages with realistic data
+  // Mock pages with realistic data - includes league and pageType
   const mockPages = [
-    { page: 'mlb:gamecast', label: 'MLB Gamecast', baseClicks: 250000 },
-    { page: 'nfl:gamecast', label: 'NFL Gamecast', baseClicks: 220000 },
-    { page: 'nba:gamecast', label: 'NBA Gamecast', baseClicks: 180000 },
-    { page: 'nfl:schedule', label: 'NFL Schedule', baseClicks: 150000 },
-    { page: 'nfl:odds', label: 'NFL Odds', baseClicks: 140000 },
-    { page: 'ncaaf:gamecast', label: 'College Football Gamecast', baseClicks: 120000 },
-    { page: 'ncaab:gamecast', label: 'College Basketball Gamecast', baseClicks: 100000 },
-    { page: 'soccer:gamecast', label: 'Soccer Gamecast', baseClicks: 80000 },
-    { page: 'nhl:gamecast', label: 'NHL Gamecast', baseClicks: 70000 },
-    { page: 'mlb:schedule', label: 'MLB Schedule', baseClicks: 60000 },
+    { page: 'espn:nfl:game:gamecast', label: 'NFL Gamecast', league: 'NFL', pageType: 'gamecast', baseClicks: 350000 },
+    { page: 'espn:nba:game:gamecast', label: 'NBA Gamecast', league: 'NBA', pageType: 'gamecast', baseClicks: 280000 },
+    { page: 'espn:mlb:game:gamecast', label: 'MLB Gamecast', league: 'MLB', pageType: 'gamecast', baseClicks: 220000 },
+    { page: 'espn:nhl:game:gamecast', label: 'NHL Gamecast', league: 'NHL', pageType: 'gamecast', baseClicks: 150000 },
+    { page: 'espn:ncaaf:game:gamecast', label: 'College Football Gamecast', league: 'NCAAF', pageType: 'gamecast', baseClicks: 180000 },
+    { page: 'espn:ncaab:game:gamecast', label: 'College Basketball Gamecast', league: 'NCAAB', pageType: 'gamecast', baseClicks: 140000 },
+    { page: 'espn:soccer:match:gamecast', label: 'Soccer Gamecast', league: 'Soccer', pageType: 'gamecast', baseClicks: 90000 },
+    { page: 'espn:nfl:scoreboard', label: 'NFL Scoreboard', league: 'NFL', pageType: 'scoreboard', baseClicks: 200000 },
+    { page: 'espn:nba:scoreboard', label: 'NBA Scoreboard', league: 'NBA', pageType: 'scoreboard', baseClicks: 160000 },
+    { page: 'espn:mlb:scoreboard', label: 'MLB Scoreboard', league: 'MLB', pageType: 'scoreboard', baseClicks: 120000 },
+    { page: 'espn:nfl:odds', label: 'NFL Odds', league: 'NFL', pageType: 'odds', baseClicks: 180000 },
+    { page: 'espn:nba:odds', label: 'NBA Odds', league: 'NBA', pageType: 'odds', baseClicks: 140000 },
+    { page: 'espn:mlb:odds', label: 'MLB Odds', league: 'MLB', pageType: 'odds', baseClicks: 100000 },
+    { page: 'espn:nfl:schedule', label: 'NFL Schedule', league: 'NFL', pageType: 'schedule', baseClicks: 95000 },
+    { page: 'espn:nba:schedule', label: 'NBA Schedule', league: 'NBA', pageType: 'schedule', baseClicks: 75000 },
+    // Interstitial (confirmation modal)
+    { page: 'espn:betting:interstitial', label: 'Bet Confirmation Modal', league: null, pageType: 'interstitial', baseClicks: 800000, isInterstitial: true },
   ];
   
-  // Generate daily data
+  // Generate daily data with proper ISO date format
   const generateDailyClicks = (baseClicks, startStr, endStr, launchStr) => {
     const dailyClicks = {};
     const startD = new Date(startStr);
@@ -38,7 +45,8 @@ function generateMockAnalyticsData(startDate, endDate, launchDate) {
     for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
       const variance = 0.5 + Math.random();
       const clicks = Math.round(avgPerDay * variance);
-      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      // Use ISO date format: YYYY-MM-DD
+      const dateStr = d.toISOString().split('T')[0];
       dailyClicks[dateStr] = { clicks };
       
       if (d < launchD) {
@@ -50,11 +58,25 @@ function generateMockAnalyticsData(startDate, endDate, launchDate) {
       }
     }
     
+    const avgClicksBefore = beforeDays > 0 ? Math.round(beforeTotal / beforeDays) : 0;
+    const avgClicksAfter = afterDays > 0 ? Math.round(afterTotal / afterDays) : 0;
+    
+    // Calculate changePercent with proper edge case handling
+    let changePercent = null;
+    if (avgClicksBefore > 0) {
+      changePercent = Math.round(((avgClicksAfter - avgClicksBefore) / avgClicksBefore) * 100);
+    } else if (avgClicksAfter > 0) {
+      changePercent = 100;
+    }
+    
     return {
       dailyClicks,
       comparison: {
-        avgClicksBefore: beforeDays > 0 ? Math.round(beforeTotal / beforeDays) : 0,
-        avgClicksAfter: afterDays > 0 ? Math.round(afterTotal / afterDays) : 0
+        avgClicksBefore,
+        avgClicksAfter,
+        beforeDays,
+        afterDays,
+        changePercent
       }
     };
   };
@@ -67,10 +89,12 @@ function generateMockAnalyticsData(startDate, endDate, launchDate) {
     return {
       epicKey: p.page,
       label: p.label,
-      pageType: p.page.split(':')[1] || 'other',
+      pageType: p.pageType,
+      league: p.league,
+      isInterstitial: p.isInterstitial || false,
       launchDate: launch,
-      parentProject: 'MOCK-12345',
-      parentLabel: 'Mock Analytics Project',
+      parentProject: 'SEWEB-59645',
+      parentLabel: 'DraftKings Integration',
       metricType: 'betClicks',
       clicks: {
         totalClicks,
@@ -80,13 +104,27 @@ function generateMockAnalyticsData(startDate, endDate, launchDate) {
     };
   });
   
+  // Calculate engagement vs interstitial clicks
+  const interstitialClicks = projects.filter(p => p.isInterstitial).reduce((sum, p) => sum + p.clicks.totalClicks, 0);
+  const engagementClicks = projects.filter(p => !p.isInterstitial).reduce((sum, p) => sum + p.clicks.totalClicks, 0);
+  const totalClicks = interstitialClicks + engagementClicks;
+  
   // Group by page type
+  const pageTypeLabels = {
+    'gamecast': 'Gamecast',
+    'scoreboard': 'Scoreboard', 
+    'odds': 'Odds',
+    'schedule': 'Schedule',
+    'interstitial': 'Confirmation (Interstitial)',
+    'other': 'Other Pages'
+  };
+  
   const grouped = {};
   projects.forEach(project => {
     const pageType = project.pageType;
     if (!grouped[pageType]) {
       grouped[pageType] = {
-        label: `📄 ${pageType.charAt(0).toUpperCase() + pageType.slice(1)} Pages`,
+        label: pageTypeLabels[pageType] || pageType,
         totalClicks: 0,
         pages: []
       };
@@ -95,21 +133,55 @@ function generateMockAnalyticsData(startDate, endDate, launchDate) {
     grouped[pageType].pages.push({
       page: project.epicKey,
       label: project.label,
+      league: project.league,
       clicks: project.clicks.totalClicks,
       dailyClicks: project.clicks.dailyClicks,
       comparison: project.clicks.comparison
     });
   });
   
+  // Sort pages within each group by clicks
+  Object.values(grouped).forEach(group => {
+    group.pages.sort((a, b) => b.clicks - a.clicks);
+  });
+  
+  // Build byLeague breakdown
+  const byLeague = {};
+  projects.filter(p => p.league && !p.isInterstitial).forEach(project => {
+    if (!byLeague[project.league]) {
+      byLeague[project.league] = { league: project.league, totalClicks: 0, pages: [] };
+    }
+    byLeague[project.league].totalClicks += project.clicks.totalClicks;
+    byLeague[project.league].pages.push(project.label);
+  });
+  const byLeagueArray = Object.values(byLeague).sort((a, b) => b.totalClicks - a.totalClicks);
+  
+  // Build byPageType breakdown
+  const byPageType = {};
+  projects.filter(p => !p.isInterstitial).forEach(project => {
+    if (!byPageType[project.pageType]) {
+      byPageType[project.pageType] = { pageType: project.pageType, totalClicks: 0, count: 0 };
+    }
+    byPageType[project.pageType].totalClicks += project.clicks.totalClicks;
+    byPageType[project.pageType].count++;
+  });
+  const byPageTypeArray = Object.values(byPageType).sort((a, b) => b.totalClicks - a.totalClicks);
+  
   return {
     projects,
     grouped,
+    byLeague: byLeagueArray,
+    byPageType: byPageTypeArray,
     method: 'MOCK DATA (mock=true)',
-    totalClicks: projects.reduce((sum, p) => sum + p.clicks.totalClicks, 0),
+    segmentId: 'mock-segment-id',
+    totalClicks,
+    engagementClicks,
+    interstitialClicks,
+    confirmationRate: totalClicks > 0 ? ((interstitialClicks / totalClicks) * 100).toFixed(1) + '%' : '0%',
     totalPages: projects.length,
     dateRange: { start, end },
     launchDate: launch,
-    timing: { totalSeconds: 0, note: 'Mock data - instant' }
+    timing: { totalMs: 0, note: 'Mock data - instant', pagesWithDailyData: projects.length }
   };
 }
 

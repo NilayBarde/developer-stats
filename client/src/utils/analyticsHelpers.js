@@ -14,16 +14,37 @@ export function formatNumber(num) {
 
 /**
  * Format date string to short display format (e.g., "Dec 15")
+ * Uses UTC to avoid timezone issues with ISO dates
  */
 export function formatShortDate(dateStr) {
+  // For ISO dates (2025-12-01), parse as UTC to avoid timezone shift
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    const [year, month, day] = dateStr.split('T')[0].split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric',
+      timeZone: 'UTC'
+    });
+  }
   const d = new Date(dateStr);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 /**
  * Format date string to full display format (e.g., "Dec 15, 2025")
+ * Uses UTC to avoid timezone issues with ISO dates
  */
 export function formatFullDate(dateStr) {
+  // For ISO dates (2025-12-01), parse as UTC to avoid timezone shift
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    const [year, month, day] = dateStr.split('T')[0].split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric',
+      timeZone: 'UTC'
+    });
+  }
   const d = new Date(dateStr);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -61,6 +82,7 @@ export function isAfterLaunch(dateStr, launchDate) {
 
 /**
  * Convert daily clicks object/map to sorted array
+ * Uses parseDate for consistent timezone handling
  */
 export function dailyClicksToArray(dailyClicks) {
   if (!dailyClicks) return [];
@@ -70,19 +92,25 @@ export function dailyClicksToArray(dailyClicks) {
       date,
       clicks: data?.clicks || data || 0
     }))
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
+    .sort((a, b) => {
+      // Use parseDate for consistent comparison
+      const dateA = parseDate(a.date);
+      const dateB = parseDate(b.date);
+      return (dateA?.getTime() || 0) - (dateB?.getTime() || 0);
+    });
 }
 
 /**
  * Convert daily data array to sorted array (handles both pageViews and clicks)
+ * Uses parseDate for consistent timezone handling
  */
 export function normalizeDailyData(dailyData) {
   if (!dailyData || !Array.isArray(dailyData)) return [];
   
   return [...dailyData].sort((a, b) => {
-    const dateA = new Date(a.date);
-    const dateB = new Date(b.date);
-    return dateA - dateB;
+    const dateA = parseDate(a.date);
+    const dateB = parseDate(b.date);
+    return (dateA?.getTime() || 0) - (dateB?.getTime() || 0);
   });
 }
 
