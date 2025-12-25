@@ -3318,6 +3318,123 @@ async function testPageDayMatrix(numDays = 7) {
   }
 }
 
+/**
+ * Get top event details (evar67) for a specific page
+ * Shows what specific bet click events are happening on this page
+ */
+async function getPageEventDetails(pageName, startDate, endDate) {
+  if (!ADOBE_REPORT_SUITE_ID) {
+    throw new Error('ADOBE_REPORT_SUITE_ID is required');
+  }
+
+  const cacheKey = `page-event-details:${pageName}:${startDate}:${endDate}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  console.log(`Fetching event details for page: ${pageName}`);
+
+  try {
+    // Step 1: Get the itemId for this page name
+    const pageResponse = await apiRequest('/reports', {
+      method: 'POST',
+      data: {
+        rsid: ADOBE_REPORT_SUITE_ID,
+        globalFilters: [
+          { type: 'segment', segmentId: ALL_BET_CLICKS_SEGMENT_ID },
+          { type: 'dateRange', dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999` }
+        ],
+        metricContainer: {
+          metrics: [{ columnId: '0', id: 'metrics/occurrences' }]
+        },
+        dimension: 'variables/evar13', // PageName
+        settings: {
+          countRepeatInstances: true,
+          limit: 400,
+          search: {
+            clause: `MATCH '${pageName}'`
+          }
+        }
+      }
+    });
+
+    const pageRow = pageResponse?.rows?.find(r => r.value === pageName);
+    if (!pageRow) {
+      console.log(`  → Page not found: ${pageName}`);
+      return {
+        page: pageName,
+        dateRange: { start: startDate, end: endDate },
+        eventDetails: [],
+        totalEvents: 0,
+        error: 'Page not found'
+      };
+    }
+
+    const pageItemId = pageRow.itemId;
+    console.log(`  → Found page itemId: ${pageItemId}`);
+
+    // Step 2: Get event details breakdown for this page
+    const eventResponse = await apiRequest('/reports', {
+      method: 'POST',
+      data: {
+        rsid: ADOBE_REPORT_SUITE_ID,
+        globalFilters: [
+          { type: 'segment', segmentId: ALL_BET_CLICKS_SEGMENT_ID },
+          { type: 'dateRange', dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999` }
+        ],
+        metricContainer: {
+          metrics: [{ 
+            columnId: '0', 
+            id: 'metrics/occurrences',
+            filters: ['pageFilter']
+          }],
+          metricFilters: [{
+            id: 'pageFilter',
+            type: 'breakdown',
+            dimension: 'variables/evar13',
+            itemId: pageItemId
+          }]
+        },
+        dimension: 'variables/evar67', // event_detail
+        settings: {
+          countRepeatInstances: true,
+          limit: 10
+        }
+      }
+    });
+
+    const eventDetails = (eventResponse?.rows || []).map(row => ({
+      eventDetail: row.value || 'Unknown',
+      clicks: row.data?.[0] || 0
+    })).filter(e => e.clicks > 0);
+
+    const result = {
+      page: pageName,
+      pageItemId,
+      dateRange: { start: startDate, end: endDate },
+      eventDetails,
+      totalEvents: eventDetails.length
+    };
+
+    // Cache for 5 minutes
+    cache.set(cacheKey, result, 300);
+    
+    console.log(`  → Found ${eventDetails.length} event details for ${pageName}`);
+    return result;
+
+  } catch (error) {
+    console.error(`Error fetching event details for ${pageName}:`, error.message);
+    
+    // Return empty result on error
+    return {
+      page: pageName,
+      dateRange: { start: startDate, end: endDate },
+      eventDetails: [],
+      totalEvents: 0,
+      error: error.message
+    };
+  }
+}
+
 module.exports = { 
   getStats, 
   getAnalyticsData, 
@@ -3337,6 +3454,7 @@ module.exports = {
   exploreBetClickDimension,
   getBetClicksByPage,
   getBetClicksWithPageBreakdown,
+  getPageEventDetails,
   exploreBetClickAttributes,
   exploreEvar67LeagueCorrelation,
   findLeagueSportVars,

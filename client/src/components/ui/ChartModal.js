@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import axios from 'axios';
 import TrendBarChart from './TrendBarChart';
 import { formatNumber, dailyClicksToArray, parseToISO, parseDate } from '../../utils/analyticsHelpers';
 import './ChartModal.css';
@@ -18,6 +19,8 @@ function ChartModal({
   const [selectedPreset, setSelectedPreset] = useState(currentPreset);
   const [chartData, setChartData] = useState([]);
   const [pageData, setPageData] = useState(page);
+  const [eventDetails, setEventDetails] = useState([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
   
   // Convert dailyClicks object to array if needed
   useEffect(() => {
@@ -27,6 +30,36 @@ function ChartModal({
       : dailyClicksToArray(dailyClicks);
     setChartData(data);
   }, [pageData]);
+
+  // Fetch event details when modal opens
+  useEffect(() => {
+    const fetchEventDetails = async () => {
+      if (!page.page) return;
+      
+      setLoadingEvents(true);
+      try {
+        const dates = datePresets[selectedPreset]?.getDates() || { 
+          start: '2025-03-01', 
+          end: new Date().toISOString().split('T')[0] 
+        };
+        const response = await axios.get(`/api/analytics/page-event-details`, {
+          params: {
+            page: page.page,
+            startDate: dates.start,
+            endDate: dates.end
+          }
+        });
+        setEventDetails(response.data?.eventDetails || []);
+      } catch (error) {
+        console.error('Error fetching event details:', error);
+        setEventDetails([]);
+      } finally {
+        setLoadingEvents(false);
+      }
+    };
+
+    fetchEventDetails();
+  }, [page.page, selectedPreset, datePresets]);
 
   // Calculate changePercent if not present, with proper edge case handling
   const rawComparison = pageData.comparison;
@@ -232,6 +265,26 @@ function ChartModal({
             </div>
           </div>
         )}
+
+        {/* Top Event Details */}
+        <div className="chart-modal-events">
+          <h3>Top Event Details</h3>
+          {loadingEvents ? (
+            <div className="events-loading">Loading event details...</div>
+          ) : eventDetails.length > 0 ? (
+            <div className="events-list">
+              {eventDetails.slice(0, 5).map((event, idx) => (
+                <div key={idx} className="event-item">
+                  <span className="event-rank">#{idx + 1}</span>
+                  <span className="event-name">{event.eventDetail}</span>
+                  <span className="event-clicks">{formatNumber(event.clicks)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="events-empty">No event details available</div>
+          )}
+        </div>
       </div>
     </div>
   );

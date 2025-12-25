@@ -470,6 +470,27 @@ app.get('/api/project-analytics', async (req, res) => {
   }
 });
 
+// Get top event details for a specific page
+app.get('/api/analytics/page-event-details', async (req, res) => {
+  const { page, startDate, endDate } = req.query;
+  
+  if (!page) {
+    return res.status(400).json({ error: 'page parameter is required' });
+  }
+  
+  try {
+    const eventDetails = await adobeAnalyticsService.getPageEventDetails(
+      page,
+      startDate || '2025-03-01',
+      endDate || new Date().toISOString().split('T')[0]
+    );
+    res.json(eventDetails);
+  } catch (error) {
+    console.error('Error fetching page event details:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Helper to format page names into readable labels
 function formatPageLabel(pageName) {
   // "espn:nfl:game:gamecast" -> "NFL Gamecast"
