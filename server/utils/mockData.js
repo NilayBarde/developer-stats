@@ -24,6 +24,10 @@ function generateMockAnalyticsData(startDate, endDate, launchDate) {
     { page: 'espn:nfl:odds', label: 'NFL Odds', league: 'NFL', pageType: 'odds', baseClicks: 180000 },
     { page: 'espn:nba:odds', label: 'NBA Odds', league: 'NBA', pageType: 'odds', baseClicks: 140000 },
     { page: 'espn:mlb:odds', label: 'MLB Odds', league: 'MLB', pageType: 'odds', baseClicks: 100000 },
+    { page: 'espn:nfl:futures', label: 'NFL Futures', league: 'NFL', pageType: 'futures', baseClicks: 45000 },
+    { page: 'espn:nba:futures', label: 'NBA Futures', league: 'NBA', pageType: 'futures', baseClicks: 35000 },
+    { page: 'espn:fantasy:games:football', label: 'Fantasy Football', league: null, pageType: 'fantasy', baseClicks: 60000 },
+    { page: 'espn:fantasy:games:basketball', label: 'Fantasy Basketball', league: null, pageType: 'fantasy', baseClicks: 40000 },
     { page: 'espn:nfl:schedule', label: 'NFL Schedule', league: 'NFL', pageType: 'schedule', baseClicks: 95000 },
     { page: 'espn:nba:schedule', label: 'NBA Schedule', league: 'NBA', pageType: 'schedule', baseClicks: 75000 },
     // Interstitial (confirmation modal)
@@ -111,9 +115,13 @@ function generateMockAnalyticsData(startDate, endDate, launchDate) {
   
   // Group by page type
   const pageTypeLabels = {
-    'gamecast': 'Gamecast',
+    'gamecast': 'Gamecast / Match',
     'scoreboard': 'Scoreboard', 
     'odds': 'Odds',
+    'futures': 'Futures',
+    'fantasy': 'Fantasy',
+    'fightcenter': 'MMA Fight Center',
+    'watchespn': 'WatchESPN',
     'schedule': 'Schedule',
     'interstitial': 'Confirmation (Interstitial)',
     'other': 'Other Pages'

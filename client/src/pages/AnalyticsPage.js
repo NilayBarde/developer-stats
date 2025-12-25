@@ -32,15 +32,15 @@ const DATE_PRESETS = {
 };
 
 // Estimated load times (updated based on actual timing data)
-// Discovery: ~35s for initial query + page list
-// Daily data: 20 pages, 2 per batch, 10 batches × ~9s (3s delay + API time) = ~90s
-// Total: ~120-130 seconds
+// Discovery: ~45s for day itemIds + matrix batches
+// Matrix batches: 7 batches × ~18s each (45-day batches with 90s timeout)
+// Total: ~175 seconds
 const ESTIMATED_LOAD_SECONDS = {
-  discovery: 35,       // Initial discovery phase (segment query + page list)
-  perBatch: 9,         // Per batch: 3s delay + ~6s API time
-  expectedBatches: 10  // 20 pages / 2 per batch = 10 batches
+  discovery: 45,       // Initial discovery phase (day itemIds query)
+  perBatch: 18,        // Per matrix batch: ~18s API time
+  expectedBatches: 7   // 300 days / 45 per batch = ~7 batches
 };
-// Total estimate: 35 + (9 * 10) = ~125 seconds
+// Total estimate: 45 + (18 * 7) = ~175 seconds
 
 function AnalyticsPage() {
   const [analyticsData, setAnalyticsData] = useState(null);  // Currently displayed (possibly filtered)

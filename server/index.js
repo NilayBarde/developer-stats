@@ -405,9 +405,13 @@ app.get('/api/project-analytics', async (req, res) => {
     // Group pages by pageType (excluding interstitials from main groups)
     const grouped = {};
     const pageTypeLabels = {
-      'gamecast': 'Gamecast',
+      'gamecast': 'Gamecast / Match',
       'scoreboard': 'Scoreboard', 
       'odds': 'Odds',
+      'futures': 'Futures',
+      'fantasy': 'Fantasy',
+      'fightcenter': 'MMA Fight Center',
+      'watchespn': 'WatchESPN',
       'schedule': 'Schedule',
       'story': 'Stories',
       'index': 'Index Pages',

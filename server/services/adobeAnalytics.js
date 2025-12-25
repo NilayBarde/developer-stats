@@ -3056,10 +3056,18 @@ function extractPageTypeFromPageName(pageName) {
   if (!pageName) return 'other';
   const lower = pageName.toLowerCase();
   
-  if (lower.includes(':gamecast') || lower.includes('game:gamecast')) return 'gamecast';
+  // Specific sections first (before more general matches)
+  if (lower.includes('watchespn')) return 'watchespn';
+  if (lower.includes(':fightcenter')) return 'fightcenter';
+  
+  // Gamecast includes :match (soccer) since they're functionally the same - live game pages
+  if (lower.includes(':gamecast') || lower.includes('game:gamecast') || 
+      lower.includes(':match') || lower.includes('game:match')) return 'gamecast';
   if (lower.includes(':scoreboard')) return 'scoreboard';
   if (lower.includes(':odds')) return 'odds';
+  if (lower.includes(':futures')) return 'futures';
   if (lower.includes(':schedule')) return 'schedule';
+  if (lower.includes('fantasy') || lower.includes(':games:')) return 'fantasy';
   if (lower.includes(':story')) return 'story';
   if (lower.includes(':index') || lower.includes(':frontpage')) return 'index';
   if (lower.includes('interstitial')) return 'interstitial';
