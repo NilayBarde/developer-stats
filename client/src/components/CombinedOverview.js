@@ -14,7 +14,7 @@ function CombinedOverview({ githubStats, gitlabStats, jiraStats }) {
 
   return (
     <div className="source-section combined">
-      <h2>📊 Combined Overview</h2>
+      <h2>Combined Overview</h2>
       <div className="cards-grid">
         <StatsCard
           title="Total PRs/MRs"

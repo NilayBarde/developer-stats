@@ -164,7 +164,7 @@ export default function AnalyticsDashboard({ analyticsData }) {
   return (
     <div className="analytics-dashboard">
       <div className="analytics-header">
-        <h2>📊 Analytics Overview</h2>
+        <h2>Analytics Overview</h2>
         {analyticsData.isMockData && (
           <span className="mock-data-badge">Demo Data</span>
         )}

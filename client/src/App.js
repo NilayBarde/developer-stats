@@ -94,7 +94,7 @@ function App() {
           <>
             <header className="app-header">
               <div>
-                <h1>🚀 Engineering Stats Dashboard</h1>
+                <h1>Engineering Stats Dashboard</h1>
                 {stats && (
                   <p className="work-year">{dateRange.label}</p>
                 )}
@@ -125,7 +125,7 @@ function App() {
                 <>
                   {stats && <CombinedOverview githubStats={stats.github} gitlabStats={stats.gitlab} jiraStats={stats.jira} />}
                   <JiraSection stats={stats?.jira} />
-                  {renderErrorSection('jira', '📋', stats?.jira?.error)}
+                  {renderErrorSection('jira', '', stats?.jira?.error)}
                   <GitSection githubStats={stats?.github} gitlabStats={stats?.gitlab} />
                 </>
               )}

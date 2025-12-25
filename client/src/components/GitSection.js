@@ -21,8 +21,8 @@ function GitSection({ githubStats, gitlabStats, compact = false }) {
     if (hasError) {
       return (
         <>
-          {githubStats?.error && renderErrorSection('github', '📦', githubStats.error)}
-          {gitlabStats?.error && renderErrorSection('gitlab', '🔷', gitlabStats.error)}
+          {githubStats?.error && renderErrorSection('github', '', githubStats.error)}
+          {gitlabStats?.error && renderErrorSection('gitlab', '', gitlabStats.error)}
         </>
       );
     }
@@ -60,15 +60,15 @@ function GitSection({ githubStats, gitlabStats, compact = false }) {
   }));
 
   // Determine title
-  const title = showGitHubOnly ? '📦 GitHub' : showGitLabOnly ? '🔷 GitLab' : '🔀 Git (GitHub + GitLab)';
+  const title = showGitHubOnly ? 'GitHub' : showGitLabOnly ? 'GitLab' : 'Git (GitHub + GitLab)';
 
   return (
     <div className="source-section">
       <h2>{title}</h2>
       
       {/* Show individual errors if one source failed */}
-      {githubStats?.error && !gitlabStats?.error && renderErrorSection('github', '📦', githubStats.error)}
-      {gitlabStats?.error && !githubStats?.error && renderErrorSection('gitlab', '🔷', gitlabStats.error)}
+      {githubStats?.error && !gitlabStats?.error && renderErrorSection('github', '', githubStats.error)}
+      {gitlabStats?.error && !githubStats?.error && renderErrorSection('gitlab', '', gitlabStats.error)}
       
       <div className="cards-grid">
         <StatsCard
@@ -104,7 +104,7 @@ function GitSection({ githubStats, gitlabStats, compact = false }) {
               <div key={index} className="repo-item">
                 <div className="repo-name">
                   <span className={`source-badge source-${repo.source}`}>
-                    {repo.source === 'github' ? '📦' : '🔷'}
+                    {repo.source === 'github' ? 'GH' : 'GL'}
                   </span>
                   {repo.repo}
                 </div>

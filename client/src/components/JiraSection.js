@@ -18,7 +18,7 @@ function JiraSection({ stats, compact = false }) {
 
   return (
     <div className="source-section">
-      <h2>📋 Jira</h2>
+      <h2>Jira</h2>
       <div className="cards-grid">
         <div 
           onClick={() => navigate('/issues')}
