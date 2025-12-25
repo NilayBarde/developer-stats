@@ -462,6 +462,7 @@ function generateMockStatsData() {
     avgResolutionTime: 3.5,
     avgResolutionTimeCount: 15,
     totalStoryPoints: 89,
+    storyPointsCompleted: 72,
     avgIssuesPerMonth: 5,
     monthlyIssues,
     byType: {

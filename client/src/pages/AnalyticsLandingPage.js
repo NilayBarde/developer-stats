@@ -54,7 +54,7 @@ function AnalyticsLandingPage() {
   return (
     <div className="analytics-landing">
       <header className="page-header">
-        <h1>📊 Analytics</h1>
+        <h1>Analytics</h1>
         <p className="subtitle">Track product impact with Adobe Analytics data</p>
       </header>
 
@@ -68,7 +68,6 @@ function AnalyticsLandingPage() {
               to={`${project.route}${queryString}`}
               className="project-card"
             >
-              <div className="project-icon">{project.icon}</div>
               <div className="project-content">
                 <h2>{project.label}</h2>
                 <span className="project-key">{project.key}</span>

@@ -969,6 +969,20 @@ async function calculateStats(issues, dateRange = null) {
   // Calculate velocity
   const velocity = calculateVelocity(filteredIssues, dateRange);
 
+  // Calculate total story points
+  let totalStoryPoints = 0;
+  let storyPointsCompleted = 0;
+  filteredIssues.forEach(issue => {
+    const points = getStoryPoints(issue);
+    totalStoryPoints += points;
+    
+    const statusName = issue.fields?.status?.name || '';
+    const isCompleted = ['Done', 'Closed', 'Resolved'].includes(statusName);
+    if (isCompleted) {
+      storyPointsCompleted += points;
+    }
+  });
+
   // Monthly stats - use 'updated' to match filtering logic
   const monthlyIssues = calculateMonthlyStats(filteredIssues, 'fields.updated', dateRange);
 
@@ -995,6 +1009,8 @@ async function calculateStats(issues, dateRange = null) {
     resolved,
     inProgress,
     done,
+    totalStoryPoints,
+    storyPointsCompleted,
     avgResolutionTime: Math.round(avgResolutionTime * 10) / 10,
     avgResolutionTimeCount: resolutionTimeCount, // Track how many issues were used in calculation
     byType: byType,
