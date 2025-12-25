@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import clientCache from '../utils/clientCache';
 import { formatNumber, isProjectLoading, dailyClicksToArray, DEFAULT_LAUNCH_DATE, parseToISO, parseDate } from '../utils/analyticsHelpers';
@@ -43,6 +44,9 @@ const ESTIMATED_LOAD_SECONDS = {
 // Total estimate: 45 + (18 * 7) = ~175 seconds
 
 function AnalyticsPage() {
+  const location = useLocation();
+  const queryString = location.search;
+  
   const [analyticsData, setAnalyticsData] = useState(null);  // Currently displayed (possibly filtered)
   const [fullData, setFullData] = useState(null);  // Original unfiltered data from server
   const [loading, setLoading] = useState(true);
@@ -344,9 +348,15 @@ function AnalyticsPage() {
 
   return (
     <div className="analytics-page">
+      <nav className="breadcrumb">
+        <Link to={`/analytics${queryString}`}>Analytics</Link>
+        <span className="separator">/</span>
+        <span className="current">DraftKings Integration</span>
+      </nav>
+
       <header className="page-header">
         <div>
-          <h1>Analytics</h1>
+          <h1>🎰 DraftKings Integration</h1>
           <p className="date-label">{currentDates.start} to {currentDates.end} · Adobe Analytics</p>
         </div>
       </header>

@@ -13,7 +13,9 @@ import LoadingSpinner from './components/ui/LoadingSpinner';
 import IssuesPage from './pages/IssuesPage';
 import PRsPage from './pages/PRsPage';
 import ProjectsPage from './pages/ProjectsPage';
+import AnalyticsLandingPage from './pages/AnalyticsLandingPage';
 import AnalyticsPage from './pages/AnalyticsPage';
+import NFLGamecastPage from './pages/NFLGamecastPage';
 
 function App() {
   const location = useLocation();
@@ -75,7 +77,7 @@ function App() {
         <Link to={`/projects${queryString}`} className={location.pathname === '/projects' ? 'active' : ''}>
           Projects
         </Link>
-        <Link to={`/analytics${queryString}`} className={location.pathname === '/analytics' ? 'active' : ''}>
+        <Link to={`/analytics${queryString}`} className={location.pathname.startsWith('/analytics') ? 'active' : ''}>
           Analytics
         </Link>
         {isMockMode && <span className="mock-indicator">🧪 MOCK MODE</span>}
@@ -85,7 +87,9 @@ function App() {
         <Route path="/issues" element={<IssuesPage />} />
         <Route path="/prs" element={<PRsPage />} />
         <Route path="/projects" element={<ProjectsPage />} />
-        <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/analytics" element={<AnalyticsLandingPage />} />
+        <Route path="/analytics/draftkings" element={<AnalyticsPage />} />
+        <Route path="/analytics/nfl-gamecast" element={<NFLGamecastPage />} />
         <Route path="/" element={
           <>
             <header className="app-header">

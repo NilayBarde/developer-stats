@@ -526,12 +526,153 @@ function generateMockStatsData() {
   };
 }
 
+/**
+ * Generate mock data for NFL Gamecast project analytics (SEWEB-51747)
+ * This simulates the year-over-year comparison and linked user breakdown
+ */
+function generateMockNFLGamecastAnalytics() {
+  const launchDate = '2025-08-25';
+  const myBetsEndDate = '2025-12-01';
+  
+  // Generate daily data for 2024 and 2025 seasons (aligned by week)
+  const generateSeasonData = (year, startMonth, startDay, numDays) => {
+    const dailyData = {};
+    let totalPageViews = 0;
+    let totalVisitors = 0;
+    let totalVisits = 0;
+    let totalBetClicks = 0;
+    
+    for (let i = 0; i < numDays; i++) {
+      const date = new Date(year, startMonth - 1, startDay + i);
+      const dateStr = date.toISOString().split('T')[0];
+      const weekNum = Math.floor(i / 7);
+      
+      // Simulate higher engagement in 2025 (redesign effect)
+      const baseViews = year === 2025 ? 180000 : 150000;
+      const variance = 0.7 + Math.random() * 0.6;
+      const pageViews = Math.round(baseViews * variance);
+      const visitors = Math.round(pageViews * 0.4);
+      const visits = Math.round(visitors * (year === 2025 ? 2.8 : 2.3)); // Higher return rate in 2025
+      const betClicks = Math.round(pageViews * 0.015 * (0.8 + Math.random() * 0.4));
+      
+      dailyData[dateStr] = {
+        pageViews,
+        visitors,
+        visits,
+        betClicks,
+        daysSinceStart: i,
+        weekNum
+      };
+      
+      totalPageViews += pageViews;
+      totalVisitors += visitors;
+      totalVisits += visits;
+      totalBetClicks += betClicks;
+    }
+    
+    return {
+      dailyData,
+      pageViews: totalPageViews,
+      visitors: totalVisitors,
+      visits: totalVisits,
+      betClicks: totalBetClicks,
+      visitsPerVisitor: (totalVisits / totalVisitors).toFixed(2)
+    };
+  };
+  
+  // NFL season runs roughly Aug 25 - Dec 1 (98 days)
+  const numDays = 98;
+  const prevYear = generateSeasonData(2024, 8, 25, numDays);
+  const currYear = generateSeasonData(2025, 8, 25, numDays);
+  
+  // Calculate year-over-year changes
+  const pageViewChange = Math.round(((currYear.pageViews - prevYear.pageViews) / prevYear.pageViews) * 100);
+  const visitsPerVisitorChange = Math.round(((parseFloat(currYear.visitsPerVisitor) - parseFloat(prevYear.visitsPerVisitor)) / parseFloat(prevYear.visitsPerVisitor)) * 100);
+  
+  // Linked vs non-linked breakdown (for My Bets feature analysis)
+  const linkedUsers = {
+    value: 'yes',
+    visitors: 125000,
+    visits: 475000,
+    visitsPerVisitor: '3.80',
+    pageViews: 890000,
+    betClicks: 178000,
+    conversionRate: '20.0%'
+  };
+  
+  const notLinkedUsers = {
+    value: 'no',
+    visitors: 2850000,
+    visits: 5985000,
+    visitsPerVisitor: '2.10',
+    pageViews: 14250000,
+    betClicks: 71250,
+    conversionRate: '0.5%'
+  };
+  
+  const unspecifiedUsers = {
+    value: 'Unspecified',
+    visitors: 450000,
+    visits: 765000,
+    visitsPerVisitor: '1.70',
+    pageViews: 1575000,
+    betClicks: 15750,
+    conversionRate: '1.0%'
+  };
+  
+  const totals = {
+    pageViews: linkedUsers.pageViews + notLinkedUsers.pageViews + unspecifiedUsers.pageViews,
+    betClicks: linkedUsers.betClicks + notLinkedUsers.betClicks + unspecifiedUsers.betClicks,
+    visitors: linkedUsers.visitors + notLinkedUsers.visitors + unspecifiedUsers.visitors,
+    visits: linkedUsers.visits + notLinkedUsers.visits + unspecifiedUsers.visits
+  };
+  totals.conversionRate = ((totals.betClicks / totals.pageViews) * 100).toFixed(2) + '%';
+  
+  return {
+    project: {
+      key: 'SEWEB-51747',
+      label: '[MOCK] Next Gen Gamecast Football',
+      description: 'Redesign of NFL Gamecast (ongoing) + My Bets feature (Aug 25 - Dec 1). My Bets showed linked bet users their placed bets on the Gamecast page.',
+      launchDate,
+      myBetsEndDate,
+      endDate: null,
+      breakdownBy: 'evar122',
+      notes: 'MOCK DATA - Redesign is still live. Only My Bets feature was disabled on Dec 1.'
+    },
+    analytics: {
+      totals,
+      breakdown: {
+        dimension: 'evar122',
+        values: [linkedUsers, notLinkedUsers, unspecifiedUsers]
+      },
+      yearOverYear: {
+        previousYear: {
+          year: 2024,
+          dateRange: { start: '2024-08-25', end: '2024-12-01' },
+          ...prevYear
+        },
+        currentYear: {
+          year: 2025,
+          dateRange: { start: '2025-08-25', end: '2025-12-01' },
+          ...currYear
+        },
+        change: {
+          pageViews: pageViewChange,
+          visitsPerVisitor: visitsPerVisitorChange
+        }
+      }
+    },
+    mock: true
+  };
+}
+
 module.exports = {
   generateMockAnalyticsData,
   generateMockPRsData,
   generateMockMRsData,
   generateMockIssuesData,
   generateMockProjectsData,
-  generateMockStatsData
+  generateMockStatsData,
+  generateMockNFLGamecastAnalytics
 };
 

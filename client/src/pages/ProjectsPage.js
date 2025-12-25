@@ -101,70 +101,117 @@ function ProjectsPage() {
             {projects.epics.map(epic => {
               return (
                 <div key={epic.epicKey} className="project-card">
-                  <div className="project-header">
-                    <div className="project-title-section">
-                      <h2>
-                        <a 
-                          href={getJiraUrl(epic.epicKey, baseUrl)} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="epic-link"
-                        >
-                          {epic.epicName}
-                        </a>
-                      </h2>
-                      <div className="project-meta">
-                        <span className="project-key">{epic.project}</span>
-                        {epic.issueTypeBreakdown && Object.keys(epic.issueTypeBreakdown).length > 0 && (
-                          <span className="issue-type-breakdown">
-                            {Object.entries(epic.issueTypeBreakdown)
-                              .sort((a, b) => b[1] - a[1])
-                              .map(([type, count]) => `${count} ${type}${count !== 1 ? 's' : ''}`)
-                              .join(' · ')}
+                  {/* Left: Title & Meta */}
+                  <div className="project-left">
+                    <h2>
+                      <a 
+                        href={getJiraUrl(epic.epicKey, baseUrl)} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="epic-link"
+                      >
+                        {epic.epicName}
+                      </a>
+                    </h2>
+                    <div className="project-meta">
+                      <span className="project-key">{epic.project}</span>
+                    </div>
+                    {epic.issueTypeBreakdown && Object.keys(epic.issueTypeBreakdown).length > 0 && (
+                      <p className="issue-type-breakdown">
+                        {Object.entries(epic.issueTypeBreakdown)
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([type, count]) => `${count} ${type}${count !== 1 ? 's' : ''}`)
+                          .join(' · ')}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Center: Metrics */}
+                  <div className="project-center">
+                    <div className="project-metrics">
+                      <div className="metric-item metric-epic-total">
+                        <span className="metric-label">Epic Total</span>
+                        <span className="metric-value">
+                          {epic.metrics.epicTotalIssues || 0} issues · {epic.metrics.epicTotalPoints || 0} SP
+                        </span>
+                      </div>
+                      <div className="metric-item metric-contribution">
+                        <span className="metric-label">My Contribution</span>
+                        <span className="metric-value">
+                          {epic.metrics.userTotalIssuesAllTime || 0} issues · {epic.metrics.userTotalPointsAllTime || 0} SP
+                        </span>
+                        <span className="metric-percentage">
+                          ({epic.metrics.epicTotalPoints > 0 
+                            ? Math.round(((epic.metrics.userTotalPointsAllTime || 0) / epic.metrics.epicTotalPoints) * 100) 
+                            : 0}% of epic)
+                        </span>
+                      </div>
+                      <div className="metric-row">
+                        <div className="metric-item">
+                          <span className="metric-label">Completed</span>
+                          <span className="metric-value">
+                            {epic.metrics.totalDoneIssues || 0} issues · {epic.metrics.storyPointsCompleted || 0} SP
                           </span>
-                        )}
+                        </div>
+                        <div className="metric-item">
+                          <span className="metric-label">In Progress</span>
+                          <span className="metric-value">
+                            {(epic.metrics.totalIssues || 0) - (epic.metrics.totalDoneIssues || 0)} issues · {epic.metrics.remainingStoryPoints || 0} SP
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Metrics */}
-                  <div className="project-metrics">
-                    <div className="metric-item metric-epic-total">
-                      <span className="metric-label">Epic Total</span>
-                      <span className="metric-value">
-                        {epic.metrics.epicTotalIssues || 0} issues · {epic.metrics.epicTotalPoints || 0} SP
-                      </span>
-                    </div>
-                    <div className="metric-item metric-contribution">
-                      <span className="metric-label">My Contribution</span>
-                      <span className="metric-value">
-                        {epic.metrics.userTotalIssuesAllTime || 0} issues · {epic.metrics.userTotalPointsAllTime || 0} SP
-                      </span>
-                      <span className="metric-percentage">
-                        ({epic.metrics.epicTotalPoints > 0 
-                          ? Math.round(((epic.metrics.userTotalPointsAllTime || 0) / epic.metrics.epicTotalPoints) * 100) 
-                          : 0}% of epic)
-                      </span>
-                    </div>
-                    <div className="metric-item">
-                      <span className="metric-label">Completed</span>
-                      <span className="metric-value">
-                        {epic.metrics.totalDoneIssues || 0} issues · {epic.metrics.storyPointsCompleted || 0} SP
-                      </span>
-                    </div>
-                    <div className="metric-item">
-                      <span className="metric-label">In Progress</span>
-                      <span className="metric-value">
-                        {(epic.metrics.totalIssues || 0) - (epic.metrics.totalDoneIssues || 0)} issues · {epic.metrics.remainingStoryPoints || 0} SP
-                      </span>
+                  {/* Right: Issues List */}
+                  <div className="project-right">
+                    <div className="project-issues">
+                      <h3>My Issues</h3>
+                      <div className="issues-list">
+                        {epic.issues.map(issue => (
+                          <div key={issue.key} className="issue-item user-issue">
+                            <a
+                              href={getJiraUrl(issue.key, baseUrl)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="issue-link"
+                            >
+                              {issue.key}
+                            </a>
+                            <span className="issue-summary">{issue.summary}</span>
+                            <span className="issue-story-points">{issue.storyPoints > 0 ? `${issue.storyPoints} SP` : '-'}</span>
+                            <span className={`issue-status issue-status-${issue.status.toLowerCase().replace(/\s+/g, '-')}`}>
+                              {issue.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
+                </div>
+              );
+            })}
 
-                  {/* Issues List */}
+            {/* Issues Without Epic Section */}
+            {projects.issuesWithoutEpicList && projects.issuesWithoutEpicList.length > 0 && (
+              <div className="project-card">
+                {/* Left: Title */}
+                <div className="project-left">
+                  <h2>Issues Without Epic</h2>
+                  <div className="project-meta">
+                    <span className="project-key">{projects.issuesWithoutEpic} issues · {(projects.issuesWithoutEpicList || []).reduce((sum, issue) => sum + (issue.storyPoints || 0), 0)} SP</span>
+                  </div>
+                </div>
+
+                {/* Center: Empty for this card */}
+                <div className="project-center"></div>
+
+                {/* Right: Issues List */}
+                <div className="project-right">
                   <div className="project-issues">
                     <h3>My Issues</h3>
                     <div className="issues-list">
-                      {epic.issues.map(issue => (
+                      {projects.issuesWithoutEpicList.map(issue => (
                         <div key={issue.key} className="issue-item user-issue">
                           <a
                             href={getJiraUrl(issue.key, baseUrl)}
@@ -184,45 +231,7 @@ function ProjectsPage() {
                     </div>
                   </div>
                 </div>
-              );
-            })}
-
-            {/* Issues Without Epic Section */}
-            {projects.issuesWithoutEpicList && projects.issuesWithoutEpicList.length > 0 && (
-              <div className="project-card">
-              <div className="project-header">
-                <div className="project-title-section">
-                  <h2>Issues Without Epic</h2>
-                  <div className="project-meta">
-                    <span className="project-key">{projects.issuesWithoutEpic} issues · {(projects.issuesWithoutEpicList || []).reduce((sum, issue) => sum + (issue.storyPoints || 0), 0)} SP</span>
-                  </div>
-                </div>
               </div>
-
-              {/* Issues List */}
-              <div className="project-issues">
-                <h3>My Issues</h3>
-                <div className="issues-list">
-                  {projects.issuesWithoutEpicList.map(issue => (
-                    <div key={issue.key} className="issue-item user-issue">
-                      <a
-                        href={getJiraUrl(issue.key, baseUrl)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="issue-link"
-                      >
-                        {issue.key}
-                      </a>
-                      <span className="issue-summary">{issue.summary}</span>
-                      <span className="issue-story-points">{issue.storyPoints > 0 ? `${issue.storyPoints} SP` : '-'}</span>
-                      <span className={`issue-status issue-status-${issue.status.toLowerCase().replace(/\s+/g, '-')}`}>
-                        {issue.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
             )}
           </div>
         </>

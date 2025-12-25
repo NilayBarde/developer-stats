@@ -16,7 +16,8 @@ const {
   generateMockMRsData, 
   generateMockIssuesData, 
   generateMockProjectsData,
-  generateMockStatsData
+  generateMockStatsData,
+  generateMockNFLGamecastAnalytics
 } = require('./utils/mockData');
 
 const app = express();
@@ -487,6 +488,71 @@ app.get('/api/analytics/page-event-details', async (req, res) => {
     res.json(eventDetails);
   } catch (error) {
     console.error('Error fetching page event details:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get project-specific analytics (Next Gen Gamecast, etc.)
+app.get('/api/analytics/project/:projectKey', async (req, res) => {
+  const { projectKey } = req.params;
+  
+  // Mock data support for NFL Gamecast
+  if (req.query.mock === 'true') {
+    console.log(`⚠ Using MOCK data for project ${projectKey}`);
+    if (projectKey === 'SEWEB-51747') {
+      return res.json(generateMockNFLGamecastAnalytics());
+    }
+    // Return generic mock for other projects
+    return res.json({
+      project: {
+        key: projectKey,
+        label: `[MOCK] Project ${projectKey}`,
+        description: 'Mock project data',
+        launchDate: '2025-01-01'
+      },
+      analytics: {
+        totals: { pageViews: 1000000, betClicks: 15000, conversionRate: '1.5%' }
+      },
+      mock: true
+    });
+  }
+  
+  // Clear require cache to pick up config changes
+  delete require.cache[require.resolve('./config/projectAnalytics.json')];
+  const projectConfig = require('./config/projectAnalytics.json');
+  
+  // Find project config
+  const project = projectConfig.projects?.find(p => p.key === projectKey);
+  if (!project) {
+    return res.status(404).json({ error: `Project ${projectKey} not found` });
+  }
+  
+  try {
+    // Use myBetsEndDate for the analysis period (when My Bets was active)
+    const analysisEndDate = project.myBetsEndDate || project.endDate || null;
+    
+    const analytics = await adobeAnalyticsService.getProjectMetrics(
+      project.pageFilter,
+      project.launchDate,
+      analysisEndDate,
+      project.breakdownBy || null
+    );
+    
+    res.json({
+      project: {
+        key: project.key,
+        label: project.label,
+        description: project.description,
+        launchDate: project.launchDate,
+        myBetsEndDate: project.myBetsEndDate,
+        endDate: project.endDate,
+        breakdownBy: project.breakdownBy,
+        notes: project._notes
+      },
+      analytics
+    });
+  } catch (error) {
+    console.error(`Error fetching project analytics for ${projectKey}:`, error.message);
     res.status(500).json({ error: error.message });
   }
 });
