@@ -6,6 +6,7 @@ import { formatNumber, isProjectLoading, dailyClicksToArray, DEFAULT_LAUNCH_DATE
 import TrendBarChart from '../components/ui/TrendBarChart';
 import ChartModal from '../components/ui/ChartModal';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
+import Skeleton from '../components/ui/Skeleton';
 import './AnalyticsPage.css';
 
 // Date range presets
@@ -356,7 +357,7 @@ function AnalyticsPage() {
 
       <header className="page-header">
         <div>
-          <h1>🎰 DraftKings Integration</h1>
+          <h1>DraftKings Integration</h1>
           <p className="date-label">{currentDates.start} to {currentDates.end} · Adobe Analytics</p>
         </div>
       </header>
@@ -422,23 +423,37 @@ function AnalyticsPage() {
       {error && <div className="error-banner">{error}</div>}
 
       {loading ? (
-        <div className="analytics-loading">
-          <LoadingSpinner />
-          <div className="loading-progress">
-            <div className="loading-phase">{loadProgress.phase}</div>
-            <div className="loading-time">
-              <span className="elapsed">{loadProgress.elapsed}s</span>
-              <span className="separator"> / </span>
-              <span className="estimated">~{loadProgress.estimated}s estimated</span>
-            </div>
-            {loadProgress.estimated > 0 && (
-              <div className="progress-bar">
-                <div 
-                  className="progress-fill" 
-                  style={{ width: `${Math.min(100, (loadProgress.elapsed / loadProgress.estimated) * 100)}%` }}
-                />
+        <div className="analytics-loading-container">
+          <div className="analytics-loading">
+            <LoadingSpinner />
+            <div className="loading-progress">
+              <div className="loading-phase">{loadProgress.phase}</div>
+              <div className="loading-time">
+                <span className="elapsed">{loadProgress.elapsed}s</span>
+                <span className="separator"> / </span>
+                <span className="estimated">~{loadProgress.estimated}s estimated</span>
               </div>
-            )}
+              {loadProgress.estimated > 0 && (
+                <div className="progress-bar">
+                  <div 
+                    className="progress-fill" 
+                    style={{ width: `${Math.min(100, (loadProgress.elapsed / loadProgress.estimated) * 100)}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Skeleton preview of expected content */}
+          <div className="analytics-skeleton-preview">
+            <div className="skeleton-summary-grid">
+              <Skeleton variant="stat-card" count={3} />
+            </div>
+            <div className="skeleton-chart-area">
+              <Skeleton variant="chart" />
+            </div>
+            <div className="skeleton-pages-list">
+              <Skeleton variant="list-item" count={6} />
+            </div>
           </div>
         </div>
       ) : !analyticsData || analyticsData.projects?.length === 0 ? (

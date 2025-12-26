@@ -9,7 +9,7 @@ import { getCurrentWorkYearStart, formatWorkYearLabel } from './utils/dateHelper
 import { buildApiUrl } from './utils/apiHelpers';
 import { renderErrorSection } from './utils/sectionHelpers';
 import CombinedOverview from './components/CombinedOverview';
-import LoadingSpinner from './components/ui/LoadingSpinner';
+import { DashboardSkeleton } from './components/ui/Skeleton';
 import IssuesPage from './pages/IssuesPage';
 import PRsPage from './pages/PRsPage';
 import ProjectsPage from './pages/ProjectsPage';
@@ -116,11 +116,7 @@ function App() {
 
             <div className="stats-grid">
               {loading ? (
-                <>
-                  <LoadingSpinner text="Loading overview..." />
-                  <LoadingSpinner text="Loading Jira stats..." />
-                  <LoadingSpinner text="Loading Git stats..." />
-                </>
+                <DashboardSkeleton />
               ) : (
                 <>
                   {stats && <CombinedOverview githubStats={stats.github} gitlabStats={stats.gitlab} jiraStats={stats.jira} />}

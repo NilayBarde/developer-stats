@@ -40,7 +40,7 @@ function NFLGamecastPage() {
             </p>
           </div>
           <div className="info-card">
-            <h4>📊 Tracking Segments</h4>
+            <h4>Tracking Segments</h4>
             <p>
               <strong>Coming soon:</strong> Comparison between linked bet users 
               vs non-linked users to measure feature adoption impact.
@@ -58,7 +58,7 @@ function NFLGamecastPage() {
             rel="noopener noreferrer"
             className="external-link"
           >
-            🎫 Jira Epic
+            Jira Epic
           </a>
           <a 
             href="https://www.espn.com/nfl/game/_/gameId/401671789" 
@@ -66,7 +66,7 @@ function NFLGamecastPage() {
             rel="noopener noreferrer"
             className="external-link"
           >
-            🏈 Example Gamecast
+            Example Gamecast
           </a>
           <a 
             href="https://experience.adobe.com/#/@disneyespn/analytics/spa/analysis/workspace" 
@@ -74,7 +74,7 @@ function NFLGamecastPage() {
             rel="noopener noreferrer"
             className="external-link"
           >
-            📈 Adobe Analytics
+            Adobe Analytics
           </a>
         </div>
       </section>

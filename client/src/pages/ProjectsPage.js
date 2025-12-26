@@ -3,7 +3,7 @@ import axios from 'axios';
 import { getJiraUrl } from '../utils/urlHelpers';
 import clientCache from '../utils/clientCache';
 import StatsCard from '../components/StatsCard';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
+import Skeleton from '../components/ui/Skeleton';
 import './ProjectsPage.css';
 
 function ProjectsPage() {
@@ -61,7 +61,14 @@ function ProjectsPage() {
       {error && <div className="error-banner">{error}</div>}
 
       {loading ? (
-        <LoadingSpinner text="Loading projects..." />
+        <div className="projects-skeleton">
+          <div className="projects-summary">
+            <Skeleton variant="stat-card" count={2} />
+          </div>
+          <div className="projects-list">
+            <Skeleton variant="card" count={4} />
+          </div>
+        </div>
       ) : !projects || !projects.epics || projects.epics.length === 0 ? (
         <div className="no-data-message">No projects found</div>
       ) : (
