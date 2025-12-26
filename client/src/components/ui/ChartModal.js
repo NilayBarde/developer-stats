@@ -126,9 +126,9 @@ function ChartModal({
     const dates = datePresets[preset]?.getDates();
     if (!dates) return;
     
-    // Try to filter existing data instead of fetching
-    const existingDailyClicks = page.dailyClicks || {};
-    const existingDates = Object.keys(existingDailyClicks);
+    // Use FULL daily clicks data (not filtered) so we can filter in both directions
+    const fullDailyClicks = page.fullDailyClicks || page.dailyClicks || {};
+    const existingDates = Object.keys(fullDailyClicks);
     
     if (existingDates.length > 0) {
       // Filter to only include dates within the requested range
@@ -138,8 +138,8 @@ function ChartModal({
       existingDates.forEach(date => {
         const isoDate = parseToISO(date);
         if (isoDate >= dates.start && isoDate <= dates.end) {
-          filteredClicks[date] = existingDailyClicks[date];
-          const clicks = existingDailyClicks[date]?.clicks || existingDailyClicks[date] || 0;
+          filteredClicks[date] = fullDailyClicks[date];
+          const clicks = fullDailyClicks[date]?.clicks || fullDailyClicks[date] || 0;
           totalClicks += typeof clicks === 'number' ? clicks : 0;
         }
       });

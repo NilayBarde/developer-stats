@@ -451,6 +451,7 @@ function AnalyticsPage() {
               pageType={pageType}
               group={group}
               analyticsData={analyticsData}
+              fullData={fullData}
               pollCount={pollCountRef.current}
               onSelectPage={setSelectedPage}
             />
@@ -552,7 +553,7 @@ function AnalyticsPage() {
 /**
  * Page type group component - displays a group of pages
  */
-function PageTypeGroup({ pageType, group, analyticsData, pollCount, onSelectPage }) {
+function PageTypeGroup({ pageType, group, analyticsData, fullData, pollCount, onSelectPage }) {
   return (
     <div className="page-type-group">
               <div className="group-header-row">
@@ -568,6 +569,7 @@ function PageTypeGroup({ pageType, group, analyticsData, pollCount, onSelectPage
             key={page.page}
             page={page}
             analyticsData={analyticsData}
+            fullData={fullData}
             pollCount={pollCount}
             onSelect={onSelectPage}
           />
@@ -580,7 +582,7 @@ function PageTypeGroup({ pageType, group, analyticsData, pollCount, onSelectPage
 /**
  * Analytics card component - displays a single page's analytics
  */
-function AnalyticsCard({ page, analyticsData, pollCount, onSelect }) {
+function AnalyticsCard({ page, analyticsData, fullData, pollCount, onSelect }) {
   const project = analyticsData.projects?.find(p => p.epicKey === page.page) || page;
                   const dailyClicks = project.clicks?.dailyClicks || page.dailyClicks || {};
                   const comparison = project.clicks?.comparison || page.comparison;
@@ -592,11 +594,16 @@ function AnalyticsCard({ page, analyticsData, pollCount, onSelect }) {
   
   // Prepare chart data
   const chartData = dailyClicksToArray(dailyClicks);
+  
+  // Get full daily clicks from unfiltered data for modal filtering
+  const fullProject = fullData?.projects?.find(p => p.epicKey === page.page);
+  const fullDailyClicks = fullProject?.clicks?.dailyClicks || dailyClicks;
                   
                   // Prepare page data for modal
                   const pageData = {
                     ...page,
                     dailyClicks,
+                    fullDailyClicks, // Include full data for modal filtering
                     comparison,
                     clicks: totalClicks
                   };
