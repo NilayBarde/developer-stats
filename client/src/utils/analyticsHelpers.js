@@ -83,21 +83,64 @@ export function isAfterLaunch(dateStr, launchDate) {
 /**
  * Convert daily clicks object/map to sorted array
  * Uses parseDate for consistent timezone handling
+ * @param {Object} dailyClicks - Object with date keys and click data values
+ * @param {Object} dateRange - Optional { start, end } to fill in missing dates with 0
  */
-export function dailyClicksToArray(dailyClicks) {
+export function dailyClicksToArray(dailyClicks, dateRange = null) {
   if (!dailyClicks) return [];
   
-  return Object.entries(dailyClicks)
-    .map(([date, data]) => ({
-      date,
-      clicks: data?.clicks || data || 0
-    }))
-    .sort((a, b) => {
-      // Use parseDate for consistent comparison
-      const dateA = parseDate(a.date);
-      const dateB = parseDate(b.date);
-      return (dateA?.getTime() || 0) - (dateB?.getTime() || 0);
+  // If no date range provided, just convert existing data
+  if (!dateRange) {
+    return Object.entries(dailyClicks)
+      .map(([date, data]) => ({
+        date,
+        clicks: data?.clicks || data || 0
+      }))
+      .sort((a, b) => {
+        const dateA = parseDate(a.date);
+        const dateB = parseDate(b.date);
+        return (dateA?.getTime() || 0) - (dateB?.getTime() || 0);
+      });
+  }
+  
+  // Fill in all dates in range, using 0 for missing dates
+  const result = [];
+  const startDate = parseDate(dateRange.start);
+  const endDate = parseDate(dateRange.end);
+  
+  if (!startDate || !endDate) {
+    // Fallback to simple conversion if dates invalid
+    return Object.entries(dailyClicks)
+      .map(([date, data]) => ({
+        date,
+        clicks: data?.clicks || data || 0
+      }))
+      .sort((a, b) => {
+        const dateA = parseDate(a.date);
+        const dateB = parseDate(b.date);
+        return (dateA?.getTime() || 0) - (dateB?.getTime() || 0);
+      });
+  }
+  
+  // Normalize dailyClicks keys to ISO format for lookup
+  const normalizedClicks = {};
+  Object.entries(dailyClicks).forEach(([date, data]) => {
+    const isoDate = parseToISO(date);
+    normalizedClicks[isoDate] = data?.clicks || data || 0;
+  });
+  
+  // Iterate through each day in range
+  const current = new Date(startDate);
+  while (current <= endDate) {
+    const isoDate = current.toISOString().split('T')[0];
+    result.push({
+      date: isoDate,
+      clicks: normalizedClicks[isoDate] || 0
     });
+    current.setDate(current.getDate() + 1);
+  }
+  
+  return result;
 }
 
 /**

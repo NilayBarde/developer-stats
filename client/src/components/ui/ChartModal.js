@@ -22,14 +22,15 @@ function ChartModal({
   const [eventDetails, setEventDetails] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
   
-  // Convert dailyClicks object to array if needed
+  // Convert dailyClicks object to array if needed, filling in missing dates with 0
   useEffect(() => {
     const dailyClicks = pageData.dailyClicks || {};
+    const dateRange = datePresets[selectedPreset]?.getDates() || null;
     const data = Array.isArray(dailyClicks) 
       ? dailyClicks 
-      : dailyClicksToArray(dailyClicks);
+      : dailyClicksToArray(dailyClicks, dateRange);
     setChartData(data);
-  }, [pageData]);
+  }, [pageData, selectedPreset, datePresets]);
 
   // Fetch event details when modal opens
   useEffect(() => {

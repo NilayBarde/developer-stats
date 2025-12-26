@@ -263,12 +263,34 @@ function AnalyticsPage() {
         group.pages.sort((a, b) => b.clicks - a.clicks);
       });
       
+      // Recalculate engagement vs interstitial clicks
+      const interstitialClicks = filteredProjects
+        ?.filter(p => p.isInterstitial)
+        .reduce((sum, p) => sum + (p.clicks?.totalClicks || 0), 0) || 0;
+      const totalClicks = filteredProjects?.reduce((sum, p) => sum + (p.clicks?.totalClicks || 0), 0) || 0;
+      const engagementClicks = totalClicks - interstitialClicks;
+      
+      // Recalculate byLeague breakdown (excluding interstitials)
+      const byLeagueMap = {};
+      filteredProjects?.filter(p => p.league && !p.isInterstitial).forEach(project => {
+        const league = project.league;
+        if (!byLeagueMap[league]) {
+          byLeagueMap[league] = { league, totalClicks: 0, pages: [] };
+        }
+        byLeagueMap[league].totalClicks += project.clicks?.totalClicks || 0;
+        byLeagueMap[league].pages.push(project.label);
+      });
+      const byLeague = Object.values(byLeagueMap).sort((a, b) => b.totalClicks - a.totalClicks);
+      
       setAnalyticsData({
         ...fullData,  // Preserve all original data properties
         projects: filteredProjects,
         grouped,
+        byLeague,
+        engagementClicks,
+        interstitialClicks,
         dateRange: { start: newDates.start, end: newDates.end },
-        totalClicks: filteredProjects?.reduce((sum, p) => sum + (p.clicks?.totalClicks || 0), 0) || 0
+        totalClicks
       });
       
       return;
@@ -592,8 +614,8 @@ function AnalyticsCard({ page, analyticsData, fullData, pollCount, onSelect }) {
   // Check if still loading
   const isStillLoading = totalClicks > 0 && !hasData && pollCount < 10;
   
-  // Prepare chart data
-  const chartData = dailyClicksToArray(dailyClicks);
+  // Prepare chart data - pass date range to fill in missing dates with 0
+  const chartData = dailyClicksToArray(dailyClicks, analyticsData?.dateRange);
   
   // Get full daily clicks from unfiltered data for modal filtering
   const fullProject = fullData?.projects?.find(p => p.epicKey === page.page);
