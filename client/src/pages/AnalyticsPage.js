@@ -55,7 +55,6 @@ function AnalyticsPage() {
   const [selectedPage, setSelectedPage] = useState(null);
   const [datePreset, setDatePreset] = useState('sinceMarch'); // Default to since March 1
   const [loadProgress, setLoadProgress] = useState({ elapsed: 0, estimated: 0, phase: 'Starting...' });
-  const [projectExpanded, setProjectExpanded] = useState(true); // Toggle project section visibility
 
   const pollIntervalRef = useRef(null);
   const pollCountRef = useRef(0);
@@ -357,7 +356,18 @@ function AnalyticsPage() {
 
       <header className="page-header">
         <div>
-          <h1>DraftKings Integration</h1>
+          <div className="header-title-row">
+            <h1>DraftKings Integration</h1>
+            <a 
+              href="https://jira.disney.com/browse/SEWEB-59645" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="epic-link"
+            >
+              SEWEB-59645
+            </a>
+            <span className="launch-date">Launch: Dec 1, 2025</span>
+          </div>
           <p className="date-label">{currentDates.start} to {currentDates.end} · Adobe Analytics</p>
         </div>
       </header>
@@ -376,34 +386,6 @@ function AnalyticsPage() {
         ))}
       </div>
 
-      {analyticsData?.projects?.[0]?.parentProject && (
-        <div className="parent-project-tag">
-          <button 
-            className={`project-toggle ${projectExpanded ? 'expanded' : 'collapsed'}`}
-            onClick={() => setProjectExpanded(!projectExpanded)}
-            aria-label={projectExpanded ? 'Collapse project' : 'Expand project'}
-          >
-            {projectExpanded ? '▼' : '▶'}
-          </button>
-          <a 
-            href={`https://jira.disney.com/browse/${analyticsData.projects[0].parentProject}`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {analyticsData.projects[0].parentProject}
-          </a>
-          <span className="parent-label">{analyticsData.projects[0].parentLabel}</span>
-          <span className="launch-date">(Launch: Dec 1, 2025)</span>
-          {!projectExpanded && (
-            <span className="collapsed-summary">
-              {analyticsData.totalPages} pages · {formatNumber(analyticsData.totalClicks)} clicks
-            </span>
-          )}
-        </div>
-      )}
-
-      {projectExpanded && (
-      <>
       <div className="page-description">
         <p>
           Auto-discovered bet clicks across ESPN pages
@@ -550,8 +532,6 @@ function AnalyticsPage() {
           </p>
           <p className="method-note">Data source: {analyticsData.method}</p>
         </div>
-      )}
-      </>
       )}
 
       {/* Expanded Chart Modal */}

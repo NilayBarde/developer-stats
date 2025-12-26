@@ -9,7 +9,7 @@ import { getCurrentWorkYearStart, formatWorkYearLabel } from './utils/dateHelper
 import { buildApiUrl } from './utils/apiHelpers';
 import { renderErrorSection } from './utils/sectionHelpers';
 import CombinedOverview from './components/CombinedOverview';
-import { DashboardSkeleton } from './components/ui/Skeleton';
+import Skeleton from './components/ui/Skeleton';
 import IssuesPage from './pages/IssuesPage';
 import PRsPage from './pages/PRsPage';
 import ProjectsPage from './pages/ProjectsPage';
@@ -19,8 +19,11 @@ import NFLGamecastPage from './pages/NFLGamecastPage';
 
 function App() {
   const location = useLocation();
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Progressive loading: separate state for each data source
+  const [jiraStats, setJiraStats] = useState(null);
+  const [gitStats, setGitStats] = useState(null);
+  const [jiraLoading, setJiraLoading] = useState(true);
+  const [gitLoading, setGitLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   
@@ -37,30 +40,54 @@ function App() {
     type: 'custom'
   });
 
-  const fetchStats = useCallback(async () => {
+  // Fetch Jira stats (usually faster)
+  const fetchJiraStats = useCallback(async () => {
     try {
-      setLoading(true);
-      const url = buildApiUrl('/api/stats', dateRange) + mockParam;
+      setJiraLoading(true);
+      const url = buildApiUrl('/api/stats/jira', dateRange) + mockParam;
       const response = await axios.get(url);
-      setStats(response.data);
+      setJiraStats(response.data);
       setLastUpdated(new Date());
-      setError(null);
     } catch (err) {
-      setError('Failed to fetch stats. Please check your API configuration.');
-      console.error('Error fetching stats:', err);
+      console.error('Error fetching Jira stats:', err);
     } finally {
-      setLoading(false);
+      setJiraLoading(false);
     }
   }, [dateRange, mockParam]);
+
+  // Fetch Git stats (GitHub + GitLab)
+  const fetchGitStats = useCallback(async () => {
+    try {
+      setGitLoading(true);
+      const url = buildApiUrl('/api/stats/git', dateRange) + mockParam;
+      const response = await axios.get(url);
+      setGitStats(response.data);
+      setLastUpdated(new Date());
+    } catch (err) {
+      console.error('Error fetching Git stats:', err);
+    } finally {
+      setGitLoading(false);
+    }
+  }, [dateRange, mockParam]);
+
+  // Fetch all stats in parallel (progressive)
+  const fetchAllStats = useCallback(async () => {
+    setError(null);
+    // Start both fetches in parallel - each section updates independently
+    fetchJiraStats();
+    fetchGitStats();
+  }, [fetchJiraStats, fetchGitStats]);
 
   useEffect(() => {
     // Only fetch stats on the dashboard route
     if (location.pathname === '/') {
-      fetchStats();
-      const interval = setInterval(fetchStats, 5 * 60 * 1000);
+      fetchAllStats();
+      const interval = setInterval(fetchAllStats, 5 * 60 * 1000);
       return () => clearInterval(interval);
     }
-  }, [fetchStats, location.pathname]);
+  }, [fetchAllStats, location.pathname]);
+
+  const isAnyLoading = jiraLoading || gitLoading;
 
   return (
     <div className="app">
@@ -95,9 +122,7 @@ function App() {
             <header className="app-header">
               <div>
                 <h1>Engineering Stats Dashboard</h1>
-                {stats && (
-                  <p className="work-year">{dateRange.label}</p>
-                )}
+                <p className="work-year">{dateRange.label}</p>
               </div>
               <div className="header-controls">
                 <DateFilter value={dateRange} onChange={setDateRange} />
@@ -106,8 +131,8 @@ function App() {
                     Last updated: {lastUpdated.toLocaleTimeString()}
                   </p>
                 )}
-                <button onClick={fetchStats} className="refresh-btn" disabled={loading}>
-                  {loading ? 'Refreshing...' : 'Refresh'}
+                <button onClick={fetchAllStats} className="refresh-btn" disabled={isAnyLoading}>
+                  {isAnyLoading ? 'Refreshing...' : 'Refresh'}
                 </button>
               </div>
             </header>
@@ -115,15 +140,47 @@ function App() {
             {error && <div className="error-banner">{error}</div>}
 
             <div className="stats-grid">
-              {loading ? (
-                <DashboardSkeleton />
+              {/* Combined Overview - shows as soon as any data is available */}
+              {(jiraStats || gitStats?.github || gitStats?.gitlab) ? (
+                <CombinedOverview 
+                  githubStats={gitStats?.github} 
+                  gitlabStats={gitStats?.gitlab} 
+                  jiraStats={jiraStats} 
+                />
+              ) : (
+                <div className="source-section">
+                  <Skeleton variant="text" width="200px" height="28px" />
+                  <div className="cards-grid" style={{ marginTop: '20px' }}>
+                    <Skeleton variant="stat-card" count={3} />
+                  </div>
+                </div>
+              )}
+
+              {/* Jira Section - loads independently */}
+              {jiraLoading ? (
+                <div className="source-section">
+                  <Skeleton variant="text" width="80px" height="28px" />
+                  <div className="cards-grid" style={{ marginTop: '20px' }}>
+                    <Skeleton variant="stat-card" count={4} />
+                  </div>
+                </div>
               ) : (
                 <>
-                  {stats && <CombinedOverview githubStats={stats.github} gitlabStats={stats.gitlab} jiraStats={stats.jira} />}
-                  <JiraSection stats={stats?.jira} />
-                  {renderErrorSection('jira', '', stats?.jira?.error)}
-                  <GitSection githubStats={stats?.github} gitlabStats={stats?.gitlab} />
+                  <JiraSection stats={jiraStats} />
+                  {renderErrorSection('jira', '', jiraStats?.error)}
                 </>
+              )}
+
+              {/* Git Section - loads independently */}
+              {gitLoading ? (
+                <div className="source-section">
+                  <Skeleton variant="text" width="200px" height="28px" />
+                  <div className="cards-grid" style={{ marginTop: '20px' }}>
+                    <Skeleton variant="stat-card" count={4} />
+                  </div>
+                </div>
+              ) : (
+                <GitSection githubStats={gitStats?.github} gitlabStats={gitStats?.gitlab} />
               )}
             </div>
           </>

@@ -38,25 +38,11 @@ function DateFilter({ value, onChange }) {
       type: 'custom'
     },
     {
-      label: 'Last 6 Months',
-      start: null,
-      end: null,
-      type: 'dynamic',
-      range: 'last6months'
-    },
-    {
       label: 'Last 12 Months',
       start: null,
       end: null,
       type: 'dynamic',
       range: 'last12months'
-    },
-    {
-      label: 'All Time',
-      start: null,
-      end: null,
-      type: 'dynamic',
-      range: 'alltime'
     }
   ];
   const handleChange = (e) => {
