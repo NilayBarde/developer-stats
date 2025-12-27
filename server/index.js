@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { exec } = require('child_process');
+const cron = require('node-cron');
 const cache = require('./utils/cache');
 const { parseDateRange, setCacheHeaders } = require('./utils/requestHelpers');
 const { createCachedEndpoint, createSimpleEndpoint } = require('./utils/endpointHelpers');
@@ -22,6 +23,358 @@ const {
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Load project analytics config
+const fs = require('fs');
+const path = require('path');
+let projectAnalyticsConfig = { projects: {} };
+try {
+  const configPath = path.join(__dirname, 'config', 'projectAnalytics.json');
+  if (fs.existsSync(configPath)) {
+    projectAnalyticsConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  }
+} catch (error) {
+  console.warn('Could not load project analytics config:', error.message);
+}
+
+// Helper to fetch projects with analytics
+async function fetchProjectsWithAnalytics(dateRange) {
+    // Get Jira projects
+    const projectsData = await jiraService.getProjectsByEpic(dateRange);
+    
+    // Fetch analytics for configured projects (in parallel)
+    const analyticsPromises = projectsData.epics.map(async (epic) => {
+      const config = projectAnalyticsConfig.projects?.[epic.epicKey];
+      if (config && config.enabled) {
+        try {
+          const analytics = await adobeAnalyticsService.getProjectAnalytics(config);
+          return { epicKey: epic.epicKey, analytics };
+        } catch (error) {
+          console.error(`Analytics error for ${epic.epicKey}:`, error.message);
+          return { epicKey: epic.epicKey, analytics: null };
+        }
+      }
+      return { epicKey: epic.epicKey, analytics: null };
+    });
+    
+    const analyticsResults = await Promise.all(analyticsPromises);
+    
+    // Merge analytics into epics
+    const epicsWithAnalytics = projectsData.epics.map(epic => {
+      const analyticsResult = analyticsResults.find(r => r.epicKey === epic.epicKey);
+      return {
+        ...epic,
+        analytics: analyticsResult?.analytics || null
+      };
+    });
+    
+    return {
+      ...projectsData,
+      epics: epicsWithAnalytics,
+      baseUrl: process.env.JIRA_BASE_URL?.replace(/\/$/, '')
+    };
+}
+
+// Helper to fetch and process project analytics
+async function fetchProjectAnalytics(launchDate, startDate, endDate) {
+  // Build custom date range if provided
+  const customDateRange = startDate && endDate ? { startDate, endDate } : null;
+  
+  // Auto-discover all pages with bet clicks using segment
+  const discovered = await adobeAnalyticsService.discoverAllBetClicks(launchDate, customDateRange);
+  
+  if (!discovered?.pages?.length) {
+    return { projects: [], others: [], method: 'segment-based-discovery', totalClicks: 0 };
+  }
+
+  // Format ALL pages for charts
+  const projects = discovered.pages.map(page => ({
+    epicKey: page.page,
+    label: page.label,
+    pageType: page.pageType || 'other',
+    league: page.league,
+    isInterstitial: page.isInterstitial,
+    launchDate,
+    parentProject: 'SEWEB-59645',
+    parentLabel: 'DraftKings Integration',
+    metricType: 'betClicks',
+    clicks: {
+      totalClicks: page.clicks,
+      dailyClicks: page.dailyClicks || {},
+      comparison: page.comparison
+    }
+  }));
+
+  // Group pages by pageType (excluding interstitials from main groups)
+  const grouped = {};
+  const pageTypeLabels = {
+    'gamecast': 'Gamecast / Match',
+    'scoreboard': 'Scoreboard', 
+    'odds': 'Odds',
+    'futures': 'Futures',
+    'fantasy': 'Fantasy',
+    'fightcenter': 'MMA Fight Center',
+    'watchespn': 'WatchESPN',
+    'schedule': 'Schedule',
+    'story': 'Stories',
+    'index': 'Index Pages',
+    'interstitial': 'Confirmation (Interstitial)',
+    'other': 'Other Pages'
+  };
+
+  projects.forEach(project => {
+    const pageType = project.pageType || 'other';
+    if (!grouped[pageType]) {
+      grouped[pageType] = {
+        label: pageTypeLabels[pageType] || pageType,
+        totalClicks: 0,
+        pages: []
+      };
+    }
+    grouped[pageType].totalClicks += project.clicks.totalClicks;
+    grouped[pageType].pages.push({
+      page: project.epicKey,
+      label: project.label,
+      league: project.league,
+      clicks: project.clicks.totalClicks,
+      dailyClicks: project.clicks.dailyClicks,
+      comparison: project.clicks.comparison
+    });
+  });
+
+  // Sort pages within each group by clicks
+  Object.values(grouped).forEach(group => {
+    group.pages.sort((a, b) => b.clicks - a.clicks);
+  });
+
+  return { 
+    projects,
+    grouped,
+    byLeague: discovered.byLeague,
+    byPageType: discovered.byPageType,
+    method: discovered.method || 'segment-based-discovery',
+    segmentId: discovered.segmentId,
+    totalClicks: discovered.totalClicks,
+    engagementClicks: discovered.engagementClicks,
+    interstitialClicks: discovered.interstitialClicks,
+    confirmationRate: discovered.confirmationRate,
+    totalPages: discovered.totalPages,
+    dateRange: discovered.dateRange,
+    launchDate,
+    timing: discovered.timing
+  };
+}
+
+// Helper to fetch project-specific analytics (e.g. NFL Gamecast)
+async function fetchProjectSpecificAnalytics(projectKey) {
+  // Clear require cache to pick up config changes
+  delete require.cache[require.resolve('./config/projectAnalytics.json')];
+  const projectConfig = require('./config/projectAnalytics.json');
+  
+  // Find project config
+  const project = projectConfig.projects?.find(p => p.key === projectKey);
+  if (!project) {
+    throw new Error(`Project ${projectKey} not found`);
+  }
+
+  // Use myBetsEndDate for the analysis period (when My Bets was active)
+  const analysisEndDate = project.myBetsEndDate || project.endDate || null;
+  
+  const analytics = await adobeAnalyticsService.getProjectMetrics(
+    project.pageFilter,
+    project.launchDate,
+    analysisEndDate,
+    project.breakdownBy || null
+  );
+  
+  return {
+    project: {
+      key: project.key,
+      label: project.label,
+      description: project.description,
+      launchDate: project.launchDate,
+      myBetsEndDate: project.myBetsEndDate,
+      endDate: project.endDate,
+      breakdownBy: project.breakdownBy,
+      notes: project._notes
+    },
+    analytics
+  };
+}
+
+// --- Background Cache Warmer ---
+async function warmCache() {
+  console.log('🔥 Background cache warming started...');
+  const startTime = Date.now();
+  
+  // Calculate current and previous work year start (September 1st)
+  // This matches client/src/utils/dateHelpers.js logic
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth(); // 0-11
+  
+  // If we're in Sep-Dec, work year started this year's Sep 1st
+  // If we're in Jan-Aug, work year started last year's Sep 1st
+  const currentWorkYearStart = currentMonth >= 8 
+    ? new Date(currentYear, 8, 1) 
+    : new Date(currentYear - 1, 8, 1);
+  
+  // Previous work year is one year before current
+  const previousWorkYearStart = new Date(currentWorkYearStart.getFullYear() - 1, 8, 1);
+  const previousWorkYearEnd = new Date(currentWorkYearStart.getFullYear(), 7, 31); // Aug 31
+    
+  // Format dates as YYYY-MM-DD
+  const formatDate = (d) => d.getFullYear() + '-' + 
+                   String(d.getMonth() + 1).padStart(2, '0') + '-' + 
+                   String(d.getDate()).padStart(2, '0');
+  
+  const currentStartStr = formatDate(currentWorkYearStart);
+  const previousStartStr = formatDate(previousWorkYearStart);
+  const previousEndStr = formatDate(previousWorkYearEnd);
+
+  // Define the common date ranges to pre-fetch
+  const ranges = [
+    // Current work year (Sept 1st - Present) - Priority for initial load
+    { 
+      start: currentStartStr,
+      end: null 
+    },
+    // Previous work year (Sept 1st - Aug 31st of previous year)
+    { 
+      start: previousStartStr,
+      end: previousEndStr 
+    }
+  ];
+
+  try {
+    for (const range of ranges) {
+      const rangeKey = JSON.stringify(range);
+      console.log(`  - Warming for range: ${rangeKey}`);
+      
+      // 1. Dashboard Stats (Parallel) - cache the combined result
+      const [githubStats, gitlabStats, jiraStats] = await Promise.allSettled([
+        githubService.getStats(range),
+        gitlabService.getStats(range),
+        jiraService.getStats(range)
+      ]);
+      
+      // Cache combined stats result (matches /api/stats endpoint cache key)
+      const statsResult = {
+        github: githubStats.status === 'fulfilled' ? githubStats.value : { error: githubStats.reason?.message },
+        gitlab: gitlabStats.status === 'fulfilled' ? gitlabStats.value : { error: gitlabStats.reason?.message },
+        jira: jiraStats.status === 'fulfilled' ? jiraStats.value : { error: jiraStats.reason?.message },
+        timestamp: new Date().toISOString()
+      };
+      cache.set(`stats:${rangeKey}`, statsResult, 300);
+      
+      // Also warm individual stats endpoints for redundancy
+      cache.set(`stats-git:${rangeKey}`, {
+        github: statsResult.github,
+        gitlab: statsResult.gitlab,
+        timestamp: statsResult.timestamp
+      }, 300);
+      cache.set(`stats-jira:${rangeKey}`, statsResult.jira, 300);
+      console.log(`    ✓ Stats cached (combined + individual)`);
+      
+      // 2. Lists (PRs, MRs, Issues)
+      // We manually cache these to match the createCachedEndpoint keys
+      
+      // PRs
+      try {
+        const prs = await githubService.getAllPRsForPage(range);
+        const prsData = { 
+          prs, 
+          baseUrl: process.env.GITHUB_BASE_URL?.replace(/\/$/, '') || 'https://github.com' 
+        };
+        cache.set(`prs:${rangeKey}`, prsData, 300);
+      } catch (e) {
+        console.error('    ❌ Error warming PRs:', e.message);
+      }
+
+      // MRs
+      try {
+        const mrs = await gitlabService.getAllMRsForPage(range);
+        const mrsData = { 
+          mrs, 
+          baseUrl: process.env.GITLAB_BASE_URL?.replace(/\/$/, '') || 'https://gitlab.com' 
+        };
+        cache.set(`mrs:${rangeKey}`, mrsData, 300);
+      } catch (e) {
+        console.error('    ❌ Error warming MRs:', e.message);
+      }
+
+      // Issues
+      try {
+        const issues = await jiraService.getAllIssuesForPage(range);
+        const issuesData = { 
+          issues, 
+          baseUrl: process.env.JIRA_BASE_URL?.replace(/\/$/, '') 
+        };
+        cache.set(`issues:${rangeKey}`, issuesData, 120);
+      } catch (e) {
+        console.error('    ❌ Error warming Issues:', e.message);
+      }
+      
+      // Projects Page
+      try {
+        const projectsRes = await fetchProjectsWithAnalytics(range);
+        cache.set(`projects-v3:${rangeKey}`, projectsRes, 300);
+      } catch (e) {
+        console.error('    ❌ Error warming Projects:', e.message);
+      }
+    }
+    
+    // 3. Project Analytics (NFL Gamecast) - warm first as it's faster
+    console.log('  - Warming Project Analytics (NFL Gamecast)...');
+    try {
+      const nflKey = 'SEWEB-51747';
+      const nflResult = await fetchProjectSpecificAnalytics(nflKey);
+      cache.set(`project-analytics:${nflKey}`, nflResult, 600);
+      console.log('    ✓ NFL Gamecast analytics cached');
+    } catch (err) {
+      console.error('    ❌ Failed to warm NFL analytics:', err.message);
+    }
+    
+    // 4. Project Analytics (DraftKings)
+    console.log('  - Warming Project Analytics (DraftKings)...');
+    const launchDate = '2025-12-01';
+    const today = new Date().toISOString().split('T')[0];
+    const analyticsPresets = [
+      { start: '2025-03-01', end: today }, // Since March
+      { start: '2025-12-01', end: today }, // Since Dec 1 (launch date)
+    ];
+    
+    for (const preset of analyticsPresets) {
+      // Use just startDate for cache key (matches endpoint logic)
+      const dateRangeKey = `from_${preset.start}`;
+      const cacheKey = `all-project-analytics-v3:${launchDate}:${dateRangeKey}`;
+      
+      try {
+        console.log(`    → Warming ${preset.start} to ${preset.end}...`);
+        const result = await fetchProjectAnalytics(launchDate, preset.start, preset.end);
+        cache.set(cacheKey, result, 600); // 10 min cache
+        console.log(`    ✓ DK analytics cached for ${preset.start}`);
+      } catch (err) {
+        console.error(`    ❌ Failed to warm DK analytics for ${preset.start}:`, err.message);
+      }
+    }
+    
+    console.log(`✅ Cache warming completed in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+  } catch (error) {
+    console.error('❌ Cache warming failed:', error.message);
+  }
+}
+
+// Schedule cache warming every 5 minutes (runs at minute 0, 5, 10, etc.)
+// frequency matches the default cache TTL
+cron.schedule('*/5 * * * *', () => {
+  warmCache();
+});
+
+// Start warming immediately on server start (with a small delay to let server init)
+setTimeout(() => {
+  warmCache();
+}, 5000); 
 
 // Kill any existing process on the port
 function killProcessOnPort(port) {
@@ -165,8 +518,8 @@ app.get('/api/stats/gitlab', createSimpleEndpoint({
   fetchFn: (dateRange) => gitlabService.getStats(dateRange)
 }));
 
-// Get Git stats (GitHub + GitLab) with mock support
-app.get('/api/stats/git', (req, res, next) => {
+// Get Git stats (GitHub + GitLab) with mock support and smart caching
+app.get('/api/stats/git', async (req, res) => {
   if (req.query.mock === 'true') {
     console.log('⚠ Using MOCK Git stats');
     const mockStats = generateMockStatsData();
@@ -176,31 +529,95 @@ app.get('/api/stats/git', (req, res, next) => {
       timestamp: new Date().toISOString()
     });
   }
-  return createSimpleEndpoint({
-    fetchFn: async (dateRange) => {
-      const [githubStats, gitlabStats] = await Promise.allSettled([
-        githubService.getStats(dateRange),
-        gitlabService.getStats(dateRange)
-      ]);
-      
-      return {
-        github: githubStats.status === 'fulfilled' ? githubStats.value : { error: githubStats.reason?.message },
-        gitlab: gitlabStats.status === 'fulfilled' ? gitlabStats.value : { error: gitlabStats.reason?.message },
-        timestamp: new Date().toISOString()
-      };
+  
+  try {
+    const dateRange = parseDateRange(req.query);
+    const rangeKey = JSON.stringify(dateRange);
+    
+    // Check if combined stats cache exists (deduplication)
+    const combinedStats = cache.get(`stats:${rangeKey}`);
+    if (combinedStats) {
+      console.log('✓ stats/git served from combined stats cache');
+      setCacheHeaders(res, true);
+      return res.json({
+        github: combinedStats.github,
+        gitlab: combinedStats.gitlab,
+        timestamp: combinedStats.timestamp
+      });
     }
-  })(req, res, next);
+    
+    // Check own cache
+    const ownCacheKey = `stats-git:${rangeKey}`;
+    const cached = cache.get(ownCacheKey);
+    if (cached) {
+      console.log('✓ stats/git served from own cache');
+      setCacheHeaders(res, true);
+      return res.json(cached);
+    }
+    
+    // Fetch fresh data
+    const startTime = Date.now();
+    const [githubStats, gitlabStats] = await Promise.allSettled([
+      githubService.getStats(dateRange),
+      gitlabService.getStats(dateRange)
+    ]);
+    
+    const result = {
+      github: githubStats.status === 'fulfilled' ? githubStats.value : { error: githubStats.reason?.message },
+      gitlab: gitlabStats.status === 'fulfilled' ? gitlabStats.value : { error: gitlabStats.reason?.message },
+      timestamp: new Date().toISOString()
+    };
+    
+    cache.set(ownCacheKey, result, 300);
+    console.log(`✓ stats/git fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    setCacheHeaders(res, false);
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching git stats:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Get Jira stats (with mock support)
-app.get('/api/stats/jira', (req, res, next) => {
+// Get Jira stats (with mock support and smart caching)
+app.get('/api/stats/jira', async (req, res) => {
   if (req.query.mock === 'true') {
     console.log('⚠ Using MOCK Jira stats');
     return res.json(generateMockStatsData().jira);
   }
-  return createSimpleEndpoint({
-    fetchFn: (dateRange) => jiraService.getStats(dateRange)
-  })(req, res, next);
+  
+  try {
+    const dateRange = parseDateRange(req.query);
+    const rangeKey = JSON.stringify(dateRange);
+    
+    // Check if combined stats cache exists (deduplication)
+    const combinedStats = cache.get(`stats:${rangeKey}`);
+    if (combinedStats && combinedStats.jira) {
+      console.log('✓ stats/jira served from combined stats cache');
+      setCacheHeaders(res, true);
+      return res.json(combinedStats.jira);
+    }
+    
+    // Check own cache
+    const ownCacheKey = `stats-jira:${rangeKey}`;
+    const cached = cache.get(ownCacheKey);
+    if (cached) {
+      console.log('✓ stats/jira served from own cache');
+      setCacheHeaders(res, true);
+      return res.json(cached);
+    }
+    
+    // Fetch fresh data
+    const startTime = Date.now();
+    const result = await jiraService.getStats(dateRange);
+    
+    cache.set(ownCacheKey, result, 300);
+    console.log(`✓ stats/jira fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    setCacheHeaders(res, false);
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching jira stats:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Get GitHub PRs
@@ -255,18 +672,7 @@ app.get('/api/issues', (req, res, next) => {
   })(req, res, next);
 });
 
-// Load project analytics config
-const fs = require('fs');
-const path = require('path');
-let projectAnalyticsConfig = { projects: {} };
-try {
-  const configPath = path.join(__dirname, 'config', 'projectAnalytics.json');
-  if (fs.existsSync(configPath)) {
-    projectAnalyticsConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  }
-} catch (error) {
-  console.warn('Could not load project analytics config:', error.message);
-}
+// (Config loaded at top of file)
 
 // Get projects grouped by epic (with optional analytics)
 app.get('/api/projects', async (req, res) => {
@@ -288,40 +694,7 @@ app.get('/api/projects', async (req, res) => {
   }
 
   try {
-    // Get Jira projects
-    const projectsData = await jiraService.getProjectsByEpic(dateRange);
-    
-    // Fetch analytics for configured projects (in parallel)
-    const analyticsPromises = projectsData.epics.map(async (epic) => {
-      const config = projectAnalyticsConfig.projects?.[epic.epicKey];
-      if (config && config.enabled) {
-        try {
-          const analytics = await adobeAnalyticsService.getProjectAnalytics(config);
-          return { epicKey: epic.epicKey, analytics };
-        } catch (error) {
-          console.error(`Analytics error for ${epic.epicKey}:`, error.message);
-          return { epicKey: epic.epicKey, analytics: null };
-        }
-      }
-      return { epicKey: epic.epicKey, analytics: null };
-    });
-    
-    const analyticsResults = await Promise.all(analyticsPromises);
-    
-    // Merge analytics into epics
-    const epicsWithAnalytics = projectsData.epics.map(epic => {
-      const analyticsResult = analyticsResults.find(r => r.epicKey === epic.epicKey);
-      return {
-        ...epic,
-        analytics: analyticsResult?.analytics || null
-      };
-    });
-    
-    const result = {
-      ...projectsData,
-      epics: epicsWithAnalytics,
-      baseUrl: process.env.JIRA_BASE_URL?.replace(/\/$/, '')
-    };
+    const result = await fetchProjectsWithAnalytics(dateRange);
     
     cache.set(cacheKey, result, 300);
     console.log(`✓ projects-v3 fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
@@ -365,7 +738,8 @@ app.get('/api/project-analytics', async (req, res) => {
   }
   
   // Build cache key with date range
-  const dateRangeKey = startDate && endDate ? `${startDate}_${endDate}` : 'default';
+  // Use just startDate for cache key to avoid cache misses when "today" changes
+  const dateRangeKey = startDate ? `from_${startDate}` : 'default';
   const cacheKey = `all-project-analytics-v3:${launchDate}:${dateRangeKey}`;
   const cached = cache.get(cacheKey);
   if (cached) {
@@ -375,92 +749,7 @@ app.get('/api/project-analytics', async (req, res) => {
   }
 
   try {
-    // Build custom date range if provided
-    const customDateRange = startDate && endDate ? { startDate, endDate } : null;
-    
-    // Auto-discover all pages with bet clicks using segment
-    const discovered = await adobeAnalyticsService.discoverAllBetClicks(launchDate, customDateRange);
-    
-    if (!discovered?.pages?.length) {
-      return res.json({ projects: [], others: [], method: 'segment-based-discovery', totalClicks: 0 });
-    }
-
-    // Format ALL pages for charts
-    const projects = discovered.pages.map(page => ({
-      epicKey: page.page,
-      label: page.label,
-      pageType: page.pageType || 'other',
-      league: page.league,
-      isInterstitial: page.isInterstitial,
-      launchDate,
-      parentProject: 'SEWEB-59645',
-      parentLabel: 'DraftKings Integration',
-      metricType: 'betClicks',
-      clicks: {
-        totalClicks: page.clicks,
-        dailyClicks: page.dailyClicks || {},
-        comparison: page.comparison
-      }
-    }));
-
-    // Group pages by pageType (excluding interstitials from main groups)
-    const grouped = {};
-    const pageTypeLabels = {
-      'gamecast': 'Gamecast / Match',
-      'scoreboard': 'Scoreboard', 
-      'odds': 'Odds',
-      'futures': 'Futures',
-      'fantasy': 'Fantasy',
-      'fightcenter': 'MMA Fight Center',
-      'watchespn': 'WatchESPN',
-      'schedule': 'Schedule',
-      'story': 'Stories',
-      'index': 'Index Pages',
-      'interstitial': 'Confirmation (Interstitial)',
-      'other': 'Other Pages'
-    };
-
-    projects.forEach(project => {
-      const pageType = project.pageType || 'other';
-      if (!grouped[pageType]) {
-        grouped[pageType] = {
-          label: pageTypeLabels[pageType] || pageType,
-          totalClicks: 0,
-          pages: []
-        };
-      }
-      grouped[pageType].totalClicks += project.clicks.totalClicks;
-      grouped[pageType].pages.push({
-        page: project.epicKey,
-        label: project.label,
-        league: project.league,
-        clicks: project.clicks.totalClicks,
-        dailyClicks: project.clicks.dailyClicks,
-        comparison: project.clicks.comparison
-      });
-    });
-
-    // Sort pages within each group by clicks
-    Object.values(grouped).forEach(group => {
-      group.pages.sort((a, b) => b.clicks - a.clicks);
-    });
-
-    const result = { 
-      projects,
-      grouped,
-      byLeague: discovered.byLeague,
-      byPageType: discovered.byPageType,
-      method: discovered.method || 'segment-based-discovery',
-      segmentId: discovered.segmentId,
-      totalClicks: discovered.totalClicks,
-      engagementClicks: discovered.engagementClicks,
-      interstitialClicks: discovered.interstitialClicks,
-      confirmationRate: discovered.confirmationRate,
-      totalPages: discovered.totalPages,
-      dateRange: discovered.dateRange,
-      launchDate,
-      timing: discovered.timing
-    };
+    const result = await fetchProjectAnalytics(launchDate, startDate, endDate);
     
     cache.set(cacheKey, result, 600); // Cache for 10 minutes
     setCacheHeaders(res, false);
@@ -526,31 +815,22 @@ app.get('/api/analytics/project/:projectKey', async (req, res) => {
   if (!project) {
     return res.status(404).json({ error: `Project ${projectKey} not found` });
   }
+
+  // Check cache
+  const cacheKey = `project-analytics:${projectKey}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    console.log(`✓ project-analytics:${projectKey} served from cache`);
+    setCacheHeaders(res, true);
+    return res.json(cached);
+  }
   
   try {
-    // Use myBetsEndDate for the analysis period (when My Bets was active)
-    const analysisEndDate = project.myBetsEndDate || project.endDate || null;
+    const result = await fetchProjectSpecificAnalytics(projectKey);
     
-    const analytics = await adobeAnalyticsService.getProjectMetrics(
-      project.pageFilter,
-      project.launchDate,
-      analysisEndDate,
-      project.breakdownBy || null
-    );
-    
-    res.json({
-      project: {
-        key: project.key,
-        label: project.label,
-        description: project.description,
-        launchDate: project.launchDate,
-        myBetsEndDate: project.myBetsEndDate,
-        endDate: project.endDate,
-        breakdownBy: project.breakdownBy,
-        notes: project._notes
-      },
-      analytics
-    });
+    cache.set(cacheKey, result, 600); // 10 min cache
+    setCacheHeaders(res, false);
+    res.json(result);
   } catch (error) {
     console.error(`Error fetching project analytics for ${projectKey}:`, error.message);
     res.status(500).json({ error: error.message });

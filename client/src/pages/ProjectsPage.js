@@ -4,6 +4,8 @@ import { getJiraUrl } from '../utils/urlHelpers';
 import clientCache from '../utils/clientCache';
 import StatsCard from '../components/StatsCard';
 import Skeleton from '../components/ui/Skeleton';
+import DateFilter from '../components/DateFilter';
+import { getCurrentWorkYearStart, formatWorkYearLabel } from '../utils/dateHelpers';
 import './ProjectsPage.css';
 
 function ProjectsPage() {
@@ -11,14 +13,31 @@ function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [baseUrl, setBaseUrl] = useState(null);
+  const [dateRange, setDateRange] = useState(() => {
+    const start = getCurrentWorkYearStart();
+    return {
+      label: formatWorkYearLabel(start),
+      start: start,
+      end: null,
+      type: 'custom'
+    };
+  });
   
   // Check for mock mode
   const mockParam = new URLSearchParams(window.location.search).get('mock') === 'true' ? '?mock=true' : '';
 
   // Fetch all projects (no date filtering)
+  // Fetch all projects (with date filtering)
   const fetchProjects = useCallback(async () => {
-    // Check cache first - include mock param in cache key
-    const cacheKey = `/api/projects${mockParam || ''}`;
+    // Check cache first - include mock param and date range in cache key
+    const query = new URLSearchParams();
+    if (mockParam) query.append('mock', 'true');
+    if (dateRange.start) query.append('start', dateRange.start);
+    if (dateRange.end) query.append('end', dateRange.end);
+    
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    const cacheKey = `/api/projects${queryString}`;
+    
     const cached = clientCache.get(cacheKey, null);
     if (cached) {
       console.log('✓ Projects served from client cache');
@@ -32,7 +51,7 @@ function ProjectsPage() {
     try {
       setLoading(true);
       setError(null);
-      const response = await axios.get('/api/projects' + mockParam);
+      const response = await axios.get('/api/projects' + queryString);
       setProjects(response.data);
       setBaseUrl(response.data.baseUrl);
       clientCache.set(cacheKey, null, response.data);
@@ -42,7 +61,7 @@ function ProjectsPage() {
     } finally {
       setLoading(false);
     }
-  }, [mockParam]);
+  }, [mockParam, dateRange]);
 
   useEffect(() => {
     fetchProjects();
@@ -54,7 +73,10 @@ function ProjectsPage() {
       <header className="page-header">
         <div>
           <h1>Projects</h1>
-          <p className="date-label">All time · Sorted by most recent activity</p>
+          <p className="date-label">Sorted by most recent activity</p>
+        </div>
+        <div className="header-controls">
+          <DateFilter value={dateRange} onChange={setDateRange} />
         </div>
       </header>
 

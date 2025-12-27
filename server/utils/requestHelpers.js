@@ -38,7 +38,8 @@ function parseDateRange(query) {
  * @param {boolean} isHit - Whether this was a cache hit
  */
 function setCacheHeaders(res, isHit = false) {
-  res.set('Cache-Control', 'no-cache');
+  // Allow browser to cache for 60 seconds, but require revalidation after that
+  res.set('Cache-Control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=30');
   res.set('X-Cache', isHit ? 'HIT' : 'MISS');
 }
 

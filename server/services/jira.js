@@ -38,9 +38,10 @@ async function getCurrentUser() {
 
 async function getAllIssues(dateRange = null) {
   // Check cache for raw issues (cache for 10 minutes - issues don't change that often)
-  // Note: dateRange is not used in JQL query, so we cache all issues without dateRange dependency
+  // Cache based on date range to allow faster initial loads for smaller ranges
+  // Use 'jira-raw-issues' prefix to avoid collision with endpoint cache ('issues')
   const cache = require('../utils/cache');
-  const cacheKey = 'all-issues';
+  const cacheKey = `jira-raw-issues:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log('✓ Raw issues served from cache');
@@ -76,13 +77,21 @@ async function getAllIssues(dateRange = null) {
   // Don't filter by date in JQL - we want ALL issues to capture all sprints
   // Sprint date filtering happens later in calculateVelocity based on sprint dates
   // This ensures sprints from before the date range are included if they overlap
-  let dateFilter = '';
+  // Apply date filter if provided (optimizes initial load)
+  // Use 'updated' to capture any issue active during the period
+  let jqlDateFilter = '';
+  if (dateRange && dateRange.start) {
+    jqlDateFilter = ` AND updated >= "${dateRange.start}"`;
+  }
+  if (dateRange && dateRange.end) {
+    jqlDateFilter += ` AND updated <= "${dateRange.end}"`;
+  }
 
   // Try different JQL queries - API tokens may restrict currentUser() even if web UI allows it
   const baseQueries = [
-    `assignee = currentUser()`, // Try currentUser() first
-    userEmail ? `assignee = "${userEmail}"` : null, // Fallback to email
-    userAccountId ? `assignee = ${userAccountId}` : null // Try accountId if available
+    `assignee = currentUser()${jqlDateFilter}`, // Try currentUser() first
+    userEmail ? `assignee = "${userEmail}"${jqlDateFilter}` : null, // Fallback to email
+    userAccountId ? `assignee = ${userAccountId}${jqlDateFilter}` : null // Try accountId if available
   ].filter(Boolean);
   
   const jqlQueries = baseQueries.map(base => `${base} ORDER BY created DESC`);
@@ -95,7 +104,9 @@ async function getAllIssues(dateRange = null) {
     'customfield_10105', 'customfield_10020', 'customfield_10007', 'customfield_10000', // Sprint fields
     'customfield_10106', 'customfield_21766', 'customfield_10016', 'customfield_10021', // Story point fields
     'customfield_10002', 'customfield_10004', 'customfield_10020',
-    'customfield_10011', 'parent', 'epicLink', 'epicName' // Epic fields
+    'customfield_10101', // Disney Jira epic link field
+    'customfield_10011', 'customfield_10014', 'customfield_10015', 'customfield_10008', 'customfield_10009', 'customfield_10010', // Common epic link fields
+    'parent', 'epicLink', 'epicName' // Epic fields
   ];
 
   let jqlIndex = 0;
@@ -140,7 +151,7 @@ async function getAllIssues(dateRange = null) {
     }
   }
 
-  // Cache raw issues for 10 minutes (raw issues don't change often)
+  // Cache raw issues for 10 minutes (uses jira-raw-issues prefix)
   cache.set(cacheKey, issues, 600);
   return issues;
 }
@@ -1358,214 +1369,32 @@ async function getAllIssuesForPage(dateRange = null) {
   }
 
   try {
-    const issues = [];
-    let startAt = 0;
-    const maxResults = 100;
-    let hasMore = true;
+    // Reuse the cached issues (specific to this date range if provided)
+    const allIssues = await getAllIssues(dateRange);
     
-    // Get current user info first
-    let userAccountId = null;
-    let userEmail = null;
-    try {
-      const user = await getCurrentUser();
-      userAccountId = user.accountId;
-      userEmail = user.emailAddress;
-    } catch (error) {
-      // Silently fail
-    }
-
-    // Build JQL query with date filtering for better performance
-    // Use 'updated' instead of 'created' to show issues the user worked on during the date range
-    let dateFilter = '';
-    if (dateRange && dateRange.start) {
-      dateFilter = ` AND updated >= "${dateRange.start}"`;
-    }
-    if (dateRange && dateRange.end) {
-      dateFilter += ` AND updated <= "${dateRange.end}"`;
-    }
-
-    const baseQueries = [
-      `assignee = currentUser()${dateFilter}`,
-      userEmail ? `assignee = "${userEmail}"${dateFilter}` : null,
-      userAccountId ? `assignee = ${userAccountId}${dateFilter}` : null
-    ].filter(Boolean);
-    
-    const jqlQueries = baseQueries.map(base => `${base} ORDER BY updated DESC`);
-
-    // Only fetch fields we need - NO changelog initially (much faster)
-    // Note: Requesting 'parent' with expand to get full parent details including issuetype
-    const requiredFields = [
-      'key', 'summary', 'status', 'created', 'updated', 'resolutiondate',
-      'issuetype', 'project', 'timespent', 'timeoriginalestimate',
-      'assignee', 'reporter', 'priority',
-      'customfield_10105', 'customfield_10020', 'customfield_10007', 'customfield_10000', // Sprint fields
-      'customfield_10106', 'customfield_21766', 'customfield_10016', 'customfield_10021', // Story point fields
-      'customfield_10002', 'customfield_10004',
-      'customfield_10011', 'customfield_10014', 'customfield_10015', 'customfield_10008', 'customfield_10009', 'customfield_10010', // Epic link fields
-      'parent', 'epicLink', 'epicName' // Epic fields
-    ];
-
-    let jqlIndex = 0;
-
-    while (hasMore && jqlIndex < jqlQueries.length) {
-      try {
-        const jql = jqlQueries[jqlIndex];
-        const response = await jiraApi.post('/rest/api/2/search', {
-          jql: jql,
-          startAt: startAt,
-          maxResults: maxResults,
-          fields: requiredFields,
-          expand: ['names', 'parent'] // Expand parent to get full parent details including issuetype
-        });
-
-        if (response.data.issues.length === 0) {
-          hasMore = false;
-        } else {
-          issues.push(...response.data.issues);
-          startAt += maxResults;
-          
-          if (response.data.issues.length < maxResults || issues.length >= response.data.total) {
-            hasMore = false;
-          }
-        }
-      } catch (error) {
-        if (error.response?.status === 403 && jqlIndex < jqlQueries.length - 1) {
-          jqlIndex++;
-          startAt = 0;
-          continue;
-        }
-        
-        if (error.response?.status === 401) {
-          console.error('❌ Jira authentication failed (401 Unauthorized). Check JIRA_PAT and JIRA_BASE_URL.');
-        } else if (error.response?.status === 403) {
-          console.error('❌ Jira permission denied (403 Forbidden). Check API token permissions.');
-        } else {
-          console.error('Error fetching Jira issues:', error.message);
-        }
-        hasMore = false;
-      }
-    }
-
-    // Filter issues by date range (in case JQL date filter wasn't perfect)
-    // Use 'updated' to show issues the user worked on during the date range
-    let filteredIssues = dateRange 
-      ? filterByDateRange(issues, 'fields.updated', dateRange)
-      : issues;
-    
-    // Exclude closed unassigned tickets (cancelled/no work needed)
-    filteredIssues = filteredIssues.filter(issue => {
-      const statusName = issue.fields?.status?.name || '';
-      const isClosed = ['Done', 'Closed', 'Resolved'].includes(statusName);
-      const isUnassigned = !issue.fields?.assignee;
-      
-      // Exclude closed unassigned tickets
-      if (isClosed && isUnassigned) {
-        return false;
-      }
-      
-      return true;
+    // Sort by updated date descending
+    const sortedIssues = [...allIssues].sort((a, b) => {
+      const dateA = new Date(a.fields.updated);
+      const dateB = new Date(b.fields.updated);
+      return dateB - dateA;
     });
-    
-    // Get board IDs from existing issues to fetch future sprints
-    const boardIds = getBoardIdsFromIssues(filteredIssues.length > 0 ? filteredIssues : issues);
-    
-    // Fetch future sprints and get issues assigned to them
-    if (boardIds.length > 0) {
-      try {
-        const futureSprints = await getFutureSprints(boardIds);
-        
-        // Query for issues in future sprints (limit to next 2 future sprints for performance)
-        const sprintsToQuery = futureSprints.slice(0, 2);
-        
-        for (const sprint of sprintsToQuery) {
-          try {
-            // Build JQL query for issues in this future sprint
-            const sprintJqlQueries = [
-              `assignee = currentUser() AND Sprint = ${sprint.id}`,
-              userEmail ? `assignee = "${userEmail}" AND Sprint = ${sprint.id}` : null,
-              userAccountId ? `assignee = ${userAccountId} AND Sprint = ${sprint.id}` : null
-            ].filter(Boolean);
-            
-            for (const jql of sprintJqlQueries) {
-              try {
-                const response = await jiraApi.post('/rest/api/2/search', {
-                  jql: jql,
-                  startAt: 0,
-                  maxResults: 100,
-                  fields: requiredFields,
-                  expand: ['names']
-                });
-                
-                if (response.data.issues && response.data.issues.length > 0) {
-                  // Add future sprint issues to the list (they won't be filtered by date range)
-                  filteredIssues.push(...response.data.issues);
-                  break; // Successfully fetched, move to next sprint
-                }
-              } catch (error) {
-                // Try next query variation
-                continue;
-              }
-            }
-          } catch (error) {
-            // Silently fail for individual sprint queries
-            continue;
-          }
-        }
-      } catch (error) {
-        // Silently fail if future sprint fetching doesn't work
-        console.log('Could not fetch future sprint issues:', error.message);
-      }
-    }
-    
-    // Fetch changelog for all issues to get accurate status transition dates
-    // This ensures all issues have In Progress and QA Ready dates
-    const issuesNeedingChangelog = filteredIssues.filter(issue => !issue.changelog);
-    
-    // Do this in batches to avoid overwhelming the API
-    const batchSize = 20;
 
-    // Fetch changelog in parallel batches
-    for (let i = 0; i < issuesNeedingChangelog.length; i += batchSize) {
-      const batch = issuesNeedingChangelog.slice(i, i + batchSize);
-      await Promise.all(batch.map(async (issue) => {
-        try {
-          const response = await jiraApi.get(`/rest/api/2/issue/${issue.key}`, {
-            params: { 
-              expand: 'changelog',
-              fields: ['changelog'] // Only fetch changelog, not all fields
-            }
-          });
-          issue.changelog = response.data.changelog;
-        } catch (error) {
-          // Silently fail - will use null for status transitions
-        }
-      }));
+    // Local filtering by date range
+    let filteredIssues = sortedIssues;
+    if (dateRange && (dateRange.start || dateRange.end)) {
+      filteredIssues = sortedIssues.filter(issue => {
+        const updated = new Date(issue.fields.updated);
+        if (dateRange.start && updated < new Date(dateRange.start)) return false;
+        if (dateRange.end && updated > new Date(dateRange.end)) return false;
+        return true;
+      });
     }
-    
-    // Enrich all issues with sprint and status transition data
-    let enrichedIssues = filteredIssues.map(issue => {
-      const sprintName = getSprintName(issue);
-      const inProgressDate = getInProgressDate(issue);
-      const qaReadyDate = getQAReadyDate(issue);
-      
-      // Create response object without changelog to reduce payload size
-      const responseIssue = {
-        key: issue.key,
-        self: issue.self,
-        fields: issue.fields,
-        _sprintName: sprintName,
-        _inProgressDate: inProgressDate ? inProgressDate.toISOString() : null,
-        _qaReadyDate: qaReadyDate ? qaReadyDate.toISOString() : null
-      };
-      
-      return responseIssue;
-    });
     
     // Filter by "In Progress" date if date range is specified
     // This ensures we only show issues where work began during the date range
     if (dateRange && dateRange.start) {
       const rangeStart = new Date(dateRange.start);
-      enrichedIssues = enrichedIssues.filter(issue => {
+      filteredIssues = filteredIssues.filter(issue => {
         // If issue has an "In Progress" date, use that for filtering
         if (issue._inProgressDate) {
           const inProgressDate = new Date(issue._inProgressDate);
@@ -1582,12 +1411,11 @@ async function getAllIssuesForPage(dateRange = null) {
       });
     }
     
-    // Cache for 2 minutes
-    cache.set(cacheKey, enrichedIssues, 120);
-    
-    return enrichedIssues;
+    // Cache page result for 2 minutes
+    cache.set(cacheKey, filteredIssues, 120);
+    return filteredIssues;
   } catch (error) {
-    console.error('❌ Error fetching Jira issues for page:', error.message);
+    console.error('Error fetching issues page:', error.message);
     throw error;
   }
 }
@@ -1627,120 +1455,24 @@ async function getProjectsByEpic(dateRange = null) {
       // Silently fail - will try alternative methods
     }
 
-    // Step 1: Find the Epic Link custom field ID by querying all fields
-    let epicLinkFieldId = null;
-    try {
-      const fieldsResponse = await jiraApi.get('/rest/api/2/field');
-      const fields = fieldsResponse.data || [];
-      
-      // Look for "Epic Link" or "Parent" field
-      const epicLinkField = fields.find(field => 
-        field.name === 'Epic Link' || 
-        field.name === 'Parent' ||
-        (field.name && field.name.toLowerCase().includes('epic link'))
-      );
-      
-      if (epicLinkField) {
-        epicLinkFieldId = epicLinkField.id;
-      }
-    } catch (error) {
-      // Silently fail - will try common field IDs
-    }
+    // Reuse cached issues
+    const allIssues = await getAllIssues(dateRange);
     
-    // Get user's issues filtered by date range - but fetch with epic/parent fields properly
-    // We'll fetch issues directly with all epic-related fields
-    const userIssuesInDateRange = [];
-    let startAt = 0;
-    const maxResults = 100;
-    let hasMore = true;
-    
-    // Build JQL query with date filtering
-    let dateFilter = '';
-    if (dateRange && dateRange.start) {
-      dateFilter = ` AND updated >= "${dateRange.start}"`;
-    }
-    if (dateRange && dateRange.end) {
-      dateFilter += ` AND updated <= "${dateRange.end}"`;
+    // Filter locally by date range (updated)
+    // Use the fetched issues directly as they now contain all necessary fields
+    let userIssuesInDateRange = allIssues;
+    if (dateRange && (dateRange.start || dateRange.end)) {
+      userIssuesInDateRange = allIssues.filter(issue => {
+        const updated = new Date(issue.fields.updated);
+        if (dateRange.start && updated < new Date(dateRange.start)) return false;
+        if (dateRange.end && updated > new Date(dateRange.end)) return false;
+        return true;
+      });
     }
 
-    const baseQueries = [
-      `assignee = currentUser()${dateFilter}`,
-      currentUserEmail ? `assignee = "${currentUserEmail}"${dateFilter}` : null,
-      currentUserAccountId ? `assignee = ${currentUserAccountId}${dateFilter}` : null
-    ].filter(Boolean);
-    
-    const jqlQueries = baseQueries.map(base => `${base} ORDER BY updated DESC`);
+    // We skip the dynamic field discovery and rely on the robust exhaustive field list in getAllIssues
+    // and the fallback methods in extractEpicKey (which check all fields)
 
-    // Build fields list - include the discovered epic link field if found
-    const requiredFields = [
-      'key', 'summary', 'status', 'created', 'updated', 'resolutiondate',
-      'issuetype', 'project', 'timespent', 'timeoriginalestimate',
-      'assignee', 'reporter', 'priority',
-      'customfield_10105', 'customfield_10020', 'customfield_10007', 'customfield_10000', // Sprint fields
-      'customfield_10106', 'customfield_21766', 'customfield_10016', 'customfield_10021', // Story point fields
-      'customfield_10002', 'customfield_10004',
-      'customfield_10011', 'customfield_10014', 'customfield_10015', 'customfield_10008', 'customfield_10009', 'customfield_10010', // Common epic link fields
-      'parent', 'epicLink', 'epicName' // Epic fields
-    ];
-    
-    // Add discovered epic link field if found
-    if (epicLinkFieldId && !requiredFields.includes(epicLinkFieldId)) {
-      requiredFields.push(epicLinkFieldId);
-    }
-
-    let jqlIndex = 0;
-    while (hasMore && jqlIndex < jqlQueries.length) {
-      try {
-        const jql = jqlQueries[jqlIndex];
-        const response = await jiraApi.post('/rest/api/2/search', {
-          jql: jql,
-          startAt: startAt,
-          maxResults: maxResults,
-          fields: requiredFields,
-          expand: ['names', 'parent'] // Expand parent to get full details
-        });
-
-        const issues = response.data?.issues || [];
-        if (issues.length === 0) {
-          hasMore = false;
-        } else {
-          userIssuesInDateRange.push(...issues);
-          startAt += maxResults;
-          
-          if (issues.length < maxResults || userIssuesInDateRange.length >= (response.data?.total || 0)) {
-            hasMore = false;
-          }
-        }
-              } catch (error) {
-        if (error.response?.status === 403 && jqlIndex < jqlQueries.length - 1) {
-          jqlIndex++;
-          startAt = 0;
-                continue;
-              }
-        console.error('Error fetching user issues:', error.message);
-        hasMore = false;
-      }
-    }
-    
-    // If we still don't have the epic link field ID, try getting it from editmeta of first issue
-    if (!epicLinkFieldId && userIssuesInDateRange.length > 0) {
-      try {
-        const firstIssue = userIssuesInDateRange[0];
-        const editmetaResponse = await jiraApi.get(`/rest/api/2/issue/${firstIssue.key}/editmeta`);
-        const editmetaFields = editmetaResponse.data?.fields || {};
-        
-        // Look for epic link field in editmeta
-        for (const [fieldId, fieldMeta] of Object.entries(editmetaFields)) {
-          if (fieldMeta.name === 'Epic Link' || fieldMeta.name === 'Parent' ||
-              (fieldMeta.name && fieldMeta.name.toLowerCase().includes('epic'))) {
-            epicLinkFieldId = fieldId;
-            break;
-        }
-      }
-    } catch (error) {
-        // Silently fail
-      }
-    }
     
     if (userIssuesInDateRange.length === 0) {
       return {
@@ -1776,6 +1508,7 @@ async function getProjectsByEpic(dateRange = null) {
     const issuesWithoutEpic = [];
     const userIssueKeys = new Set(userIssuesFiltered.map(i => i.key));
     
+    const epicLinkFieldId = null; // Defined to satisfy legacy check
     // Helper to extract epic key from an issue
     function extractEpicKey(issue) {
       if (!issue || !issue.fields) return null;
@@ -1792,19 +1525,19 @@ async function getProjectsByEpic(dateRange = null) {
       }
       
       // Method 2: Check parent field (expanded)
+      // Accept any parent - in Jira, parent could be Epic, Story, Feature, etc.
+      // We'll resolve to the top-level epic later if needed
       if (issue.fields.parent) {
         const parent = issue.fields.parent;
         let parentKey = null;
-        let parentType = null;
         
         if (typeof parent === 'string') {
           parentKey = parent;
         } else if (parent.key) {
           parentKey = parent.key;
-          parentType = parent.fields?.issuetype?.name || parent.issuetype?.name;
         }
         
-        if (parentKey && (!parentType || parentType === 'Epic')) {
+        if (parentKey && /^[A-Z]+-\d+$/.test(parentKey)) {
           return parentKey;
         }
       }
@@ -1822,6 +1555,7 @@ async function getProjectsByEpic(dateRange = null) {
       
       // Method 4: Check common epic link custom fields
       const epicLinkFields = [
+        'customfield_10101', // Disney Jira epic link field
         'customfield_10011', 'customfield_10014', 'customfield_10015',
         'customfield_10008', 'customfield_10009', 'customfield_10010',
         'customfield_10007' // Common one
@@ -1855,8 +1589,15 @@ async function getProjectsByEpic(dateRange = null) {
       return null;
     }
     
-    // Extract epic keys from user's issues
+    // Extract epic keys from user's issues (exclude Epic type issues - we only want child issues)
     for (const issue of userIssuesFiltered) {
+      const issueType = issue.fields?.issuetype?.name;
+      
+      // Skip Epic type issues - we want epics the user has WORK in, not epics assigned to them
+      if (issueType === 'Epic') {
+        continue;
+      }
+      
       const epicKey = extractEpicKey(issue);
       if (epicKey) {
         epicKeysSet.add(epicKey);
@@ -1944,9 +1685,12 @@ async function getProjectsByEpic(dateRange = null) {
       };
     }
     
-    // Format issues without epics
+    // Format issues without epics (exclude User Stories and Epics)
     const formattedIssuesWithoutEpic = issuesWithoutEpic
-      .filter(issue => issue.fields?.issuetype?.name !== 'User Story')
+      .filter(issue => {
+        const issueType = issue.fields?.issuetype?.name;
+        return issueType !== 'User Story' && issueType !== 'Epic';
+      })
       .map(formatIssue);
     
     if (epicKeys.length === 0) {
@@ -1991,6 +1735,13 @@ async function getProjectsByEpic(dateRange = null) {
     // Group user's date-filtered issues by epic (ONLY user's issues, no additional fetching)
     const issuesByEpic = {};
     for (const issue of userIssuesFiltered) {
+      const issueType = issue.fields?.issuetype?.name;
+      
+      // Skip Epic type issues - only include actual work items
+      if (issueType === 'Epic') {
+        continue;
+      }
+      
       const epicKey = extractEpicKey(issue);
       if (epicKey && epicKeys.includes(epicKey)) {
         if (!issuesByEpic[epicKey]) {
