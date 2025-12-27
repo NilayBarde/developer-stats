@@ -140,21 +140,14 @@ function App() {
             {error && <div className="error-banner">{error}</div>}
 
             <div className="stats-grid">
-              {/* Combined Overview - shows as soon as any data is available */}
-              {(jiraStats || gitStats?.github || gitStats?.gitlab) ? (
-                <CombinedOverview 
-                  githubStats={gitStats?.github} 
-                  gitlabStats={gitStats?.gitlab} 
-                  jiraStats={jiraStats} 
-                />
-              ) : (
-                <div className="source-section">
-                  <Skeleton variant="text" width="200px" height="28px" />
-                  <div className="cards-grid" style={{ marginTop: '20px' }}>
-                    <Skeleton variant="stat-card" count={3} />
-                  </div>
-                </div>
-              )}
+              {/* Combined Overview - always shows, with skeletons for loading parts */}
+              <CombinedOverview 
+                githubStats={gitStats?.github} 
+                gitlabStats={gitStats?.gitlab} 
+                jiraStats={jiraStats}
+                gitLoading={gitLoading}
+                jiraLoading={jiraLoading}
+              />
 
               {/* Jira Section - loads independently */}
               {jiraLoading ? (

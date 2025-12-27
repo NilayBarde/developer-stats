@@ -183,10 +183,15 @@ async function getStats(dateRange = null) {
 
 /**
  * Fetch ALL comments made by user on MRs (both own and others')
- * Uses multiple approaches to get comprehensive data:
- * 1. User's own MRs
- * 2. MRs where user was assigned as reviewer
- * 3. Recent MRs from contributed projects
+ * OPTIMIZED: Prioritizes Events API which directly tells us which MRs user commented on,
+ * avoiding the need to scan all MRs in all projects.
+ * 
+ * Strategy:
+ * 1. Events API (primary) - Tells us exactly which MRs user commented on (last ~90 days)
+ * 2. Reviewer MRs - MRs where user was assigned as reviewer (likely commented)
+ * 3. Own MRs - User's authored MRs (might have self-comments)
+ * 
+ * We skip scanning all project MRs which was the main bottleneck.
  */
 async function getReviewComments(dateRange = null) {
   const hasCredentials = GITLAB_USERNAME && GITLAB_TOKEN && 
@@ -197,149 +202,29 @@ async function getReviewComments(dateRange = null) {
     return { totalComments: 0, mrsReviewed: 0, avgCommentsPerMR: 0, avgReviewsPerMonth: 0, byRepo: [] };
   }
 
-  const cacheKey = `gitlab-all-comments:${JSON.stringify(dateRange)}`;
+  const cacheKey = `gitlab-all-comments:v2:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log('✓ GitLab comments served from cache');
     return cached;
   }
 
-  console.log('🔷 Fetching GitLab comments (all MRs - own + others)...');
-  
-  // Get user's own MRs - we'll INCLUDE these for comment counting
-  const ownMRs = await getAllMergeRequests();
-  console.log(`    Found ${ownMRs.length} own MRs to check for comments`);
+  const startTime = Date.now();
+  console.log('🔷 Fetching GitLab comments (optimized)...');
   
   // Track all MRs we've found comments on
-  const reviewedMRs = new Map(); // key: project_id-iid, value: { projectId, mrIid, comments, createdAt }
+  const reviewedMRs = new Map();
+  const mrsToCheck = new Map();
   
-  // Approach 1: Get MRs where user is/was reviewer
-  console.log('  → Fetching MRs where user is reviewer...');
-  let reviewerMRs = [];
-  let page = 1;
-  let hasMore = true;
-  
-  while (hasMore) {
-    try {
-      const response = await gitlabApi.get('/merge_requests', {
-        params: {
-          reviewer_username: GITLAB_USERNAME,
-          state: 'all',
-          per_page: 100,
-          page,
-          scope: 'all'
-        }
-      });
-      
-      if (response.data.length === 0) {
-        hasMore = false;
-      } else {
-        reviewerMRs.push(...response.data);
-        page++;
-        if (response.data.length < 100) hasMore = false;
-        if (page > 50) hasMore = false;
-      }
-    } catch (error) {
-      console.error(`Error fetching reviewer MRs:`, error.message);
-      hasMore = false;
-    }
-  }
-  
-  console.log(`    Found ${reviewerMRs.length} MRs as reviewer`);
-  
-  // Approach 2: Get ALL accessible projects (not just contributed ones)
-  // This catches comments on MRs in projects user has access to but never authored MRs in
-  console.log('  → Fetching all accessible projects...');
-  
-  let allProjectIds = [];
-  let projectPage = 1;
-  let hasMoreProjects = true;
-  
-  while (hasMoreProjects) {
-    try {
-      const response = await gitlabApi.get('/projects', {
-        params: {
-          membership: true,
-          per_page: 100,
-          page: projectPage,
-          simple: true
-        }
-      });
-      
-      if (response.data.length === 0) {
-        hasMoreProjects = false;
-      } else {
-        allProjectIds.push(...response.data.map(p => p.id));
-        projectPage++;
-        if (response.data.length < 100) hasMoreProjects = false;
-        if (projectPage > 5) hasMoreProjects = false; // Up to 500 projects
-      }
-    } catch (error) {
-      console.error(`    Error fetching projects:`, error.message);
-      hasMoreProjects = false;
-    }
-  }
-  
-  // Also include contributed project IDs (in case membership doesn't catch all)
-  const contributedProjectIds = [...new Set(ownMRs.map(mr => mr.project_id).filter(Boolean))];
-  const uniqueProjectIds = [...new Set([...allProjectIds, ...contributedProjectIds])];
-  console.log(`    Found ${uniqueProjectIds.length} accessible projects (${allProjectIds.length} from membership + ${contributedProjectIds.length} from contributions)`);
-  
-  let recentMRs = [];
-  // Fetch MRs from each project with pagination (up to 1000 MRs per project)
-  const projectBatchSize = 5;
-  for (let i = 0; i < Math.min(uniqueProjectIds.length, 100); i += projectBatchSize) {
-    const projectBatch = uniqueProjectIds.slice(i, i + projectBatchSize);
-    
-    const batchResults = await Promise.all(projectBatch.map(async (projectId) => {
-      try {
-        // Fetch multiple pages of MRs per project
-        let projectMRs = [];
-        let mrPage = 1;
-        let hasMoreMRs = true;
-        
-        while (hasMoreMRs) {
-          const response = await gitlabApi.get(`/projects/${projectId}/merge_requests`, {
-            params: {
-              state: 'all',
-              per_page: 100,
-              page: mrPage,
-              order_by: 'updated_at',
-              sort: 'desc'
-            }
-          });
-          
-          if (response.data.length === 0) {
-            hasMoreMRs = false;
-          } else {
-            projectMRs.push(...response.data);
-            mrPage++;
-            if (response.data.length < 100) hasMoreMRs = false;
-            if (mrPage > 10) hasMoreMRs = false; // Up to 1000 MRs per project
-          }
-        }
-        
-        return projectMRs;
-      } catch {
-        return [];
-      }
-    }));
-    
-    recentMRs.push(...batchResults.flat());
-  }
-  
-  console.log(`    Found ${recentMRs.length} recent MRs from contributed projects`);
-  
-  // Approach 3: Use Events API to find MRs user commented on (catches MRs we might have missed)
-  // This is limited to ~90 days but helps for recent data
-  console.log('  → Fetching comment events from Events API...');
-  let eventMRs = [];
+  // Step 1: Events API (PRIMARY SOURCE - this is the key optimization)
+  // The Events API tells us exactly which MRs the user commented on
+  console.log('  → [1/3] Fetching comment events from Events API (primary source)...');
   let eventsPage = 1;
   let hasMoreEvents = true;
+  let eventCount = 0;
   
   while (hasMoreEvents) {
     try {
-      // Fetch all commented events, filter for MergeRequests client-side
       const response = await gitlabApi.get('/events', {
         params: {
           action: 'commented',
@@ -351,160 +236,184 @@ async function getReviewComments(dateRange = null) {
       if (response.data.length === 0) {
         hasMoreEvents = false;
       } else {
-        // Extract MR info from events (filter to MergeRequest target_type)
         for (const event of response.data) {
           if (event.target_type === 'MergeRequest' && event.project_id && event.target_iid) {
-            eventMRs.push({
-              project_id: event.project_id,
-              iid: event.target_iid,
-              title: event.target_title,
-              created_at: event.created_at,
-              updated_at: event.created_at
-            });
+            const key = `${event.project_id}-${event.target_iid}`;
+            if (!mrsToCheck.has(key)) {
+              mrsToCheck.set(key, {
+                project_id: event.project_id,
+                iid: event.target_iid,
+                title: event.target_title,
+                created_at: event.created_at,
+                _source: 'events'
+              });
+              eventCount++;
+            }
           }
         }
         eventsPage++;
         if (response.data.length < 100) hasMoreEvents = false;
-        if (eventsPage > 50) hasMoreEvents = false; // Safety limit
+        if (eventsPage > 100) hasMoreEvents = false; // Extended limit for more coverage
       }
     } catch (error) {
       console.error(`    Events API error:`, error.message);
       hasMoreEvents = false;
     }
   }
+  console.log(`    ✓ Found ${eventCount} MRs from Events API (${Date.now() - startTime}ms)`);
   
-  console.log(`    Found ${eventMRs.length} comment events from Events API`);
+  // Step 2: Reviewer MRs (user was assigned as reviewer - likely commented)
+  console.log('  → [2/3] Fetching MRs where user is reviewer...');
+  let reviewerPage = 1;
+  let hasMoreReviewer = true;
+  let reviewerCount = 0;
   
-  // Combine ALL MRs: own MRs + reviewer MRs + recent project MRs + event MRs (dedupe by key)
-  const mrsToCheck = new Map();
+  while (hasMoreReviewer) {
+    try {
+      const response = await gitlabApi.get('/merge_requests', {
+        params: {
+          reviewer_username: GITLAB_USERNAME,
+          state: 'all',
+          per_page: 100,
+          page: reviewerPage,
+          scope: 'all'
+        }
+      });
+      
+      if (response.data.length === 0) {
+        hasMoreReviewer = false;
+      } else {
+        for (const mr of response.data) {
+          const key = `${mr.project_id}-${mr.iid}`;
+          if (!mrsToCheck.has(key)) {
+            mrsToCheck.set(key, { ...mr, _source: 'reviewer' });
+            reviewerCount++;
+          }
+        }
+        reviewerPage++;
+        if (response.data.length < 100) hasMoreReviewer = false;
+        if (reviewerPage > 50) hasMoreReviewer = false;
+      }
+    } catch (error) {
+      console.error(`    Reviewer MRs error:`, error.message);
+      hasMoreReviewer = false;
+    }
+  }
+  console.log(`    ✓ Found ${reviewerCount} additional MRs as reviewer (${Date.now() - startTime}ms)`);
   
-  // Add own MRs first
-  ownMRs.forEach(mr => {
+  // Step 3: Own MRs (might have self-comments or discussions)
+  console.log('  → [3/3] Adding own MRs...');
+  const ownMRs = await getAllMergeRequests();
+  let ownCount = 0;
+  for (const mr of ownMRs) {
     const key = `${mr.project_id}-${mr.iid}`;
     if (!mrsToCheck.has(key)) {
-      mrsToCheck.set(key, mr);
+      mrsToCheck.set(key, { ...mr, _source: 'own' });
+      ownCount++;
     }
-  });
+  }
+  console.log(`    ✓ Added ${ownCount} own MRs (${Date.now() - startTime}ms)`);
   
-  // Add reviewer MRs, recent MRs, and event MRs
-  [...reviewerMRs, ...recentMRs, ...eventMRs].forEach(mr => {
-    const key = `${mr.project_id}-${mr.iid}`;
-    if (!mrsToCheck.has(key)) {
-      mrsToCheck.set(key, mr);
-    }
-  });
-  
-  console.log(`    Total unique MRs to check: ${mrsToCheck.size}`);
-  
-  // Check ALL MRs - date filtering happens at the note level, not MR level
-  // This ensures we don't miss comments on older MRs that fall within the date range
-  console.log(`  → Checking notes on ${mrsToCheck.size} MRs (no MR-level date filter)...`);
+  console.log(`  → Total unique MRs to check: ${mrsToCheck.size}`);
   
   // Fetch notes for each MR to count user's comments
+  // Use larger batch size and cache individual MR results
   const mrsArray = Array.from(mrsToCheck.values());
-  const batchSize = 30; // Process 30 MRs in parallel for speed
+  const batchSize = 50; // Increased from 30
   let processedCount = 0;
   
-  // Track monthly comments directly (each note's actual month)
+  // Track stats
   const commentsByMonth = new Map();
   const commentsByRepo = new Map();
   let totalComments = 0;
+  
+  console.log(`  → Fetching notes for ${mrsArray.length} MRs...`);
   
   for (let i = 0; i < mrsArray.length; i += batchSize) {
     const batch = mrsArray.slice(i, i + batchSize);
     
     await Promise.all(batch.map(async (mr) => {
-      try {
-        // Fetch ALL notes with pagination (some MRs have 100+ comments)
-        // Don't use activity_filter to catch all note types including discussions
-        let allNotes = [];
-        let notesPage = 1;
-        let hasMoreNotes = true;
-        
-        while (hasMoreNotes) {
+      // Check per-MR cache first
+      const mrCacheKey = `gitlab-mr-notes:${mr.project_id}-${mr.iid}`;
+      const cachedNotes = cache.get(mrCacheKey);
+      
+      let userNotes = cachedNotes;
+      
+      if (!userNotes) {
+        try {
+          // Fetch notes (usually 1 page is enough, most MRs have < 100 notes)
           const response = await gitlabApi.get(
             `/projects/${mr.project_id}/merge_requests/${mr.iid}/notes`,
-            { params: { per_page: 100, page: notesPage } }
+            { params: { per_page: 100 } }
           );
           
-          if (response.data.length === 0) {
-            hasMoreNotes = false;
-          } else {
-            allNotes.push(...response.data);
-            notesPage++;
-            if (response.data.length < 100) hasMoreNotes = false;
-            if (notesPage > 3) hasMoreNotes = false; // Up to 300 notes per MR
-          }
-        }
-        
-        // Filter to user's notes, excluding system notes manually
-        // System notes have `system: true` flag
-        const userNotes = allNotes.filter(note => 
-          note.author?.username === GITLAB_USERNAME && !note.system
-        );
-        
-        if (userNotes.length > 0) {
-          const key = `${mr.project_id}-${mr.iid}`;
+          // Filter to user's non-system notes
+          userNotes = (response.data || []).filter(note => 
+            note.author?.username === GITLAB_USERNAME && !note.system
+          );
           
-          // Apply date range filter and track each note's actual month
-          const validNotes = userNotes.filter(note => {
-            if (!dateRange?.start && !dateRange?.end) return true;
-            const noteDate = new Date(note.created_at);
-            if (dateRange.start && noteDate < new Date(dateRange.start)) return false;
-            if (dateRange.end && noteDate > new Date(dateRange.end)) return false;
-            return true;
+          // Cache for 10 minutes (individual MR cache)
+          cache.set(mrCacheKey, userNotes, 600);
+        } catch {
+          userNotes = [];
+        }
+      }
+      
+      if (userNotes.length > 0) {
+        const key = `${mr.project_id}-${mr.iid}`;
+        
+        // Apply date range filter
+        const validNotes = userNotes.filter(note => {
+          if (!dateRange?.start && !dateRange?.end) return true;
+          const noteDate = new Date(note.created_at);
+          if (dateRange.start && noteDate < new Date(dateRange.start)) return false;
+          if (dateRange.end && noteDate > new Date(dateRange.end)) return false;
+          return true;
+        });
+        
+        if (validNotes.length > 0) {
+          reviewedMRs.set(key, {
+            projectId: mr.project_id,
+            mrIid: mr.iid,
+            title: mr.title,
+            comments: validNotes.length
           });
           
-          if (validNotes.length > 0) {
-            // Track MR-level data
-            reviewedMRs.set(key, {
-              projectId: mr.project_id,
-              mrIid: mr.iid,
-              title: mr.title,
-              comments: validNotes.length
-            });
-            
-            // Track each note's actual month
-            for (const note of validNotes) {
-              const month = note.created_at?.substring(0, 7) || 'unknown';
-              if (!commentsByMonth.has(month)) {
-                commentsByMonth.set(month, 0);
-              }
-              commentsByMonth.set(month, commentsByMonth.get(month) + 1);
-            }
-            
-            // Track repo stats
-            const projectId = mr.project_id?.toString() || 'unknown';
-            if (!commentsByRepo.has(projectId)) {
-              commentsByRepo.set(projectId, { projectId, comments: 0, mrsReviewed: 0 });
-            }
-            commentsByRepo.get(projectId).comments += validNotes.length;
-            commentsByRepo.get(projectId).mrsReviewed++;
-            
-            totalComments += validNotes.length;
+          // Track each note's month
+          for (const note of validNotes) {
+            const month = note.created_at?.substring(0, 7) || 'unknown';
+            commentsByMonth.set(month, (commentsByMonth.get(month) || 0) + 1);
           }
+          
+          // Track repo stats
+          const projectId = mr.project_id?.toString() || 'unknown';
+          if (!commentsByRepo.has(projectId)) {
+            commentsByRepo.set(projectId, { projectId, comments: 0, mrsReviewed: 0 });
+          }
+          commentsByRepo.get(projectId).comments += validNotes.length;
+          commentsByRepo.get(projectId).mrsReviewed++;
+          
+          totalComments += validNotes.length;
         }
-      } catch (error) {
-        // Silently skip MRs we can't access
       }
     }));
     
     processedCount += batch.length;
-    if (processedCount % 100 === 0 || processedCount === mrsArray.length) {
-      console.log(`    Processed ${processedCount}/${mrsArray.length} MRs...`);
+    if (processedCount % 200 === 0 || processedCount === mrsArray.length) {
+      console.log(`    Processed ${processedCount}/${mrsArray.length} MRs (${Date.now() - startTime}ms)`);
     }
     
-    // Minimal delay between batches to avoid rate limiting
+    // Minimal delay between batches
     if (i + batchSize < mrsArray.length) {
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise(resolve => setTimeout(resolve, 20));
     }
   }
   
-  // Get project names for repos
+  // Get project names
   const projectIds = [...commentsByRepo.keys()].filter(id => id !== 'unknown');
   const projectNamesMap = await getProjectNames(projectIds);
 
-  // Build repo breakdown with names
+  // Build results
   const byRepo = Array.from(commentsByRepo.entries()).map(([projectId, data]) => ({
     repo: projectNamesMap.get(projectId) || projectId,
     comments: data.comments,
@@ -513,8 +422,6 @@ async function getReviewComments(dateRange = null) {
 
   const mrsReviewed = reviewedMRs.size;
   const avgCommentsPerMR = mrsReviewed > 0 ? Math.round((totalComments / mrsReviewed) * 10) / 10 : 0;
-  
-  // Calculate avg reviews per month
   const numMonths = commentsByMonth.size || 1;
   const avgReviewsPerMonth = Math.round((mrsReviewed / numMonths) * 10) / 10;
 
@@ -528,7 +435,7 @@ async function getReviewComments(dateRange = null) {
   };
 
   cache.set(cacheKey, result, 300);
-  console.log(`  ✓ ${mrsReviewed} MRs reviewed with ${totalComments} comments`);
+  console.log(`  ✓ Done: ${mrsReviewed} MRs with ${totalComments} comments (${Date.now() - startTime}ms total)`);
   
   return result;
 }

@@ -977,6 +977,11 @@ async function calculateStats(issues, dateRange = null) {
     }
   });
 
+  // Calculate total story points
+  const totalStoryPoints = filteredIssues.reduce((sum, issue) => {
+    return sum + getStoryPoints(issue);
+  }, 0);
+
   // Calculate velocity
   const velocity = calculateVelocity(filteredIssues, dateRange);
 
@@ -1006,6 +1011,7 @@ async function calculateStats(issues, dateRange = null) {
     resolved,
     inProgress,
     done,
+    totalStoryPoints,
     avgResolutionTime: Math.round(avgResolutionTime * 10) / 10,
     avgResolutionTimeCount: resolutionTimeCount, // Track how many issues were used in calculation
     byType: byType,
