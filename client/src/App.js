@@ -180,7 +180,7 @@ function App() {
                   </div>
                 </div>
               ) : (
-                <GitSection githubStats={gitStats?.github} gitlabStats={gitStats?.gitlab} />
+                <GitSection githubStats={gitStats?.github} gitlabStats={gitStats?.gitlab} reviewStats={gitStats?.reviewStats} dateRange={dateRange} />
               )}
             </div>
           </>

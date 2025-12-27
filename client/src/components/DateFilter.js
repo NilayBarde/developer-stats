@@ -36,13 +36,6 @@ function DateFilter({ value, onChange }) {
       start: workYearRanges.previous.start,
       end: workYearRanges.previous.end,
       type: 'custom'
-    },
-    {
-      label: 'Last 12 Months',
-      start: null,
-      end: null,
-      type: 'dynamic',
-      range: 'last12months'
     }
   ];
   const handleChange = (e) => {

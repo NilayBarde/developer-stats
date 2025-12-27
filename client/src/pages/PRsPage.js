@@ -8,6 +8,7 @@ import { getItemStatus, getItemRepo, getItemUrl, getMergedDate } from '../utils/
 import { createFilter, createSorter, extractFilterOptions } from '../utils/filterHelpers';
 import clientCache from '../utils/clientCache';
 import GitSection from '../components/GitSection';
+import ChartWithFallback from '../components/ChartWithFallback';
 import Skeleton from '../components/ui/Skeleton';
 import { renderErrorSection } from '../utils/sectionHelpers';
 import './PRsPage.css';
@@ -207,14 +208,14 @@ function PRsPage() {
         </div>
       ) : displayStats && (
         <div className="stats-section">
-          <GitSection githubStats={displayStats.github} gitlabStats={displayStats.gitlab} compact={true} />
+          <GitSection githubStats={displayStats.github} gitlabStats={displayStats.gitlab} reviewStats={stats?.reviewStats} dateRange={dateRange} compact={true} />
           {displayStats.github?.error && renderErrorSection('github', '', displayStats.github.error)}
           {displayStats.gitlab?.error && renderErrorSection('gitlab', '', displayStats.gitlab.error)}
           
-          {/* Repo Breakdown */}
+          {/* Repo Breakdown - Authored */}
           {(displayStats.github?.repoBreakdown?.length > 0 || displayStats.gitlab?.repoBreakdown?.length > 0) && (
             <div className="repo-breakdown-section">
-              <h2>Repository Breakdown</h2>
+              <h2>Repository Breakdown (Authored)</h2>
               <div className="repo-list">
                 {[
                   ...(displayStats.github?.repoBreakdown || []).map(r => ({ ...r, source: 'github' })),
@@ -231,6 +232,96 @@ function PRsPage() {
                       <span className="stat">{repo.total} total</span>
                       {repo.merged > 0 && <span className="stat merged">{repo.merged} merged</span>}
                       {repo.open > 0 && <span className="stat open">{repo.open} open</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Merged per Month Chart */}
+          {(displayStats?.github?.monthlyMerged || displayStats?.gitlab?.monthlyMerged) && (() => {
+            const githubMonthly = displayStats?.github?.monthlyMerged || [];
+            const gitlabMonthly = displayStats?.gitlab?.monthlyMerged || [];
+            
+            // Combine monthly data
+            const combined = {};
+            [...githubMonthly, ...gitlabMonthly].forEach(item => {
+              combined[item.month] = (combined[item.month] || 0) + item.count;
+            });
+            
+            // Filter to date range
+            const startMonth = dateRange?.start?.substring(0, 7);
+            const endMonth = dateRange?.end?.substring(0, 7);
+            
+            const monthlyData = Object.entries(combined)
+              .filter(([month]) => {
+                if (startMonth && month < startMonth) return false;
+                if (endMonth && month > endMonth) return false;
+                return true;
+              })
+              .map(([month, count]) => ({ month, count }))
+              .sort((a, b) => a.month.localeCompare(b.month));
+            
+            return monthlyData.length > 0 ? (
+              <ChartWithFallback
+                data={monthlyData}
+                title="PRs/MRs Merged per Month"
+                emptyMessage="No merged data available"
+              />
+            ) : null;
+          })()}
+          
+          {/* Review Comments Chart */}
+          {(stats?.reviewStats?.github?.monthlyComments || stats?.reviewStats?.gitlab?.monthlyComments) && (() => {
+            const githubMonthly = stats?.reviewStats?.github?.monthlyComments || {};
+            const gitlabMonthly = stats?.reviewStats?.gitlab?.monthlyComments || {};
+            const allMonths = new Set([...Object.keys(githubMonthly), ...Object.keys(gitlabMonthly)]);
+            
+            // Filter to only show months within the selected date range
+            const startMonth = dateRange?.start?.substring(0, 7);
+            const endMonth = dateRange?.end?.substring(0, 7);
+            
+            const monthlyData = Array.from(allMonths)
+              .filter(month => {
+                if (startMonth && month < startMonth) return false;
+                if (endMonth && month > endMonth) return false;
+                return true;
+              })
+              .map(month => ({
+                month,
+                count: (githubMonthly[month] || 0) + (gitlabMonthly[month] || 0)
+              }))
+              .sort((a, b) => a.month.localeCompare(b.month));
+            
+            return monthlyData.length > 0 ? (
+              <ChartWithFallback
+                data={monthlyData}
+                title="MR/PR Comments per Month"
+                emptyMessage="No comment data available"
+              />
+            ) : null;
+          })()}
+          
+          {/* Repo Breakdown - Reviews */}
+          {(stats?.reviewStats?.github?.byRepo?.length > 0 || stats?.reviewStats?.gitlab?.byRepo?.length > 0) && (
+            <div className="repo-breakdown-section">
+              <h2>Repository Breakdown (Comments)</h2>
+              <div className="repo-list">
+                {[
+                  ...(stats?.reviewStats?.github?.byRepo || []).map(r => ({ ...r, source: 'github' })),
+                  ...(stats?.reviewStats?.gitlab?.byRepo || []).map(r => ({ ...r, source: 'gitlab' }))
+                ].sort((a, b) => b.comments - a.comments).slice(0, 20).map((repo, i) => (
+                  <div key={i} className="repo-item">
+                    <div className="repo-name">
+                      <span className={`source-tag ${repo.source}`}>
+                        {repo.source === 'github' ? 'GH' : 'GL'}
+                      </span>
+                      {repo.repo}
+                    </div>
+                    <div className="repo-stats">
+                      <span className="stat">{repo.prsReviewed || repo.mrsReviewed || 0} MRs reviewed</span>
+                      <span className="stat">{repo.comments} comments</span>
                     </div>
                   </div>
                 ))}

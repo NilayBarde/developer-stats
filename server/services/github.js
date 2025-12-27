@@ -144,7 +144,179 @@ async function getAllPRsForPage(dateRange = null) {
   return prepareItemsForPage(prs, dateRange);
 }
 
+/**
+ * Fetch review comments made by user on others' PRs
+ * Uses GitHub Search API to find PRs where user commented but didn't author
+ */
+async function getReviewComments(dateRange = null) {
+  const hasCredentials = GITHUB_USERNAME && GITHUB_TOKEN && 
+                         GITHUB_USERNAME.trim() !== '' && 
+                         GITHUB_TOKEN.trim() !== '';
+  
+  if (!hasCredentials) {
+    return { totalComments: 0, prsReviewed: 0, avgCommentsPerPR: 0, avgReviewsPerMonth: 0, byRepo: [] };
+  }
+
+  const cacheKey = `github-review-comments:${JSON.stringify(dateRange)}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    console.log('✓ GitHub review comments served from cache');
+    return cached;
+  }
+
+  console.log('📦 Fetching GitHub PRs where user commented...');
+  
+  // Build search query - PRs where user is a commenter but not author
+  let query = `commenter:${GITHUB_USERNAME} type:pr -author:${GITHUB_USERNAME}`;
+  
+  // Add date range to query if specified
+  if (dateRange?.start) {
+    query += ` created:>=${dateRange.start}`;
+  }
+  if (dateRange?.end) {
+    query += ` created:<=${dateRange.end}`;
+  }
+
+  const reviewedPRs = [];
+  let page = 1;
+  let hasMore = true;
+  let totalCount = 0;
+
+  while (hasMore) {
+    try {
+      const response = await githubApi.get('/search/issues', {
+        params: {
+          q: query,
+          per_page: 100,
+          page,
+          sort: 'updated',
+          order: 'desc'
+        }
+      });
+
+      totalCount = response.data.total_count || 0;
+      
+      if (response.data.items.length === 0) {
+        hasMore = false;
+      } else {
+        reviewedPRs.push(...response.data.items);
+        page++;
+        if (response.data.items.length < 100 || reviewedPRs.length >= totalCount) {
+          hasMore = false;
+        }
+        // Limit to reasonable number of pages
+        if (page > 10) hasMore = false;
+      }
+    } catch (error) {
+      if (error.response?.status === 401) {
+        console.error('❌ GitHub authentication failed (401 Unauthorized)');
+      } else {
+        console.error('Error fetching review comments:', error.message);
+      }
+      hasMore = false;
+    }
+  }
+
+  console.log(`  ✓ Found ${reviewedPRs.length} PRs reviewed (total: ${totalCount})`);
+
+  // Group PRs by repo first (this is fast, no API calls)
+  const commentsByRepo = new Map();
+  const commentsByMonth = new Map();
+  
+  for (const pr of reviewedPRs) {
+    const repoMatch = pr.repository_url?.match(/repos\/(.+)$/);
+    const repo = repoMatch ? repoMatch[1] : 'unknown';
+    
+    if (!commentsByRepo.has(repo)) {
+      commentsByRepo.set(repo, { repo, comments: 0, prsReviewed: 0 });
+    }
+    commentsByRepo.get(repo).prsReviewed++;
+    
+    // Group by month
+    const month = pr.created_at?.substring(0, 7) || 'unknown';
+    if (!commentsByMonth.has(month)) {
+      commentsByMonth.set(month, { prs: 0, comments: 0 });
+    }
+    commentsByMonth.get(month).prs++;
+  }
+
+  // Sample a subset of PRs to estimate average comments per PR
+  // This avoids making hundreds of API calls
+  const sampleSize = Math.min(30, reviewedPRs.length);
+  const samplePRs = reviewedPRs.slice(0, sampleSize);
+  let sampleComments = 0;
+  
+  console.log(`  → Sampling ${sampleSize} PRs for comment counts...`);
+  
+  // Process in parallel batches
+  const batchSize = 5;
+  for (let i = 0; i < samplePRs.length; i += batchSize) {
+    const batch = samplePRs.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(async (pr) => {
+      try {
+        const repoMatch = pr.repository_url?.match(/repos\/(.+)$/);
+        const repo = repoMatch ? repoMatch[1] : null;
+        if (!repo) return 0;
+
+        // Fetch both review comments and issue comments
+        const [reviewCommentsRes, issueCommentsRes] = await Promise.all([
+          githubApi.get(`/repos/${repo}/pulls/${pr.number}/comments`, { params: { per_page: 100 } }).catch(() => ({ data: [] })),
+          githubApi.get(`/repos/${repo}/issues/${pr.number}/comments`, { params: { per_page: 100 } }).catch(() => ({ data: [] }))
+        ]);
+
+        const userReviewComments = (reviewCommentsRes.data || []).filter(c => c.user?.login === GITHUB_USERNAME).length;
+        const userIssueComments = (issueCommentsRes.data || []).filter(c => c.user?.login === GITHUB_USERNAME).length;
+        return userReviewComments + userIssueComments;
+      } catch {
+        return 1; // Assume at least 1 comment since they appeared in search
+      }
+    }));
+    
+    sampleComments += batchResults.reduce((sum, count) => sum + count, 0);
+    
+    // Small delay between batches
+    if (i + batchSize < samplePRs.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
+  // Estimate total comments based on sample
+  const avgCommentsPerPR = sampleSize > 0 ? Math.round((sampleComments / sampleSize) * 10) / 10 : 1;
+  const prsReviewed = reviewedPRs.length;
+  const totalComments = Math.round(prsReviewed * avgCommentsPerPR);
+  
+  // Update repo stats with estimated comments
+  const byRepo = Array.from(commentsByRepo.values()).map(r => ({
+    ...r,
+    comments: Math.round(r.prsReviewed * avgCommentsPerPR)
+  })).sort((a, b) => b.comments - a.comments);
+  
+  // Calculate avg reviews per month
+  const numMonths = commentsByMonth.size || 1;
+  const avgReviewsPerMonth = Math.round((prsReviewed / numMonths) * 10) / 10;
+  
+  console.log(`  ✓ ${prsReviewed} PRs reviewed, ~${totalComments} comments (avg ${avgCommentsPerPR}/PR)`);
+
+  const result = {
+    totalComments,
+    prsReviewed,
+    avgCommentsPerPR,
+    avgReviewsPerMonth,
+    byRepo,
+    // Estimate monthly comments based on PRs per month * avg comments per PR
+    monthlyComments: Object.fromEntries(
+      Array.from(commentsByMonth.entries()).map(([month, data]) => [month, Math.round((data.prs || 0) * avgCommentsPerPR)])
+    )
+  };
+
+  cache.set(cacheKey, result, 300);
+  console.log(`  ✓ ${prsReviewed} PRs reviewed with ${totalComments} comments`);
+  
+  return result;
+}
+
 module.exports = {
   getStats,
-  getAllPRsForPage
+  getAllPRsForPage,
+  getReviewComments
 };

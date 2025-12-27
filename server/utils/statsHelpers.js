@@ -80,8 +80,12 @@ function calculatePRStats(items, comments, dateRange, config) {
   // Average time to merge
   const avgTimeToMerge = calculateAverageTime(filteredItems, dateField, mergedField);
 
-  // Monthly stats
+  // Monthly stats (all PRs/MRs by created date)
   const monthlyItems = calculateMonthlyStats(filteredItems, dateField, dateRange);
+  
+  // Monthly merged stats (only merged items, by merge date)
+  const mergedItems = filteredItems.filter(item => isMerged(item) && item[mergedField]);
+  const monthlyMerged = calculateMonthlyStats(mergedItems, mergedField, dateRange);
 
   // Group by repository/project
   const grouped = groupByKey 
@@ -158,6 +162,7 @@ function calculatePRStats(items, comments, dateRange, config) {
     avgTimeToMerge,
     monthlyPRs: monthlyItems.monthly,
     monthlyMRs: monthlyItems.monthly, // Alias for GitLab compatibility
+    monthlyMerged: monthlyMerged.monthly, // PRs/MRs merged per month
     avgPRsPerMonth: monthlyItems.averagePerMonth,
     avgMRsPerMonth: monthlyItems.averagePerMonth, // Alias for GitLab compatibility
     grouped,

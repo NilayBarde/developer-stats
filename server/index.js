@@ -251,11 +251,13 @@ async function warmCache() {
       const rangeKey = JSON.stringify(range);
       console.log(`  - Warming for range: ${rangeKey}`);
       
-      // 1. Dashboard Stats (Parallel) - cache the combined result
-      const [githubStats, gitlabStats, jiraStats] = await Promise.allSettled([
+      // 1. Dashboard Stats (Parallel) - cache the combined result including review stats
+      const [githubStats, gitlabStats, jiraStats, githubReviews, gitlabReviews] = await Promise.allSettled([
         githubService.getStats(range),
         gitlabService.getStats(range),
-        jiraService.getStats(range)
+        jiraService.getStats(range),
+        githubService.getReviewComments(range),
+        gitlabService.getReviewComments(range)
       ]);
       
       // Cache combined stats result (matches /api/stats endpoint cache key)
@@ -267,14 +269,21 @@ async function warmCache() {
       };
       cache.set(`stats:${rangeKey}`, statsResult, 300);
       
-      // Also warm individual stats endpoints for redundancy
+      // Build review stats
+      const reviewStatsResult = {
+        github: githubReviews.status === 'fulfilled' ? githubReviews.value : { totalComments: 0, prsReviewed: 0, avgCommentsPerPR: 0, avgReviewsPerMonth: 0, byRepo: [] },
+        gitlab: gitlabReviews.status === 'fulfilled' ? gitlabReviews.value : { totalComments: 0, mrsReviewed: 0, avgCommentsPerMR: 0, avgReviewsPerMonth: 0, byRepo: [] }
+      };
+      
+      // Also warm individual stats endpoints for redundancy (including review stats)
       cache.set(`stats-git:${rangeKey}`, {
         github: statsResult.github,
         gitlab: statsResult.gitlab,
+        reviewStats: reviewStatsResult,
         timestamp: statsResult.timestamp
       }, 300);
       cache.set(`stats-jira:${rangeKey}`, statsResult.jira, 300);
-      console.log(`    ✓ Stats cached (combined + individual)`);
+      console.log(`    ✓ Stats cached (combined + individual + reviews)`);
       
       // 2. Lists (PRs, MRs, Issues)
       // We manually cache these to match the createCachedEndpoint keys
@@ -423,11 +432,17 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Clear all caches
+// Clear all caches (POST for proper API, GET for easy browser testing)
 app.post('/api/clear-cache', (req, res) => {
   cache.clear();
   console.log('🗑️ Cache cleared');
   res.json({ status: 'ok', message: 'Cache cleared' });
+});
+
+app.get('/api/clear-cache', (req, res) => {
+  cache.clear();
+  console.log('🗑️ Cache cleared (via GET)');
+  res.json({ status: 'ok', message: 'Cache cleared. Refresh the page to fetch fresh data.' });
 });
 
 // Debug endpoint
@@ -526,6 +541,10 @@ app.get('/api/stats/git', async (req, res) => {
     return res.json({
       github: mockStats.github,
       gitlab: mockStats.gitlab,
+      reviewStats: mockStats.reviewStats || {
+        github: { totalComments: 142, prsReviewed: 45, avgCommentsPerPR: 3.2, avgReviewsPerMonth: 5.6, byRepo: [] },
+        gitlab: { totalComments: 89, mrsReviewed: 32, avgCommentsPerMR: 2.8, avgReviewsPerMonth: 4.0, byRepo: [] }
+      },
       timestamp: new Date().toISOString()
     });
   }
@@ -534,37 +553,44 @@ app.get('/api/stats/git', async (req, res) => {
     const dateRange = parseDateRange(req.query);
     const rangeKey = JSON.stringify(dateRange);
     
-    // Check if combined stats cache exists (deduplication)
-    const combinedStats = cache.get(`stats:${rangeKey}`);
-    if (combinedStats) {
-      console.log('✓ stats/git served from combined stats cache');
-      setCacheHeaders(res, true);
-      return res.json({
-        github: combinedStats.github,
-        gitlab: combinedStats.gitlab,
-        timestamp: combinedStats.timestamp
-      });
-    }
-    
-    // Check own cache
+    // Check own cache first (has review stats)
     const ownCacheKey = `stats-git:${rangeKey}`;
     const cached = cache.get(ownCacheKey);
-    if (cached) {
-      console.log('✓ stats/git served from own cache');
+    if (cached && cached.reviewStats) {
+      console.log('✓ stats/git served from own cache (with reviews)');
       setCacheHeaders(res, true);
       return res.json(cached);
     }
     
-    // Fetch fresh data
+    // Check combined stats cache (may not have review stats)
+    const combinedStats = cache.get(`stats:${rangeKey}`);
+    if (combinedStats && cached?.reviewStats) {
+      console.log('✓ stats/git served from combined stats cache + review cache');
+      setCacheHeaders(res, true);
+      return res.json({
+        github: combinedStats.github,
+        gitlab: combinedStats.gitlab,
+        reviewStats: cached.reviewStats,
+        timestamp: combinedStats.timestamp
+      });
+    }
+    
+    // Fetch fresh data (including review comments)
     const startTime = Date.now();
-    const [githubStats, gitlabStats] = await Promise.allSettled([
+    const [githubStats, gitlabStats, githubReviews, gitlabReviews] = await Promise.allSettled([
       githubService.getStats(dateRange),
-      gitlabService.getStats(dateRange)
+      gitlabService.getStats(dateRange),
+      githubService.getReviewComments(dateRange),
+      gitlabService.getReviewComments(dateRange)
     ]);
     
     const result = {
       github: githubStats.status === 'fulfilled' ? githubStats.value : { error: githubStats.reason?.message },
       gitlab: gitlabStats.status === 'fulfilled' ? gitlabStats.value : { error: gitlabStats.reason?.message },
+      reviewStats: {
+        github: githubReviews.status === 'fulfilled' ? githubReviews.value : { totalComments: 0, prsReviewed: 0, avgCommentsPerPR: 0, avgReviewsPerMonth: 0, byRepo: [] },
+        gitlab: gitlabReviews.status === 'fulfilled' ? gitlabReviews.value : { totalComments: 0, mrsReviewed: 0, avgCommentsPerMR: 0, avgReviewsPerMonth: 0, byRepo: [] }
+      },
       timestamp: new Date().toISOString()
     };
     
