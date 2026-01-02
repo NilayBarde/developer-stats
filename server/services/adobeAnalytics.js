@@ -2389,7 +2389,7 @@ function inferLeagueFromContext(evar3Values, pageValues, evar67) {
     if (page.includes(':nfl:') || page.startsWith('nfl:')) return 'NFL';
     if (page.includes(':nba:') || page.startsWith('nba:')) return 'NBA';
     if (page.includes(':ncf:') || page.startsWith('ncf:')) return 'NCAAF';
-    if (page.includes(':ncb:') || page.startsWith('ncb:')) return 'NCAB';
+    if (page.includes(':ncb:') || page.startsWith('ncb:')) return 'NCB';
     if (page.includes(':nhl:') || page.startsWith('nhl:')) return 'NHL';
     if (page.includes(':mlb:') || page.startsWith('mlb:')) return 'MLB';
     if (page.includes(':soccer:') || page.startsWith('soccer:')) return 'Soccer';
@@ -3085,7 +3085,7 @@ function extractLeagueFromPage(pageName) {
   if (lower.includes(':nfl:') || lower.startsWith('nfl:')) return 'NFL';
   if (lower.includes(':nba:') || lower.startsWith('nba:')) return 'NBA';
   if (lower.includes(':ncf:') || lower.startsWith('ncf:')) return 'NCAAF';
-  if (lower.includes(':ncb:') || lower.startsWith('ncb:')) return 'NCAB';
+  if (lower.includes(':ncb:') || lower.startsWith('ncb:')) return 'NCB';
   if (lower.includes(':nhl:') || lower.startsWith('nhl:')) return 'NHL';
   if (lower.includes(':mlb:') || lower.startsWith('mlb:')) return 'MLB';
   if (lower.includes(':soccer:') || lower.startsWith('soccer:')) return 'Soccer';
@@ -3108,7 +3108,7 @@ function extractLeagueFromEvar67(evar67) {
   if (lower.includes(':nfl:') || lower.includes('espn:nfl')) return 'NFL';
   if (lower.includes(':nba:') || lower.includes('espn:nba')) return 'NBA';
   if (lower.includes(':ncf:') || lower.includes('espn:ncf')) return 'NCAAF';
-  if (lower.includes(':ncb:') || lower.includes('espn:ncb')) return 'NCAB';
+  if (lower.includes(':ncb:') || lower.includes('espn:ncb')) return 'NCB';
   if (lower.includes(':nhl:') || lower.includes('espn:nhl')) return 'NHL';
   if (lower.includes(':mlb:') || lower.includes('espn:mlb')) return 'MLB';
   if (lower.includes(':soccer:') || lower.includes('espn:soccer')) return 'Soccer';
@@ -3116,7 +3116,7 @@ function extractLeagueFromEvar67(evar67) {
   
   // Generic sport terms (ambiguous - could be multiple leagues)
   if (lower.includes(':football:')) return 'Football (NFL or NCAAF)';
-  if (lower.includes(':basketball:')) return 'Basketball (NBA or NCAB)';
+  if (lower.includes(':basketball:')) return 'Basketball (NBA or NCB)';
   
   // Scoreboard without sport
   if (lower.includes('scoreboard:draft') || lower.startsWith('scoreboard:')) return 'Scoreboard (unknown league)';

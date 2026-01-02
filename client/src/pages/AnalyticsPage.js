@@ -55,6 +55,10 @@ function AnalyticsPage() {
   const [selectedPage, setSelectedPage] = useState(null);
   const [datePreset, setDatePreset] = useState('sinceMarch'); // Default to since March 1
   const [loadProgress, setLoadProgress] = useState({ elapsed: 0, estimated: 0, phase: 'Starting...' });
+  
+  // Page type and league filters
+  const [selectedPageType, setSelectedPageType] = useState('all');
+  const [selectedLeague, setSelectedLeague] = useState('all');
 
   const pollIntervalRef = useRef(null);
   const pollCountRef = useRef(0);
@@ -368,6 +372,110 @@ function AnalyticsPage() {
   // Get current date range for display
   const currentDates = DATE_PRESETS[datePreset].getDates();
 
+  // Get available page types and leagues from data
+  const availablePageTypes = analyticsData?.grouped 
+    ? Object.entries(analyticsData.grouped).map(([key, group]) => ({ value: key, label: group.label }))
+    : [];
+  
+  const availableLeagues = analyticsData?.byLeague 
+    ? analyticsData.byLeague.map(l => ({ value: l.league, label: l.league }))
+    : [];
+
+  // Filter displayed data based on selected page type and league
+  const getFilteredData = () => {
+    if (!analyticsData) return null;
+    if (selectedPageType === 'all' && selectedLeague === 'all') return analyticsData;
+
+    // Filter projects based on selections
+    const filteredProjects = analyticsData.projects?.filter(project => {
+      const matchesPageType = selectedPageType === 'all' || project.pageType === selectedPageType;
+      const matchesLeague = selectedLeague === 'all' || project.league === selectedLeague;
+      return matchesPageType && matchesLeague;
+    });
+
+    // Rebuild grouped data from filtered projects
+    const filteredGrouped = {};
+    const pageTypeLabels = {
+      'gamecast': 'Gamecast / Match',
+      'scoreboard': 'Scoreboard', 
+      'odds': 'Odds',
+      'futures': 'Futures',
+      'fantasy': 'Fantasy',
+      'fightcenter': 'MMA Fight Center',
+      'watchespn': 'WatchESPN',
+      'schedule': 'Schedule',
+      'story': 'Stories',
+      'index': 'Index Pages',
+      'interstitial': 'Confirmation (Interstitial)',
+      'other': 'Other Pages'
+    };
+
+    filteredProjects?.forEach(project => {
+      const pageType = project.pageType || 'other';
+      if (!filteredGrouped[pageType]) {
+        filteredGrouped[pageType] = {
+          label: pageTypeLabels[pageType] || pageType,
+          totalClicks: 0,
+          pages: []
+        };
+      }
+      filteredGrouped[pageType].totalClicks += project.clicks?.totalClicks || 0;
+      filteredGrouped[pageType].pages.push({
+        page: project.epicKey,
+        label: project.label,
+        league: project.league,
+        clicks: project.clicks?.totalClicks || 0,
+        dailyClicks: project.clicks?.dailyClicks || {},
+        comparison: project.clicks?.comparison
+      });
+    });
+
+    // Sort pages within each group by clicks
+    Object.values(filteredGrouped).forEach(group => {
+      group.pages.sort((a, b) => b.clicks - a.clicks);
+    });
+
+    // Calculate filtered totals
+    const totalClicks = filteredProjects?.reduce((sum, p) => sum + (p.clicks?.totalClicks || 0), 0) || 0;
+    const interstitialClicks = filteredProjects
+      ?.filter(p => p.isInterstitial)
+      .reduce((sum, p) => sum + (p.clicks?.totalClicks || 0), 0) || 0;
+    const engagementClicks = totalClicks - interstitialClicks;
+
+    // Recalculate byLeague for filtered data
+    const byLeagueMap = {};
+    filteredProjects?.filter(p => p.league && !p.isInterstitial).forEach(project => {
+      const league = project.league;
+      if (!byLeagueMap[league]) {
+        byLeagueMap[league] = { league, totalClicks: 0, pages: [] };
+      }
+      byLeagueMap[league].totalClicks += project.clicks?.totalClicks || 0;
+      byLeagueMap[league].pages.push(project.label);
+    });
+    const filteredByLeague = Object.values(byLeagueMap).sort((a, b) => b.totalClicks - a.totalClicks);
+
+    return {
+      ...analyticsData,
+      projects: filteredProjects,
+      grouped: filteredGrouped,
+      byLeague: filteredByLeague,
+      totalClicks,
+      engagementClicks,
+      interstitialClicks,
+      totalPages: filteredProjects?.length || 0
+    };
+  };
+
+  const filteredData = getFilteredData();
+
+  // Reset filters when data changes significantly
+  const handleResetFilters = () => {
+    setSelectedPageType('all');
+    setSelectedLeague('all');
+  };
+
+  const hasActiveFilters = selectedPageType !== 'all' || selectedLeague !== 'all';
+
   return (
     <div className="analytics-page">
       <nav className="breadcrumb">
@@ -408,6 +516,50 @@ function AnalyticsPage() {
         ))}
       </div>
 
+      {/* Page Type and League Filters */}
+      {!loading && analyticsData && (
+        <div className="analytics-filters">
+          <div className="filter-group">
+            <label htmlFor="pageType-filter">Page Type</label>
+            <select 
+              id="pageType-filter"
+              value={selectedPageType} 
+              onChange={(e) => setSelectedPageType(e.target.value)}
+              className="filter-select"
+            >
+              <option value="all">All Page Types</option>
+              {availablePageTypes.map(pt => (
+                <option key={pt.value} value={pt.value}>{pt.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="filter-group">
+            <label htmlFor="league-filter">League</label>
+            <select 
+              id="league-filter"
+              value={selectedLeague} 
+              onChange={(e) => setSelectedLeague(e.target.value)}
+              className="filter-select"
+            >
+              <option value="all">All Leagues</option>
+              {availableLeagues.map(l => (
+                <option key={l.value} value={l.value}>{l.label}</option>
+              ))}
+            </select>
+          </div>
+          {hasActiveFilters && (
+            <button className="filter-reset-btn" onClick={handleResetFilters}>
+              Clear Filters
+            </button>
+          )}
+          {hasActiveFilters && (
+            <span className="filter-status">
+              Showing {filteredData?.totalPages || 0} of {analyticsData?.totalPages || 0} pages
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="page-description">
         <p>
           Auto-discovered bet clicks across ESPN pages
@@ -425,6 +577,70 @@ function AnalyticsPage() {
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {/* Summary Stats - Bet Clicks by League & Click Breakdown */}
+      {!loading && filteredData && (
+        <div className="analytics-summary-section top">
+          {/* League Breakdown */}
+          {filteredData.byLeague && filteredData.byLeague.length > 0 && (
+            <div className="league-breakdown">
+              <h3>Bet Clicks by League{hasActiveFilters ? ' (Filtered)' : ''}</h3>
+              <div className="league-bars">
+                {filteredData.byLeague.map(league => (
+                  <div key={league.league} className="league-bar-item">
+                    <div className="league-label">{league.league}</div>
+                    <div className="league-bar-container">
+                      <div 
+                        className="league-bar-fill"
+                        style={{ 
+                          width: `${Math.min(100, (league.totalClicks / (filteredData.engagementClicks || filteredData.totalClicks)) * 100)}%` 
+                        }}
+                      />
+                    </div>
+                    <div className="league-clicks">{formatNumber(league.totalClicks)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Click Breakdown Card */}
+          {filteredData.totalClicks > 0 && (
+            <div className="confirmation-card">
+              <h3>Click Breakdown{hasActiveFilters ? ' (Filtered)' : ''}</h3>
+              <div className="click-breakdown">
+                <div className="breakdown-item">
+                  <div className="breakdown-bar-container">
+                    <div 
+                      className="breakdown-bar engagement"
+                      style={{ width: `${((filteredData.engagementClicks || 0) / filteredData.totalClicks) * 100}%` }}
+                    />
+                    <div 
+                      className="breakdown-bar interstitial"
+                      style={{ width: `${((filteredData.interstitialClicks || 0) / filteredData.totalClicks) * 100}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="breakdown-legend">
+                  <div className="legend-row">
+                    <span className="legend-color engagement"></span>
+                    <span className="legend-text">Content Pages</span>
+                    <span className="legend-value">{formatNumber(filteredData.engagementClicks || 0)}</span>
+                  </div>
+                  <div className="legend-row">
+                    <span className="legend-color interstitial"></span>
+                    <span className="legend-text">Interstitial Modal</span>
+                    <span className="legend-value">{formatNumber(filteredData.interstitialClicks || 0)}</span>
+                  </div>
+                </div>
+              </div>
+              <p className="confirmation-note">
+                Interstitial = disclaimer modal before leaving ESPN
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="analytics-loading-container">
@@ -465,14 +681,21 @@ function AnalyticsPage() {
           <p>No analytics configured</p>
           <p className="hint">Add project analytics in <code>server/config/projectAnalytics.json</code></p>
         </div>
+      ) : filteredData?.projects?.length === 0 ? (
+        <div className="no-data-message">
+          <p>No pages match the selected filters</p>
+          <button className="filter-reset-btn primary" onClick={handleResetFilters}>
+            Clear Filters
+          </button>
+        </div>
       ) : (
         <div className="analytics-grouped">
-          {analyticsData.grouped && Object.entries(analyticsData.grouped).map(([pageType, group]) => (
+          {filteredData?.grouped && Object.entries(filteredData.grouped).map(([pageType, group]) => (
             <PageTypeGroup
               key={pageType}
               pageType={pageType}
               group={group}
-              analyticsData={analyticsData}
+              analyticsData={filteredData}
               fullData={fullData}
               pollCount={pollCountRef.current}
               onSelectPage={setSelectedPage}
@@ -481,79 +704,15 @@ function AnalyticsPage() {
         </div>
       )}
 
-      {/* Summary Stats */}
-      {analyticsData && (
-        <div className="analytics-summary-section">
-          {/* League Breakdown */}
-          {analyticsData.byLeague && analyticsData.byLeague.length > 0 && (
-            <div className="league-breakdown">
-              <h3>Bet Clicks by League</h3>
-              <div className="league-bars">
-                {analyticsData.byLeague.map(league => (
-                  <div key={league.league} className="league-bar-item">
-                    <div className="league-label">{league.league}</div>
-                    <div className="league-bar-container">
-                      <div 
-                        className="league-bar-fill"
-                        style={{ 
-                          width: `${Math.min(100, (league.totalClicks / (analyticsData.engagementClicks || analyticsData.totalClicks)) * 100)}%` 
-                        }}
-                      />
-                    </div>
-                    <div className="league-clicks">{formatNumber(league.totalClicks)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Click Breakdown Card */}
-          {analyticsData.totalClicks > 0 && (
-            <div className="confirmation-card">
-              <h3>Click Breakdown</h3>
-              <div className="click-breakdown">
-                <div className="breakdown-item">
-                  <div className="breakdown-bar-container">
-                    <div 
-                      className="breakdown-bar engagement"
-                      style={{ width: `${((analyticsData.engagementClicks || 0) / analyticsData.totalClicks) * 100}%` }}
-                    />
-                    <div 
-                      className="breakdown-bar interstitial"
-                      style={{ width: `${((analyticsData.interstitialClicks || 0) / analyticsData.totalClicks) * 100}%` }}
-                    />
-                  </div>
-                </div>
-                <div className="breakdown-legend">
-                  <div className="legend-row">
-                    <span className="legend-color engagement"></span>
-                    <span className="legend-text">Content Pages</span>
-                    <span className="legend-value">{formatNumber(analyticsData.engagementClicks || 0)}</span>
-                  </div>
-                  <div className="legend-row">
-                    <span className="legend-color interstitial"></span>
-                    <span className="legend-text">Interstitial Modal</span>
-                    <span className="legend-value">{formatNumber(analyticsData.interstitialClicks || 0)}</span>
-                  </div>
-                </div>
-              </div>
-              <p className="confirmation-note">
-                Interstitial = disclaimer modal before leaving ESPN
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Summary Footer */}
-      {analyticsData && (
+      {filteredData && (
         <div className="analytics-summary">
           <p>
-            <strong>{analyticsData.totalPages}</strong> pages with bet clicks · 
-            <strong> {formatNumber(analyticsData.totalClicks)}</strong> total clicks · 
-            {analyticsData.dateRange?.start} to {analyticsData.dateRange?.end}
+            <strong>{filteredData.totalPages}</strong> pages with bet clicks{hasActiveFilters ? ` (${analyticsData?.totalPages} total)` : ''} · 
+            <strong> {formatNumber(filteredData.totalClicks)}</strong> total clicks · 
+            {filteredData.dateRange?.start} to {filteredData.dateRange?.end}
           </p>
-          <p className="method-note">Data source: {analyticsData.method}</p>
+          <p className="method-note">Data source: {filteredData.method}</p>
         </div>
       )}
 

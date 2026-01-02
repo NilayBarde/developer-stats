@@ -119,6 +119,92 @@
   cursor: not-allowed;
 }
 
+/* Analytics Filters (Page Type & League) */
+.analytics-filters {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  background: white;
+  padding: 16px 20px;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-group label {
+  font-size: 0.85em;
+  font-weight: 500;
+  color: #555;
+}
+
+.filter-select {
+  padding: 8px 32px 8px 12px;
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  font-size: 0.9em;
+  color: #333;
+  background: white;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  min-width: 160px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+.filter-select:hover {
+  border-color: #667eea;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
+.filter-reset-btn {
+  padding: 8px 16px;
+  border: none;
+  background: #f0f0f0;
+  border-radius: 8px;
+  font-size: 0.85em;
+  font-weight: 500;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filter-reset-btn:hover {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.filter-reset-btn.primary {
+  background: #667eea;
+  color: white;
+  margin-top: 12px;
+}
+
+.filter-reset-btn.primary:hover {
+  background: #5568d3;
+}
+
+.filter-status {
+  font-size: 0.85em;
+  color: #888;
+  padding: 6px 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
 /* Project Section */
 .project-section {
   margin-bottom: 32px;
@@ -1462,6 +1548,11 @@
   margin-bottom: 20px;
 }
 
+.analytics-summary-section.top {
+  margin-top: 0;
+  margin-bottom: 24px;
+}
+
 /* League Breakdown */
 .league-breakdown {
   background: white;
@@ -1639,6 +1730,28 @@
   
   .confirmation-stats {
     flex-wrap: wrap;
+  }
+  
+  /* Mobile filter styles */
+  .analytics-filters {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  
+  .filter-group {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+  
+  .filter-select {
+    width: 100%;
+    min-width: unset;
+  }
+  
+  .filter-status {
+    text-align: center;
   }
 }
 
