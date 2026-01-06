@@ -241,6 +241,122 @@ async function getAllIssuesForPage(dateRange = null) {
 }
 
 /**
+ * Fetch all issues for a given epic (not just user's issues)
+ * @param {string} epicKey - The epic key (e.g., "SEWEB-59921")
+ * @returns {Promise<Array>} Array of all issues in the epic
+ */
+async function getAllIssuesForEpic(epicKey) {
+  const requiredFields = [
+    'key', 'summary', 'status', 'created', 'updated', 'resolutiondate',
+    'issuetype', 'project', 'assignee', 'parent', 'epicLink', 'epicName',
+    'customfield_10101', 'customfield_10011', 'customfield_10014', 
+    'customfield_10015', 'customfield_10008', 'customfield_10009', 
+    'customfield_10010', 'customfield_10007',
+    'customfield_10106', 'customfield_21766', 'customfield_10016', 'customfield_10021' // Story point fields
+  ];
+
+  // Build JQL query to find all issues linked to this epic
+  // Try multiple ways an issue can be linked to an epic using OR
+  const epicConditions = [
+    `parent = ${epicKey}`,  // Issues with parent = epic
+    `"Epic Link" = ${epicKey}`,  // Standard epic link field
+    `epicLink = ${epicKey}`,  // Alternative epic link field
+    `customfield_10101 = ${epicKey}`,  // Disney Jira epic link field
+    `customfield_10011 = ${epicKey}`,  // Common epic link fields
+    `customfield_10014 = ${epicKey}`,
+    `customfield_10015 = ${epicKey}`,
+    `customfield_10008 = ${epicKey}`,
+    `customfield_10009 = ${epicKey}`,
+    `customfield_10010 = ${epicKey}`,
+    `customfield_10007 = ${epicKey}`
+  ];
+
+  const jql = `(${epicConditions.join(' OR ')}) AND issuetype != Epic ORDER BY updated DESC`;
+
+  const allIssues = [];
+  
+  try {
+    let startAt = 0;
+    const maxResults = 100;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const response = await jiraApi.post('/rest/api/2/search', {
+        jql: jql,
+        startAt: startAt,
+        maxResults: maxResults,
+        fields: requiredFields
+      });
+
+      if (response.data.issues && response.data.issues.length > 0) {
+        allIssues.push(...response.data.issues);
+        startAt += maxResults;
+        
+        if (response.data.issues.length < maxResults || allIssues.length >= response.data.total) {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+  } catch (error) {
+    // If the combined query fails (e.g., some fields don't exist), try individual queries
+    if (error.response?.status === 400) {
+      console.warn(`Combined JQL query failed for epic ${epicKey}, trying individual queries...`);
+      
+      // Fallback: try queries individually
+      for (const condition of epicConditions) {
+        try {
+          const fallbackJql = `${condition} AND issuetype != Epic ORDER BY updated DESC`;
+          let startAt = 0;
+          const maxResults = 100;
+          let hasMore = true;
+          
+          while (hasMore) {
+            const response = await jiraApi.post('/rest/api/2/search', {
+              jql: fallbackJql,
+              startAt: startAt,
+              maxResults: maxResults,
+              fields: requiredFields
+            });
+
+            if (response.data.issues && response.data.issues.length > 0) {
+              allIssues.push(...response.data.issues);
+              startAt += maxResults;
+              
+              if (response.data.issues.length < maxResults || allIssues.length >= response.data.total) {
+                hasMore = false;
+              }
+            } else {
+              hasMore = false;
+            }
+          }
+        } catch (fallbackError) {
+          // Continue to next condition if this one fails
+          if (fallbackError.response?.status !== 400 && fallbackError.response?.status !== 404) {
+            console.warn(`Error fetching issues for epic ${epicKey} with condition "${condition}":`, fallbackError.message);
+          }
+        }
+      }
+    } else {
+      console.warn(`Error fetching issues for epic ${epicKey}:`, error.message);
+    }
+  }
+
+  // Deduplicate issues by key
+  const uniqueIssues = [];
+  const seenKeys = new Set();
+  for (const issue of allIssues) {
+    if (!seenKeys.has(issue.key)) {
+      seenKeys.add(issue.key);
+      uniqueIssues.push(issue);
+    }
+  }
+
+  return uniqueIssues;
+}
+
+/**
  * Get projects grouped by epic
  * @param {Object|null} dateRange - Optional date range
  * @returns {Promise<Object>} Projects by epic
@@ -251,7 +367,7 @@ async function getProjectsByEpic(dateRange = null) {
   }
 
   const cache = require('../../utils/cache');
-  const cacheKey = `projects-by-epic-v2:${JSON.stringify(dateRange)}`;
+  const cacheKey = `projects-by-epic-v3:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log('✓ Projects by epic served from cache');
@@ -406,27 +522,64 @@ async function getProjectsByEpic(dateRange = null) {
       }
     }
     
-    // Fetch epic details
+    // Fetch epic details and all issues for each epic
     for (const epicKey of epicKeys) {
+      // Get user's issues for this epic
+      const userEpicIssues = issuesByEpic[epicKey] || [];
+      
+      // Fetch epic details first and save them
+      let epicName = epicKey;
+      let epicStatus = 'Unknown';
+      let epicProject = '';
+      
       try {
         const response = await jiraApi.get(`/rest/api/2/issue/${epicKey}`, {
           params: { fields: 'summary,status,project' }
         });
+        epicName = response.data.fields?.summary || epicKey;
+        epicStatus = response.data.fields?.status?.name || 'Unknown';
+        epicProject = response.data.fields?.project?.key || '';
+      } catch (error) {
+        // Epic fetch failed - try to get name from issues
+        if (userEpicIssues.length > 0) {
+          const firstIssue = userEpicIssues[0];
+          if (firstIssue.fields?.epicName) {
+            epicName = firstIssue.fields.epicName;
+          }
+          if (firstIssue.fields?.project?.key) {
+            epicProject = firstIssue.fields.project.key;
+          }
+        }
+      }
+      
+      try {
+        // Fetch ALL issues for this epic (not just user's issues)
+        const allEpicIssues = await getAllIssuesForEpic(epicKey);
         
-        const epicIssues = issuesByEpic[epicKey] || [];
-        const doneIssues = epicIssues.filter(i => i.fields?.resolutiondate || ['Done', 'Closed', 'Resolved'].includes(i.fields?.status?.name));
-        const totalPoints = epicIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
-        const completedPoints = doneIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
+        // Calculate metrics for ALL epic issues
+        const allDoneIssues = allEpicIssues.filter(i => i.fields?.resolutiondate || ['Done', 'Closed', 'Resolved'].includes(i.fields?.status?.name));
+        const epicTotalPoints = allEpicIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
+        const epicCompletedPoints = allDoneIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
         
-        // Build issue type breakdown
+        // Calculate metrics for user's issues only
+        const userDoneIssues = userEpicIssues.filter(i => i.fields?.resolutiondate || ['Done', 'Closed', 'Resolved'].includes(i.fields?.status?.name));
+        const userTotalPoints = userEpicIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
+        const userCompletedPoints = userDoneIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
+        
+        // Find most recent update date from all epic issues
+        const mostRecentUpdate = allEpicIssues.length > 0
+          ? Math.max(...allEpicIssues.map(issue => new Date(issue.fields?.updated || 0).getTime()))
+          : 0;
+        
+        // Build issue type breakdown from ALL epic issues
         const issueTypeBreakdown = {};
-        epicIssues.forEach(issue => {
+        allEpicIssues.forEach(issue => {
           const type = issue.fields?.issuetype?.name || 'Unknown';
           issueTypeBreakdown[type] = (issueTypeBreakdown[type] || 0) + 1;
         });
         
-        // Map issues to frontend expected format
-        const mappedIssues = epicIssues.map(issue => ({
+        // Map user's issues to frontend expected format
+        const mappedIssues = userEpicIssues.map(issue => ({
           key: issue.key,
           summary: issue.fields?.summary || '',
           status: issue.fields?.status?.name || 'Unknown',
@@ -435,38 +588,68 @@ async function getProjectsByEpic(dateRange = null) {
         
         epics.push({
           epicKey: epicKey,
-          epicName: response.data.fields?.summary || epicKey,
-          status: response.data.fields?.status?.name || 'Unknown',
-          project: response.data.fields?.project?.key || '',
+          epicName: epicName,
+          status: epicStatus,
+          project: epicProject,
           issues: mappedIssues,
           issueTypeBreakdown,
+          mostRecentUpdate: mostRecentUpdate,
           metrics: {
-            epicTotalIssues: epicIssues.length,
-            epicTotalPoints: totalPoints,
-            userTotalIssuesAllTime: epicIssues.length,
-            userTotalPointsAllTime: totalPoints,
-            totalIssues: epicIssues.length,
-            totalDoneIssues: doneIssues.length,
-            storyPointsCompleted: completedPoints,
-            remainingStoryPoints: totalPoints - completedPoints
+            epicTotalIssues: allEpicIssues.length,
+            epicTotalPoints: epicTotalPoints,
+            userTotalIssuesAllTime: userEpicIssues.length,
+            userTotalPointsAllTime: userTotalPoints,
+            totalIssues: allEpicIssues.length,
+            totalDoneIssues: allDoneIssues.length,
+            storyPointsCompleted: epicCompletedPoints,
+            remainingStoryPoints: epicTotalPoints - epicCompletedPoints
           }
         });
       } catch (error) {
-        // Epic not found - still include with available data
-        const epicIssues = issuesByEpic[epicKey] || [];
-        const doneIssues = epicIssues.filter(i => i.fields?.resolutiondate || ['Done', 'Closed', 'Resolved'].includes(i.fields?.status?.name));
-        const totalPoints = epicIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
-        const completedPoints = doneIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
+        // If getAllIssuesForEpic fails, still create epic with user's issues
+        let allEpicIssues = [];
+        try {
+          allEpicIssues = await getAllIssuesForEpic(epicKey);
+        } catch (epicError) {
+          // If we can't fetch all issues, use user's issues as fallback
+          allEpicIssues = userEpicIssues;
+        }
         
-        // Build issue type breakdown
+        // If epic name wasn't fetched earlier, try to get it from issues
+        if (epicName === epicKey && allEpicIssues.length > 0) {
+          const firstIssue = allEpicIssues[0];
+          if (firstIssue.fields?.epicName) {
+            epicName = firstIssue.fields.epicName;
+          }
+          if (!epicProject && firstIssue.fields?.project?.key) {
+            epicProject = firstIssue.fields.project.key;
+          }
+        }
+        
+        // Calculate metrics for ALL epic issues
+        const allDoneIssues = allEpicIssues.filter(i => i.fields?.resolutiondate || ['Done', 'Closed', 'Resolved'].includes(i.fields?.status?.name));
+        const epicTotalPoints = allEpicIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
+        const epicCompletedPoints = allDoneIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
+        
+        // Calculate metrics for user's issues only
+        const userDoneIssues = userEpicIssues.filter(i => i.fields?.resolutiondate || ['Done', 'Closed', 'Resolved'].includes(i.fields?.status?.name));
+        const userTotalPoints = userEpicIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
+        const userCompletedPoints = userDoneIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
+        
+        // Find most recent update date from all epic issues
+        const mostRecentUpdate = allEpicIssues.length > 0
+          ? Math.max(...allEpicIssues.map(issue => new Date(issue.fields?.updated || 0).getTime()))
+          : 0;
+        
+        // Build issue type breakdown from ALL epic issues
         const issueTypeBreakdown = {};
-        epicIssues.forEach(issue => {
+        allEpicIssues.forEach(issue => {
           const type = issue.fields?.issuetype?.name || 'Unknown';
           issueTypeBreakdown[type] = (issueTypeBreakdown[type] || 0) + 1;
         });
         
-        // Map issues to frontend expected format
-        const mappedIssues = epicIssues.map(issue => ({
+        // Map user's issues to frontend expected format
+        const mappedIssues = userEpicIssues.map(issue => ({
           key: issue.key,
           summary: issue.fields?.summary || '',
           status: issue.fields?.status?.name || 'Unknown',
@@ -475,27 +658,28 @@ async function getProjectsByEpic(dateRange = null) {
         
         epics.push({
           epicKey: epicKey,
-          epicName: epicKey,
-          status: 'Unknown',
-          project: '',
+          epicName: epicName,
+          status: epicStatus,
+          project: epicProject,
           issues: mappedIssues,
           issueTypeBreakdown,
+          mostRecentUpdate: mostRecentUpdate,
           metrics: {
-            epicTotalIssues: epicIssues.length,
-            epicTotalPoints: totalPoints,
-            userTotalIssuesAllTime: epicIssues.length,
-            userTotalPointsAllTime: totalPoints,
-            totalIssues: epicIssues.length,
-            totalDoneIssues: doneIssues.length,
-            storyPointsCompleted: completedPoints,
-            remainingStoryPoints: totalPoints - completedPoints
+            epicTotalIssues: allEpicIssues.length,
+            epicTotalPoints: epicTotalPoints,
+            userTotalIssuesAllTime: userEpicIssues.length,
+            userTotalPointsAllTime: userTotalPoints,
+            totalIssues: allEpicIssues.length,
+            totalDoneIssues: allDoneIssues.length,
+            storyPointsCompleted: epicCompletedPoints,
+            remainingStoryPoints: epicTotalPoints - epicCompletedPoints
           }
         });
       }
     }
     
-    // Sort epics by issue count descending
-    epics.sort((a, b) => (b.metrics?.epicTotalIssues || 0) - (a.metrics?.epicTotalIssues || 0));
+    // Sort epics by most recent ticket activity (most recent first)
+    epics.sort((a, b) => (b.mostRecentUpdate || 0) - (a.mostRecentUpdate || 0));
     
     // Map issues without epic to frontend format
     const mappedIssuesWithoutEpic = issuesWithoutEpic.slice(0, 20).map(issue => ({
