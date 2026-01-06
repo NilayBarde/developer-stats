@@ -249,7 +249,7 @@ function IssuesPage() {
       {/* Filter Info */}
       <div className="filter-info">
         <details>
-          <summary>📊 How this data is filtered</summary>
+          <summary>How this data is filtered</summary>
           <ul>
             <li><strong>Your issues only:</strong> Shows issues assigned to you</li>
             <li><strong>Date range:</strong> Issues that went "In Progress" within the selected date range</li>

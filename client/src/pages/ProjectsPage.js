@@ -115,7 +115,7 @@ function ProjectsPage() {
           {/* Filter Info */}
           <div className="filter-info">
             <details>
-              <summary>📊 How this data is filtered</summary>
+              <summary>How this data is filtered</summary>
               <ul>
                 <li><strong>Your projects:</strong> Shows all epics/projects you've contributed to</li>
                 <li><strong>Your issues only:</strong> Shows issues assigned to you within each project</li>

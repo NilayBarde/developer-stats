@@ -141,7 +141,7 @@ function LeaderboardPage() {
   };
 
   const getSortIcon = (column) => {
-    if (sortConfig.column !== column) return '↕️';
+    if (sortConfig.column !== column) return '↕';
     return sortConfig.direction === 'asc' ? '↑' : '↓';
   };
 
