@@ -36,15 +36,19 @@ async function getCurrentUser() {
   }
 }
 
-async function getAllIssues(dateRange = null) {
+async function getAllIssues(dateRange = null, options = {}) {
+  // Options:
+  // - includeAllStatuses: if true, fetch all issues (not just Done/Closed)
+  const { includeAllStatuses = false } = options;
+  
   // Check cache for raw issues (cache for 10 minutes - issues don't change that often)
   // Cache based on date range to allow faster initial loads for smaller ranges
   // Use 'jira-raw-issues' prefix to avoid collision with endpoint cache ('issues')
   const cache = require('../utils/cache');
-  const cacheKey = `jira-raw-issues:${JSON.stringify(dateRange)}`;
+  const cacheKey = `jira-raw-issues:${includeAllStatuses ? 'all' : 'resolved'}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ Raw issues served from cache');
+    console.log(`✓ Raw issues served from cache (${includeAllStatuses ? 'all statuses' : 'resolved only'})`);
     return cached;
   }
   
@@ -74,21 +78,23 @@ async function getAllIssues(dateRange = null) {
     }
   }
 
-  // Simple query: all resolved issues assigned to user
-  // Velocity calculation uses engineering-metrics formula (monthly points / 2)
-  // Note: Numbers may differ slightly from engineering-metrics CSV due to:
-  // - engineering-metrics uses specific ESPN Web project filters
-  // - This dashboard shows ALL your resolved work
-  const statusFilter = `status in (Done, Closed)`;
+  // Status filter: either all issues or just resolved
+  // When includeAllStatuses is true, fetch all assigned issues (for Projects view)
+  // When false, only fetch Done/Closed (for velocity calculations)
+  const statusFilter = includeAllStatuses 
+    ? '' // No status filter - get all issues
+    : `status in (Done, Closed)`;
 
   // Build JQL queries - try different assignee formats
   const baseQueries = [
-    `assignee = currentUser() AND ${statusFilter}`,
-    userEmail ? `assignee = "${userEmail}" AND ${statusFilter}` : null,
-    userAccountId ? `assignee = ${userAccountId} AND ${statusFilter}` : null
+    statusFilter ? `assignee = currentUser() AND ${statusFilter}` : `assignee = currentUser()`,
+    userEmail ? (statusFilter ? `assignee = "${userEmail}" AND ${statusFilter}` : `assignee = "${userEmail}"`) : null,
+    userAccountId ? (statusFilter ? `assignee = ${userAccountId} AND ${statusFilter}` : `assignee = ${userAccountId}`) : null
   ].filter(Boolean);
   
-  const jqlQueries = baseQueries.map(base => `${base} ORDER BY resolved DESC`);
+  // Order by resolved DESC for resolved issues, updated DESC for all statuses
+  const orderBy = includeAllStatuses ? 'ORDER BY updated DESC' : 'ORDER BY resolved DESC';
+  const jqlQueries = baseQueries.map(base => `${base} ${orderBy}`);
 
   // Only fetch fields we actually need to reduce payload size
   const requiredFields = [
@@ -1382,8 +1388,9 @@ async function getProjectsByEpic(dateRange = null) {
       // Silently fail - will try alternative methods
     }
 
-    // Reuse cached issues
-    const allIssues = await getAllIssues(dateRange);
+    // Reuse cached issues - include ALL statuses for projects view
+    // This ensures we get In Progress issues, not just Done/Closed
+    const allIssues = await getAllIssues(dateRange, { includeAllStatuses: true });
     
     // Filter locally by date range (updated)
     // Use the fetched issues directly as they now contain all necessary fields
