@@ -44,6 +44,8 @@ async function warmCache() {
     { start: previousStartStr, end: previousEndStr }
   ];
 
+  let detectedRateLimit = false;
+  
   try {
     for (const range of ranges) {
       const rangeKey = JSON.stringify(range);
@@ -56,6 +58,18 @@ async function warmCache() {
         githubService.getReviewComments(range),
         gitlabService.getReviewComments(range)
       ]);
+      
+      // Check if any requests hit rate limits
+      const allResults = [githubStats, gitlabStats, jiraStats, githubReviews, gitlabReviews];
+      const hasRateLimit = allResults.some(result => 
+        result.status === 'rejected' && 
+        (result.reason?.response?.status === 429 || result.reason?.message?.includes('429'))
+      );
+      
+      if (hasRateLimit && !detectedRateLimit) {
+        detectedRateLimit = true;
+        console.warn('  ⚠️ Rate limiting detected, will skip leaderboard warming');
+      }
       
       const statsResult = {
         github: githubStats.status === 'fulfilled' ? githubStats.value : { error: githubStats.reason?.message },
@@ -117,14 +131,32 @@ async function warmCache() {
         cache.set(`projects-v3:${rangeKey}`, projectsRes, 300);
       } catch (e) {
         console.error('    ❌ Error warming Projects:', e.message);
+        // Check if projects warming hit rate limits
+        if (e.message?.includes('429') || e.response?.status === 429) {
+          detectedRateLimit = true;
+          console.warn('  ⚠️ Rate limiting detected from Projects warming');
+        }
       }
       
-      try {
-        const leaderboard = await fetchLeaderboard(range, true); // Skip cache check, always fetch fresh
-        // Cache is already set inside fetchLeaderboard, but we verify it worked
-        console.log(`    ✓ Leaderboard cached (${leaderboard.length} users)`);
-      } catch (e) {
-        console.error('    ❌ Error warming Leaderboard:', e.message);
+      // Skip leaderboard warming if we've detected rate limits
+      // Leaderboard makes many API calls (30 users × 3 services = 90+ calls) and can easily hit rate limits
+      if (!detectedRateLimit) {
+        try {
+          const leaderboard = await fetchLeaderboard(range, true); // Skip cache check, always fetch fresh
+          // Cache is already set inside fetchLeaderboard, but we verify it worked
+          console.log(`    ✓ Leaderboard cached (${leaderboard.length} users)`);
+        } catch (e) {
+          // Don't fail the entire cache warming if leaderboard fails
+          // Leaderboard is expensive and can hit rate limits
+          if (e.message?.includes('429') || e.response?.status === 429) {
+            detectedRateLimit = true;
+            console.warn('    ⚠️ Leaderboard warming skipped due to rate limiting');
+          } else {
+            console.error('    ❌ Error warming Leaderboard:', e.message);
+          }
+        }
+      } else {
+        console.log('    ⏭️ Leaderboard warming skipped (rate limit detected earlier)');
       }
     }
     

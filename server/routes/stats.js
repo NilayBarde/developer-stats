@@ -386,6 +386,37 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
   // Normalize users from engineering-metrics format if needed
   const processedUsers = users.map(user => normalizeEngineeringMetricsUser(user));
   
+  // Identify the default user (the one using environment variables)
+  // This is the user whose stats are already being fetched for other pages
+  const defaultGitHubUsername = process.env.GITHUB_USERNAME?.toUpperCase();
+  const defaultGitLabUsername = process.env.GITLAB_USERNAME;
+  const defaultJiraEmail = process.env.JIRA_EMAIL;
+  
+  // Try to get default JIRA email from current user if not set
+  let resolvedDefaultJiraEmail = defaultJiraEmail;
+  if (!resolvedDefaultJiraEmail) {
+    try {
+      const { getCurrentUser } = require('../services/jira/api');
+      const currentUser = await getCurrentUser();
+      resolvedDefaultJiraEmail = currentUser?.emailAddress;
+    } catch (e) {
+      // Silently fail - we'll just check email matches
+    }
+  }
+  
+  // Helper to check if a user is the default user
+  const isDefaultUser = (user) => {
+    const githubMatch = defaultGitHubUsername && user.github?.username?.toUpperCase() === defaultGitHubUsername;
+    const gitlabMatch = defaultGitLabUsername && user.gitlab?.username === defaultGitLabUsername;
+    const jiraMatch = resolvedDefaultJiraEmail && user.jira?.email?.toLowerCase() === resolvedDefaultJiraEmail?.toLowerCase();
+    
+    // If any service matches and user doesn't have custom tokens, it's the default user
+    return (githubMatch || gitlabMatch || jiraMatch) && 
+           !user.github?.token && 
+           !user.gitlab?.token && 
+           !user.jira?.pat;
+  };
+  
   const cacheKey = `leaderboard:${users.map(u => u.id || u.github?.username || u.gitlab?.username || u.jira?.email || 'unknown').join(',')}:${rangeKey}`;
   
   if (!skipCache) {
@@ -399,41 +430,88 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
   const startTime = Date.now();
   console.log(`📊 Fetching leaderboard stats for ${processedUsers.length} users...`);
   
+  // Get cached stats for default user (already fetched for other pages)
+  const defaultUserCachedStats = cache.get(`stats:${rangeKey}`);
+  const defaultUserCachedGitStats = cache.get(`stats-git:${rangeKey}`);
+  const defaultUserCachedJiraStats = cache.get(`stats-jira:${rangeKey}`);
+  
   // Process users in batches to avoid overwhelming APIs and improve perceived performance
-  // Each batch processes in parallel, but batches run sequentially
-  const BATCH_SIZE = 10;
+  // Each batch processes in parallel, but batches run sequentially with delays
+  const BATCH_SIZE = 5; // Reduced from 10 to reduce API load
   const leaderboard = [];
+  let rateLimited = false;
   
   for (let i = 0; i < processedUsers.length; i += BATCH_SIZE) {
+    // Add delay between batches to avoid rate limiting (except for first batch)
+    if (i > 0 && !rateLimited) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay between batches
+    }
+    
     const batch = processedUsers.slice(i, i + BATCH_SIZE);
     const batchNum = Math.floor(i / BATCH_SIZE) + 1;
     const totalBatches = Math.ceil(processedUsers.length / BATCH_SIZE);
     console.log(`  Processing batch ${batchNum}/${totalBatches} (${batch.length} users)...`);
     
+    // If we're rate limited, skip remaining batches and use cached data if available
+    if (rateLimited) {
+      console.warn(`  ⚠️ Rate limited detected, skipping remaining batches`);
+      break;
+    }
+    
     // Fetch stats for batch in parallel with timeout
-    const batchPromises = batch.map(user => 
-      Promise.race([
-        fetchUserStats(user, dateRange),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Request timeout')), 30000) // 30s timeout per user
-        )
-      ]).catch(error => {
+    const batchPromises = batch.map((user, userIndex) => {
+      // Check if this is the default user - if so, use cached stats instead
+      if (isDefaultUser(user) && defaultUserCachedStats) {
+        console.log(`  ♻️ Using cached stats for default user (${user.github?.username || user.gitlab?.username || user.jira?.email})`);
         const userId = user.id || user.github?.username || user.gitlab?.username || user.jira?.email || 'unknown';
-        console.warn(`  ⚠️ Stats fetch timeout/failed for ${userId}:`, error.message);
-        return {
+        return Promise.resolve({
           user: {
             id: userId,
             githubUsername: user.github?.username,
             gitlabUsername: user.gitlab?.username,
             jiraEmail: user.jira?.email
           },
-          github: null,
-          gitlab: null,
-          jira: null,
-          errors: { general: error.message || 'Request timeout' }
-        };
-      })
-    );
+          github: defaultUserCachedStats.github,
+          gitlab: defaultUserCachedStats.gitlab,
+          jira: defaultUserCachedStats.jira || defaultUserCachedJiraStats,
+          errors: {}
+        });
+      }
+      
+      // Add small delay between users within batch to spread out requests
+      const delay = userIndex * 100; // 100ms delay between users
+      return new Promise(resolve => setTimeout(resolve, delay))
+        .then(() => Promise.race([
+          fetchUserStats(user, dateRange),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Request timeout')), 30000) // 30s timeout per user
+          )
+        ]))
+        .catch(error => {
+          const userId = user.id || user.github?.username || user.gitlab?.username || user.jira?.email || 'unknown';
+          
+          // Check if this is a rate limit error
+          if (error.response?.status === 429 || error.message?.includes('429')) {
+            rateLimited = true;
+            console.warn(`  ⚠️ Rate limited (429) detected for ${userId}, will skip remaining batches`);
+          } else {
+            console.warn(`  ⚠️ Stats fetch timeout/failed for ${userId}:`, error.message);
+          }
+          
+          return {
+            user: {
+              id: userId,
+              githubUsername: user.github?.username,
+              gitlabUsername: user.gitlab?.username,
+              jiraEmail: user.jira?.email
+            },
+            github: null,
+            gitlab: null,
+            jira: null,
+            errors: { general: error.message || 'Request timeout' }
+          };
+        });
+    });
     
     const batchResults = await Promise.allSettled(batchPromises);
     batchResults.forEach((result, index) => {
@@ -458,6 +536,11 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
     });
     
     console.log(`  ✓ Batch ${batchNum} complete (${((Date.now() - startTime) / 1000).toFixed(1)}s elapsed)`);
+    
+    // If rate limited, break out of loop
+    if (rateLimited) {
+      break;
+    }
   }
   
   cache.set(cacheKey, leaderboard, 300);
