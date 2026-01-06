@@ -416,42 +416,101 @@ async function getProjectsByEpic(dateRange = null) {
         });
         
         const epicIssues = issuesByEpic[epicKey] || [];
-        const resolvedCount = epicIssues.filter(i => i.fields?.resolutiondate).length;
+        const doneIssues = epicIssues.filter(i => i.fields?.resolutiondate || ['Done', 'Closed', 'Resolved'].includes(i.fields?.status?.name));
         const totalPoints = epicIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
+        const completedPoints = doneIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
+        
+        // Build issue type breakdown
+        const issueTypeBreakdown = {};
+        epicIssues.forEach(issue => {
+          const type = issue.fields?.issuetype?.name || 'Unknown';
+          issueTypeBreakdown[type] = (issueTypeBreakdown[type] || 0) + 1;
+        });
+        
+        // Map issues to frontend expected format
+        const mappedIssues = epicIssues.map(issue => ({
+          key: issue.key,
+          summary: issue.fields?.summary || '',
+          status: issue.fields?.status?.name || 'Unknown',
+          storyPoints: getStoryPoints(issue)
+        }));
         
         epics.push({
-          key: epicKey,
-          summary: response.data.fields?.summary || epicKey,
+          epicKey: epicKey,
+          epicName: response.data.fields?.summary || epicKey,
           status: response.data.fields?.status?.name || 'Unknown',
           project: response.data.fields?.project?.key || '',
-          issues: epicIssues,
-          issueCount: epicIssues.length,
-          resolvedCount: resolvedCount,
-          totalPoints: totalPoints
+          issues: mappedIssues,
+          issueTypeBreakdown,
+          metrics: {
+            epicTotalIssues: epicIssues.length,
+            epicTotalPoints: totalPoints,
+            userTotalIssuesAllTime: epicIssues.length,
+            userTotalPointsAllTime: totalPoints,
+            totalIssues: epicIssues.length,
+            totalDoneIssues: doneIssues.length,
+            storyPointsCompleted: completedPoints,
+            remainingStoryPoints: totalPoints - completedPoints
+          }
         });
       } catch (error) {
         // Epic not found - still include with available data
         const epicIssues = issuesByEpic[epicKey] || [];
+        const doneIssues = epicIssues.filter(i => i.fields?.resolutiondate || ['Done', 'Closed', 'Resolved'].includes(i.fields?.status?.name));
+        const totalPoints = epicIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
+        const completedPoints = doneIssues.reduce((sum, i) => sum + getStoryPoints(i), 0);
+        
+        // Build issue type breakdown
+        const issueTypeBreakdown = {};
+        epicIssues.forEach(issue => {
+          const type = issue.fields?.issuetype?.name || 'Unknown';
+          issueTypeBreakdown[type] = (issueTypeBreakdown[type] || 0) + 1;
+        });
+        
+        // Map issues to frontend expected format
+        const mappedIssues = epicIssues.map(issue => ({
+          key: issue.key,
+          summary: issue.fields?.summary || '',
+          status: issue.fields?.status?.name || 'Unknown',
+          storyPoints: getStoryPoints(issue)
+        }));
+        
         epics.push({
-          key: epicKey,
-          summary: epicKey,
+          epicKey: epicKey,
+          epicName: epicKey,
           status: 'Unknown',
           project: '',
-          issues: epicIssues,
-          issueCount: epicIssues.length,
-          resolvedCount: epicIssues.filter(i => i.fields?.resolutiondate).length,
-          totalPoints: epicIssues.reduce((sum, i) => sum + getStoryPoints(i), 0)
+          issues: mappedIssues,
+          issueTypeBreakdown,
+          metrics: {
+            epicTotalIssues: epicIssues.length,
+            epicTotalPoints: totalPoints,
+            userTotalIssuesAllTime: epicIssues.length,
+            userTotalPointsAllTime: totalPoints,
+            totalIssues: epicIssues.length,
+            totalDoneIssues: doneIssues.length,
+            storyPointsCompleted: completedPoints,
+            remainingStoryPoints: totalPoints - completedPoints
+          }
         });
       }
     }
     
     // Sort epics by issue count descending
-    epics.sort((a, b) => b.issueCount - a.issueCount);
+    epics.sort((a, b) => (b.metrics?.epicTotalIssues || 0) - (a.metrics?.epicTotalIssues || 0));
+    
+    // Map issues without epic to frontend format
+    const mappedIssuesWithoutEpic = issuesWithoutEpic.slice(0, 20).map(issue => ({
+      key: issue.key,
+      summary: issue.fields?.summary || '',
+      status: issue.fields?.status?.name || 'Unknown',
+      storyPoints: getStoryPoints(issue)
+    }));
     
     const result = {
       epics,
       issuesWithoutEpic: issuesWithoutEpic.length,
-      issuesWithoutEpicList: issuesWithoutEpic.slice(0, 20),
+      issuesWithoutEpicList: mappedIssuesWithoutEpic,
       totalEpics: epics.length
     };
     

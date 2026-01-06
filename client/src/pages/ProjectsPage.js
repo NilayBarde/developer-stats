@@ -105,9 +105,9 @@ function ProjectsPage() {
             />
             <StatsCard
               title="My Total Contribution"
-              value={`${projects.epics.reduce((sum, epic) => sum + (epic.metrics.userTotalPointsAllTime || 0), 0) + 
+              value={`${projects.epics.reduce((sum, epic) => sum + (epic.metrics?.userTotalPointsAllTime || 0), 0) + 
                      (projects.issuesWithoutEpicList || []).reduce((sum, issue) => sum + (issue.storyPoints || 0), 0)} SP`}
-              subtitle={`${projects.epics.reduce((sum, epic) => sum + (epic.metrics.userTotalIssuesAllTime || 0), 0) + (projects.issuesWithoutEpicList?.length || 0)} issues across all projects`}
+              subtitle={`${projects.epics.reduce((sum, epic) => sum + (epic.metrics?.userTotalIssuesAllTime || 0), 0) + (projects.issuesWithoutEpicList?.length || 0)} issues across all projects`}
               color="green"
             />
           </div>
@@ -161,17 +161,17 @@ function ProjectsPage() {
                       <div className="metric-item metric-epic-total">
                         <span className="metric-label">Epic Total</span>
                         <span className="metric-value">
-                          {epic.metrics.epicTotalIssues || 0} issues · {epic.metrics.epicTotalPoints || 0} SP
+                          {epic.metrics?.epicTotalIssues || 0} issues · {epic.metrics?.epicTotalPoints || 0} SP
                         </span>
                       </div>
                       <div className="metric-item metric-contribution">
                         <span className="metric-label">My Contribution</span>
                         <span className="metric-value">
-                          {epic.metrics.userTotalIssuesAllTime || 0} issues · {epic.metrics.userTotalPointsAllTime || 0} SP
+                          {epic.metrics?.userTotalIssuesAllTime || 0} issues · {epic.metrics?.userTotalPointsAllTime || 0} SP
                         </span>
                         <span className="metric-percentage">
-                          ({epic.metrics.epicTotalPoints > 0 
-                            ? Math.round(((epic.metrics.userTotalPointsAllTime || 0) / epic.metrics.epicTotalPoints) * 100) 
+                          ({epic.metrics?.epicTotalPoints > 0 
+                            ? Math.round(((epic.metrics?.userTotalPointsAllTime || 0) / epic.metrics?.epicTotalPoints) * 100) 
                             : 0}% of epic)
                         </span>
                       </div>
@@ -179,13 +179,13 @@ function ProjectsPage() {
                         <div className="metric-item">
                           <span className="metric-label">Completed</span>
                           <span className="metric-value">
-                            {epic.metrics.totalDoneIssues || 0} issues · {epic.metrics.storyPointsCompleted || 0} SP
+                            {epic.metrics?.totalDoneIssues || 0} issues · {epic.metrics?.storyPointsCompleted || 0} SP
                           </span>
                         </div>
                         <div className="metric-item">
                           <span className="metric-label">In Progress</span>
                           <span className="metric-value">
-                            {(epic.metrics.totalIssues || 0) - (epic.metrics.totalDoneIssues || 0)} issues · {epic.metrics.remainingStoryPoints || 0} SP
+                            {(epic.metrics?.totalIssues || 0) - (epic.metrics?.totalDoneIssues || 0)} issues · {epic.metrics?.remainingStoryPoints || 0} SP
                           </span>
                         </div>
                       </div>
@@ -209,8 +209,8 @@ function ProjectsPage() {
                             </a>
                             <span className="issue-summary">{issue.summary}</span>
                             <span className="issue-story-points">{issue.storyPoints > 0 ? `${issue.storyPoints} SP` : '-'}</span>
-                            <span className={`issue-status issue-status-${issue.status.toLowerCase().replace(/\s+/g, '-')}`}>
-                              {issue.status}
+                            <span className={`issue-status issue-status-${(issue.status || '').toLowerCase().replace(/\s+/g, '-')}`}>
+                              {issue.status || 'Unknown'}
                             </span>
                           </div>
                         ))}
@@ -252,8 +252,8 @@ function ProjectsPage() {
                           </a>
                           <span className="issue-summary">{issue.summary}</span>
                           <span className="issue-story-points">{issue.storyPoints > 0 ? `${issue.storyPoints} SP` : '-'}</span>
-                          <span className={`issue-status issue-status-${issue.status.toLowerCase().replace(/\s+/g, '-')}`}>
-                            {issue.status}
+                          <span className={`issue-status issue-status-${(issue.status || '').toLowerCase().replace(/\s+/g, '-')}`}>
+                            {issue.status || 'Unknown'}
                           </span>
                         </div>
                       ))}

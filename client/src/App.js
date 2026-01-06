@@ -44,8 +44,10 @@ function App() {
 
   // Fetch Jira stats (usually faster)
   const fetchJiraStats = useCallback(async () => {
+    // Always set loading to true first to show loading skeletons
+    setJiraLoading(true);
+    
     try {
-      setJiraLoading(true);
       const url = buildApiUrl('/api/stats/jira', dateRange) + mockParam;
       const response = await axios.get(url);
       setJiraStats(response.data);
@@ -74,8 +76,10 @@ function App() {
 
   // Fetch CTOI stats (matches engineering-metrics)
   const fetchCtoiStats = useCallback(async () => {
+    // Always set loading to true first to show loading skeletons
+    setCtoiLoading(true);
+    
     try {
-      setCtoiLoading(true);
       const url = buildApiUrl('/api/stats/ctoi', dateRange) + mockParam;
       const response = await axios.get(url);
       setCtoiStats(response.data);

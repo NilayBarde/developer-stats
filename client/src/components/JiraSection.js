@@ -104,8 +104,28 @@ function JiraSection({ stats, ctoiStats, compact = false, loading = false, ctoiL
           <Skeleton variant="stat-card" count={4} />
         </div>
         <div className="priority-tables-row">
-          <Skeleton variant="card" />
-          <Skeleton variant="card" />
+          <PriorityTable
+            title="Cycle Time by Priority"
+            columns={[
+              { key: 'priority', label: 'Priority', align: 'left' },
+              { key: 'days', label: 'Avg Days', align: 'center' },
+              { key: 'issues', label: 'Issues', align: 'center' }
+            ]}
+            rows={[]}
+            summary={{ label: 'Overall' }}
+            loading={true}
+          />
+          <PriorityTable
+            title="CTOI Participation"
+            columns={[
+              { key: 'priority', label: 'Priority', align: 'left' },
+              { key: 'fixed', label: 'Fixed', align: 'center' },
+              { key: 'participated', label: 'Participated', align: 'center' }
+            ]}
+            rows={[]}
+            summary={{ label: 'Total' }}
+            loading={true}
+          />
         </div>
       </div>
     );

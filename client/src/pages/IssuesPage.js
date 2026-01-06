@@ -69,16 +69,20 @@ function IssuesPage() {
 
   // Fetch stats
   const fetchStats = useCallback(async () => {
+    // Always set loading to true first to show loading skeletons
+    setStatsLoading(true);
+    
     // Check cache first
     const cached = clientCache.get('/api/stats/jira', dateRange);
     if (cached) {
+      // Small delay to show loading state even with cache
+      await new Promise(resolve => setTimeout(resolve, 100));
       setStats(cached);
       setStatsLoading(false);
       return;
     }
 
     try {
-      setStatsLoading(true);
       const response = await axios.get(buildApiUrl('/api/stats/jira', dateRange) + mockParam);
       setStats(response.data);
       clientCache.set('/api/stats/jira', dateRange, response.data);
@@ -229,25 +233,16 @@ function IssuesPage() {
       {error && <div className="error-banner">{error}</div>}
 
       {/* Stats Section */}
-      {statsLoading ? (
-        <div className="stats-section">
-          <div className="source-section">
-            <Skeleton variant="text" width="100px" height="28px" />
-            <div className="cards-grid" style={{ marginTop: '20px' }}>
-              <Skeleton variant="stat-card" count={4} />
-            </div>
-          </div>
-        </div>
-      ) : displayStats && (
+      {(statsLoading || displayStats) && (
         <div className="stats-section">
           <JiraSection 
             stats={displayStats} 
             ctoiStats={ctoiLoading ? null : ctoiStats} 
             compact={true}
-            loading={!displayStats}
+            loading={statsLoading}
             ctoiLoading={ctoiLoading}
           />
-          {renderErrorSection('jira', '', displayStats?.error)}
+          {!statsLoading && renderErrorSection('jira', '', displayStats?.error)}
         </div>
       )}
 
