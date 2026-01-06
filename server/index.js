@@ -698,6 +698,32 @@ app.get('/api/issues', (req, res, next) => {
   })(req, res, next);
 });
 
+// Get CTOI participation stats (matches engineering-metrics format)
+app.get('/api/stats/ctoi', async (req, res) => {
+  try {
+    const dateRange = parseDateRange(req.query);
+    const cacheKey = `ctoi-stats:${JSON.stringify(dateRange)}`;
+    
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      console.log('✓ CTOI stats served from cache');
+      setCacheHeaders(res, true);
+      return res.json(cached);
+    }
+    
+    const startTime = Date.now();
+    const result = await jiraService.getCTOIStats(dateRange);
+    
+    cache.set(cacheKey, result, 300);
+    console.log(`✓ CTOI stats fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    setCacheHeaders(res, false);
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching CTOI stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // (Config loaded at top of file)
 
 // Get projects grouped by epic (with optional analytics)

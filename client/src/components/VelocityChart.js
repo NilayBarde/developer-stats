@@ -20,32 +20,48 @@ const VELOCITY_BENCHMARKS = {
   TEAM_AVERAGE: 6.0
 };
 
-function VelocityChart({ sprints, title = "Velocity Over Time", showBenchmarks = false, baseUrl }) {
+function VelocityChart({ sprints, title = "Velocity Over Time", showBenchmarks = false, baseUrl, isMonthly = false }) {
   const [tooltipData, setTooltipData] = useState(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   const [isTooltipVisible, setIsTooltipVisible] = useState(false);
   const tooltipRef = useRef(null);
   const hideTimeoutRef = useRef(null);
 
-  // Sprints are already sorted oldest to newest (left to right)
+  // Detect if this is monthly data (has 'month' field or isMonthly prop)
+  const isMonthlyData = isMonthly || (sprints.length > 0 && sprints[0].month);
+
+  // Sprints/months are already sorted oldest to newest (left to right)
   const data = sprints.map((sprint, index) => {
-    const startDate = sprint.startDate ? format(new Date(sprint.startDate), 'MMM dd') : '';
-    const endDate = sprint.endDate ? format(new Date(sprint.endDate), 'MMM dd') : '';
-    const dateRange = startDate && endDate ? `${startDate} - ${endDate}` : (endDate || startDate || '');
-    const sprintNum = extractSprintNum(sprint.name);
-    // Use very compact format: Sprint number + start date only
-    const sprintLabel = sprintNum 
-      ? `S${sprintNum} ${startDate || ''}`
-      : (startDate || `S${index + 1}`);
+    let label, dateDisplay, fullName;
+    
+    if (isMonthlyData) {
+      // Monthly data format (engineering-metrics style)
+      label = sprint.name; // Already formatted as "Jan 2025"
+      dateDisplay = sprint.name;
+      fullName = sprint.name;
+    } else {
+      // Sprint data format (original)
+      const startDate = sprint.startDate ? format(new Date(sprint.startDate), 'MMM dd') : '';
+      const endDate = sprint.endDate ? format(new Date(sprint.endDate), 'MMM dd') : '';
+      dateDisplay = startDate && endDate ? `${startDate} - ${endDate}` : (endDate || startDate || '');
+      const sprintNum = extractSprintNum(sprint.name);
+      label = sprintNum 
+        ? `S${sprintNum} ${startDate || ''}`
+        : (startDate || `S${index + 1}`);
+      fullName = sprint.name || `Sprint ${index + 1}`;
+    }
     
     const dataPoint = {
-      name: sprintLabel,
+      name: label,
       points: sprint.points,
-      date: dateRange,
-      fullName: sprint.name || `Sprint ${index + 1}`,
+      approxVelocity: sprint.approxVelocity, // For monthly: points / 2
+      date: dateDisplay,
+      fullName: fullName,
       sprintName: sprint.name,
       issueKeys: sprint.issueKeys || [],
-      baseUrl: baseUrl
+      issues: sprint.issues || 0,
+      baseUrl: baseUrl,
+      isMonthly: isMonthlyData
     };
     
     // Only add benchmarks if showBenchmarks is true
@@ -143,7 +159,7 @@ function VelocityChart({ sprints, title = "Velocity Over Time", showBenchmarks =
             <Bar
               dataKey="points"
               fill="#667eea"
-              name="Story Points"
+              name={isMonthlyData ? "Monthly Story Points" : "Story Points"}
             />
             <Legend />
           </BarChart>
@@ -176,10 +192,15 @@ function VelocityChart({ sprints, title = "Velocity Over Time", showBenchmarks =
             </p>
             <p className="velocity-tooltip-points">
               Story Points: <strong>{tooltipData.points}</strong>
+              {tooltipData.isMonthly && tooltipData.approxVelocity !== undefined && (
+                <span style={{ opacity: 0.8, marginLeft: '8px' }}>
+                  (≈{tooltipData.approxVelocity}/sprint)
+                </span>
+              )}
             </p>
-            {tooltipData.date && (
+            {tooltipData.issues > 0 && (
               <p className="velocity-tooltip-date">
-                {tooltipData.date}
+                {tooltipData.issues} issues resolved
               </p>
             )}
             {tooltipData.issueKeys && tooltipData.issueKeys.length > 0 && (

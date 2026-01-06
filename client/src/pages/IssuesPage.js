@@ -16,8 +16,10 @@ import './IssuesPage.css';
 function IssuesPage() {
   const [issues, setIssues] = useState([]);
   const [stats, setStats] = useState(null);
+  const [ctoiStats, setCtoiStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [ctoiLoading, setCtoiLoading] = useState(true);
   const [error, setError] = useState(null);
   const [baseUrl, setBaseUrl] = useState(null);
   const [filters, setFilters] = useState({ status: 'all', project: 'all', sprint: 'all' });
@@ -87,10 +89,34 @@ function IssuesPage() {
     }
   }, [dateRange, mockParam]);
 
+  // Fetch CTOI stats
+  const fetchCtoiStats = useCallback(async () => {
+    // Check cache first
+    const cached = clientCache.get('/api/stats/ctoi', dateRange);
+    if (cached) {
+      setCtoiStats(cached);
+      setCtoiLoading(false);
+      return;
+    }
+
+    try {
+      setCtoiLoading(true);
+      const response = await axios.get(buildApiUrl('/api/stats/ctoi', dateRange) + mockParam);
+      setCtoiStats(response.data);
+      clientCache.set('/api/stats/ctoi', dateRange, response.data);
+    } catch (err) {
+      console.error('Error fetching CTOI stats:', err);
+      // CTOI is optional
+    } finally {
+      setCtoiLoading(false);
+    }
+  }, [dateRange, mockParam]);
+
   useEffect(() => {
     fetchIssues();
     fetchStats();
-  }, [fetchIssues, fetchStats]);
+    fetchCtoiStats();
+  }, [fetchIssues, fetchStats, fetchCtoiStats]);
 
   // Filter configuration (stable reference)
   const filterConfig = useMemo(() => ({
@@ -214,7 +240,7 @@ function IssuesPage() {
         </div>
       ) : displayStats && (
         <div className="stats-section">
-          <JiraSection stats={displayStats} compact={true} />
+          <JiraSection stats={displayStats} ctoiStats={ctoiLoading ? null : ctoiStats} compact={true} />
           {renderErrorSection('jira', '', displayStats?.error)}
         </div>
       )}

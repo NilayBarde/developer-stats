@@ -1,20 +1,104 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import StatsCard from './StatsCard';
+import PriorityTable from './PriorityTable';
 import MonthlyChart from './MonthlyChart';
 import VelocityChart from './VelocityChart';
 import ChartCard from './ChartCard';
-import BarChartCard from './BarChartCard';
 import PRList from './PRList';
-import { prepareProjectData } from '../utils/chartHelpers';
 import './JiraSection.css';
 
-function JiraSection({ stats, compact = false }) {
+/**
+ * Component to show tickets not tracked by engineering-metrics
+ */
+function UntrackedTickets({ velocity }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  if (!velocity?.monthlyVelocity) return null;
+  
+  // Collect all untracked tickets across months
+  const allUntracked = velocity.monthlyVelocity.flatMap(m => m.untracked || []);
+  
+  if (allUntracked.length === 0) return null;
+  
+  const totalPoints = allUntracked.reduce((sum, t) => sum + (t.points || 0), 0);
+  
+  return (
+    <div className="untracked-tickets-card">
+      <div 
+        className="untracked-header" 
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <span className="untracked-icon">⚠️</span>
+        <span className="untracked-title">
+          {allUntracked.length} ticket{allUntracked.length !== 1 ? 's' : ''} not tracked by engineering-metrics
+        </span>
+        <span className="untracked-points">({totalPoints} pts)</span>
+        <span className="untracked-toggle">{isExpanded ? '▼' : '▶'}</span>
+      </div>
+      
+      {isExpanded && (
+        <div className="untracked-list">
+          <p className="untracked-hint">
+            These tickets won't appear in your manager's report. Click to fix:
+          </p>
+          {allUntracked.map(ticket => (
+            <a 
+              key={ticket.key}
+              href={ticket.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="untracked-ticket"
+            >
+              <span className="ticket-key">{ticket.key}</span>
+              <span className="ticket-points">{ticket.points} pts</span>
+              <span className="ticket-reason">{ticket.reason}</span>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Monthly velocity chart (engineering-metrics style)
+ * Shows monthly story points with "approx points per sprint" (monthly / 2)
+ */
+function MonthlyVelocityChart({ velocity, baseUrl }) {
+  if (!velocity) return null;
+  
+  // Use monthlyVelocity or sprints (backward compatible)
+  const monthlyData = velocity.monthlyVelocity || velocity.sprints || [];
+  
+  if (monthlyData.length === 0) {
+    return (
+      <ChartCard title="Monthly Velocity">
+        <div className="no-data-message no-data-message-large">
+          No resolved issues found in the selected date range.
+        </div>
+      </ChartCard>
+    );
+  }
+
+  return (
+    <VelocityChart 
+      sprints={monthlyData}
+      title="Monthly Velocity (Points / 2 = Approx Per Sprint)"
+      showBenchmarks={false} 
+      baseUrl={baseUrl}
+      isMonthly={true}
+    />
+  );
+}
+
+function JiraSection({ stats, ctoiStats, compact = false }) {
   const navigate = useNavigate();
   
   if (!stats || stats.error) return null;
-
-  const projectData = prepareProjectData(stats.byProject);
+  
+  // Cycle time from engineering-metrics format (created → resolved)
+  const cycleTime = stats.cycleTime || {};
 
   return (
     <div className="source-section">
@@ -36,20 +120,70 @@ function JiraSection({ stats, compact = false }) {
           subtitle={`${stats.total || 0} issues`}
         />
         <StatsCard
-          title="Avg Resolution Time"
-          value={`${stats.avgResolutionTime || 0} days`}
-          subtitle={stats.avgResolutionTimeCount !== undefined 
-            ? `In Progress → QA Ready (${stats.avgResolutionTimeCount} issues)`
-            : "In Progress → QA Ready"}
+          title="Cycle Time (Avg)"
+          value={`${cycleTime.overall || stats.avgResolutionTime || 0} days`}
+          subtitle={`Created → Resolved (${cycleTime.counts?.total || stats.avgResolutionTimeCount || 0} issues)`}
         />
         {stats.velocity && (
           <StatsCard
-            title="Avg Velocity"
+            title="Avg Velocity / Sprint"
             value={stats.velocity.averageVelocity}
-            subtitle={`${stats.velocity.totalSprints} sprints`}
+            subtitle={`${stats.velocity.totalPoints || 0} pts across ${stats.velocity.totalMonths || 0} months`}
           />
         )}
       </div>
+      
+      {/* Compact tables for priority breakdowns */}
+      <div className="priority-tables-row">
+        {/* Cycle Time by Priority - compact table */}
+        {cycleTime.counts && (cycleTime.P1 || cycleTime.P2 || cycleTime.P3 || cycleTime.P4) && (
+          <PriorityTable
+            title="Cycle Time by Priority"
+            columns={[
+              { key: 'priority', label: 'Priority', align: 'left' },
+              { key: 'days', label: 'Avg Days', align: 'center' },
+              { key: 'issues', label: 'Issues', align: 'center' }
+            ]}
+            rows={[
+              { priority: 'P1', days: cycleTime.P1, issues: cycleTime.counts.P1 || 0 },
+              { priority: 'P2', days: cycleTime.P2, issues: cycleTime.counts.P2 || 0 },
+              { priority: 'P3', days: cycleTime.P3, issues: cycleTime.counts.P3 || 0 },
+              { priority: 'P4', days: cycleTime.P4, issues: cycleTime.counts.P4 || 0 }
+            ].filter(row => row.issues > 0)}
+            summary={{
+              label: 'Overall',
+              days: cycleTime.overall,
+              issues: cycleTime.counts.total || 0
+            }}
+          />
+        )}
+        
+        {/* CTOI Participation - compact table */}
+        {ctoiStats && (ctoiStats.fixed > 0 || ctoiStats.participated > 0) && (
+          <PriorityTable
+            title="CTOI Participation"
+            columns={[
+              { key: 'priority', label: 'Priority', align: 'left' },
+              { key: 'fixed', label: 'Fixed', align: 'center' },
+              { key: 'participated', label: 'Participated', align: 'center' }
+            ]}
+            rows={[
+              { priority: 'P1', fixed: ctoiStats.byPriority?.P1?.fixed || 0, participated: ctoiStats.byPriority?.P1?.participated || 0 },
+              { priority: 'P2', fixed: ctoiStats.byPriority?.P2?.fixed || 0, participated: ctoiStats.byPriority?.P2?.participated || 0 },
+              { priority: 'P3', fixed: ctoiStats.byPriority?.P3?.fixed || 0, participated: ctoiStats.byPriority?.P3?.participated || 0 },
+              { priority: 'P4', fixed: ctoiStats.byPriority?.P4?.fixed || 0, participated: ctoiStats.byPriority?.P4?.participated || 0 }
+            ].filter(row => row.fixed > 0 || row.participated > 0)}
+            summary={{
+              label: 'Total',
+              fixed: ctoiStats.fixed,
+              participated: ctoiStats.participated
+            }}
+          />
+        )}
+      </div>
+
+      {/* Untracked tickets warning - always show this */}
+      <UntrackedTickets velocity={stats.velocity} />
 
       {!compact && (
         <>
@@ -61,41 +195,10 @@ function JiraSection({ stats, compact = false }) {
             />
           )}
 
-
-          {/* Velocity Charts */}
-          {stats.velocity && stats.velocity.byBoard ? (
-            Object.entries(stats.velocity.byBoard).map(([boardName, boardData]) => {
-              if (!boardData.sprints || boardData.sprints.length === 0) return null;
-              return (
-                <VelocityChart 
-                  key={boardName}
-                  sprints={boardData.sprints} 
-                  title={`${boardName} Velocity Over Time`}
-                  showBenchmarks={false}
-                  baseUrl={stats.baseUrl}
-                />
-              );
-            })
-          ) : stats.velocity && stats.velocity.sprints && stats.velocity.sprints.length > 0 ? (
-            <VelocityChart sprints={stats.velocity.sprints} showBenchmarks={false} baseUrl={stats.baseUrl} />
-          ) : stats.velocity ? (
-            <ChartCard title="Velocity Over Time">
-              <div className="no-data-message no-data-message-large">
-                No sprint data available. Issues need to be assigned to sprints with start and end dates in Jira.
-              </div>
-            </ChartCard>
-          ) : null}
-
-          {/* Projects Chart */}
-          <BarChartCard
-            title="Issues by Project"
-            data={projectData}
-            xAxisKey="project"
-            bars={[
-              { dataKey: 'total', fill: '#667eea', name: 'Total' },
-              { dataKey: 'resolved', fill: '#48bb78', name: 'Resolved' },
-              { dataKey: 'open', fill: '#ed8936', name: 'Open' }
-            ]}
+          {/* Monthly Velocity Chart (engineering-metrics style) */}
+          <MonthlyVelocityChart 
+            velocity={stats.velocity} 
+            baseUrl={stats.baseUrl}
           />
 
           {/* Recent Issues List */}

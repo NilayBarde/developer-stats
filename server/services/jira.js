@@ -74,33 +74,29 @@ async function getAllIssues(dateRange = null) {
     }
   }
 
-  // Don't filter by date in JQL - we want ALL issues to capture all sprints
-  // Sprint date filtering happens later in calculateVelocity based on sprint dates
-  // This ensures sprints from before the date range are included if they overlap
-  // Apply date filter if provided (optimizes initial load)
-  // Use 'updated' to capture any issue active during the period
-  let jqlDateFilter = '';
-  if (dateRange && dateRange.start) {
-    jqlDateFilter = ` AND updated >= "${dateRange.start}"`;
-  }
-  if (dateRange && dateRange.end) {
-    jqlDateFilter += ` AND updated <= "${dateRange.end}"`;
-  }
+  // Simple query: all resolved issues assigned to user
+  // Velocity calculation uses engineering-metrics formula (monthly points / 2)
+  // Note: Numbers may differ slightly from engineering-metrics CSV due to:
+  // - engineering-metrics uses specific ESPN Web project filters
+  // - This dashboard shows ALL your resolved work
+  const statusFilter = `status in (Done, Closed)`;
 
-  // Try different JQL queries - API tokens may restrict currentUser() even if web UI allows it
+  // Build JQL queries - try different assignee formats
   const baseQueries = [
-    `assignee = currentUser()${jqlDateFilter}`, // Try currentUser() first
-    userEmail ? `assignee = "${userEmail}"${jqlDateFilter}` : null, // Fallback to email
-    userAccountId ? `assignee = ${userAccountId}${jqlDateFilter}` : null // Try accountId if available
+    `assignee = currentUser() AND ${statusFilter}`,
+    userEmail ? `assignee = "${userEmail}" AND ${statusFilter}` : null,
+    userAccountId ? `assignee = ${userAccountId} AND ${statusFilter}` : null
   ].filter(Boolean);
   
-  const jqlQueries = baseQueries.map(base => `${base} ORDER BY created DESC`);
+  const jqlQueries = baseQueries.map(base => `${base} ORDER BY resolved DESC`);
 
   // Only fetch fields we actually need to reduce payload size
   const requiredFields = [
     'key', 'summary', 'status', 'created', 'updated', 'resolutiondate',
     'issuetype', 'project', 'timespent', 'timeoriginalestimate',
     'assignee', 'reporter', 'priority', 'description',
+    'labels', 'components', // For ESPN Web scope checking
+    'customfield_10207', // Root Cause field (for CTOI scope checking)
     'customfield_10105', 'customfield_10020', 'customfield_10007', 'customfield_10000', // Sprint fields
     'customfield_10106', 'customfield_21766', 'customfield_10016', 'customfield_10021', // Story point fields
     'customfield_10002', 'customfield_10004', 'customfield_10020',
@@ -296,6 +292,107 @@ function calculateInProgressToQAReadyTime(issue) {
   }
   
   return (qaReadyTime - inProgressTime) / (1000 * 60 * 60 * 24); // days
+}
+
+/**
+ * Calculate cycle time from created to resolved (matches engineering-metrics)
+ * Returns time in days, or null if not resolved
+ */
+function calculateCreatedToResolvedTime(issue) {
+  const created = issue.fields?.created;
+  const resolved = issue.fields?.resolutiondate;
+  
+  if (!created || !resolved) {
+    return null;
+  }
+  
+  const createdDate = new Date(created);
+  const resolvedDate = new Date(resolved);
+  
+  if (isNaN(createdDate.getTime()) || isNaN(resolvedDate.getTime())) {
+    return null;
+  }
+  
+  return (resolvedDate - createdDate) / (1000 * 60 * 60 * 24); // days
+}
+
+/**
+ * Get issue priority level (P1, P2, P3, P4)
+ * Returns the priority name or 'Unknown' if not found
+ */
+function getIssuePriority(issue) {
+  const priorityName = issue.fields?.priority?.name || '';
+  
+  // Map common priority names to P1-P4
+  const normalizedPriority = priorityName.toLowerCase();
+  
+  if (normalizedPriority.includes('p1') || normalizedPriority.includes('highest') || normalizedPriority.includes('critical')) {
+    return 'P1';
+  }
+  if (normalizedPriority.includes('p2') || normalizedPriority.includes('high')) {
+    return 'P2';
+  }
+  if (normalizedPriority.includes('p3') || normalizedPriority.includes('medium') || normalizedPriority.includes('normal')) {
+    return 'P3';
+  }
+  if (normalizedPriority.includes('p4') || normalizedPriority.includes('low') || normalizedPriority.includes('lowest')) {
+    return 'P4';
+  }
+  
+  return 'Unknown';
+}
+
+/**
+ * Calculate cycle time breakdown by priority (matches engineering-metrics)
+ * Returns { P1: avgDays, P2: avgDays, P3: avgDays, P4: avgDays, overall: avgDays }
+ */
+function calculateCycleTimeByPriority(issues) {
+  const resolvedIssues = issues.filter(issue => issue.fields?.resolutiondate);
+  
+  const byPriority = {
+    P1: { times: [], count: 0 },
+    P2: { times: [], count: 0 },
+    P3: { times: [], count: 0 },
+    P4: { times: [], count: 0 }
+  };
+  
+  let allTimes = [];
+  
+  for (const issue of resolvedIssues) {
+    const cycleTime = calculateCreatedToResolvedTime(issue);
+    if (cycleTime === null) continue;
+    
+    const priority = getIssuePriority(issue);
+    
+    if (byPriority[priority]) {
+      byPriority[priority].times.push(cycleTime);
+      byPriority[priority].count++;
+    }
+    
+    allTimes.push(cycleTime);
+  }
+  
+  // Calculate averages
+  const calcAvg = (times) => {
+    if (times.length === 0) return null;
+    const sum = times.reduce((a, b) => a + b, 0);
+    return Math.round((sum / times.length) * 100) / 100; // 2 decimal places
+  };
+  
+  return {
+    P1: calcAvg(byPriority.P1.times),
+    P2: calcAvg(byPriority.P2.times),
+    P3: calcAvg(byPriority.P3.times),
+    P4: calcAvg(byPriority.P4.times),
+    overall: calcAvg(allTimes),
+    counts: {
+      P1: byPriority.P1.count,
+      P2: byPriority.P2.count,
+      P3: byPriority.P3.count,
+      P4: byPriority.P4.count,
+      total: resolvedIssues.length
+    }
+  };
 }
 
 function parseSprintString(sprintString) {
@@ -520,318 +617,205 @@ function getBoardName(sprintName, rapidViewId) {
   return 'Unknown';
 }
 
-function calculateVelocity(issues, dateRange = null) {
-  const sprintsByBoard = {}; // Group sprints by board
+/**
+ * Calculate velocity using engineering-metrics style:
+ * - Sum story points from resolved issues per month
+ * - "Approx Points Per Sprint" = monthly_points / 2 (assumes 2 sprints per month)
+ * 
+ * This matches how engineering-metrics calculates velocity for manager reports.
+ */
+/**
+ * Check if an issue is in ESPN Web scope (tracked by engineering-metrics)
+ * Returns { inScope: boolean, reason: string }
+ */
+function isInESPNWebScope(issue) {
+  const project = issue.fields?.project?.key || '';
+  const labels = issue.fields?.labels || [];
+  const rootCause = issue.fields?.customfield_10207 || issue.fields?.['Root Cause'] || ''; // Root Cause field
+  const components = (issue.fields?.components || []).map(c => c.name);
   
-  // Don't filter issues here - we want ALL issues that belong to sprints
-  // We'll filter sprints by their sprint dates later, not by issue dates
-  // This ensures sprints are included even if some issues were resolved outside the date range
-  
-  // Find sprint field ID - check multiple issues until we find one with sprint data
-  let sprintFieldId = null;
-  // Check all issues to find sprint field
-  const issuesToCheck = issues;
-  
-  // Try up to 50 issues to find one with sprint data
-  for (let i = 0; i < Math.min(50, issuesToCheck.length); i++) {
-    const issue = issuesToCheck[i];
-    
-    // Check common sprint fields first (customfield_10105 is Disney Jira sprint field)
-    const commonSprintFields = ['customfield_10105', 'customfield_10020', 'customfield_10007', 'customfield_10000'];
-    for (const fieldId of commonSprintFields) {
-      const fieldValue = issue.fields[fieldId];
-      if (fieldValue) {
-        // Check for string representation (customfield_10105 format)
-        if (typeof fieldValue === 'string' && fieldValue.includes('com.atlassian.greenhopper.service.sprint.Sprint')) {
-          sprintFieldId = fieldId;
-          break;
-        }
-        // Check if array contains sprint data
-        if (Array.isArray(fieldValue) && fieldValue.length > 0) {
-          const firstItem = fieldValue[0];
-          // Check for string representation
-          if (typeof firstItem === 'string' && firstItem.includes('com.atlassian.greenhopper.service.sprint.Sprint')) {
-            sprintFieldId = fieldId;
-            break;
-          }
-          // Check if array contains sprint-like objects
-          if (firstItem && typeof firstItem === 'object' && 
-              (firstItem.startDate || firstItem.endDate || firstItem.sprintId || 
-               firstItem.boardId || firstItem.rapidViewId ||
-               (firstItem.name && firstItem.name.toLowerCase().includes('sprint')))) {
-            sprintFieldId = fieldId;
-            break;
-          }
-        }
-      }
+  // SEWEB with SPORTSWEB label
+  if (project === 'SEWEB') {
+    const hasSportswebLabel = labels.some(l => 
+      l.toLowerCase() === 'sportsweb' || l.toLowerCase() === 'sports-web'
+    );
+    if (hasSportswebLabel) {
+      return { inScope: true, reason: null };
     }
-    
-    if (sprintFieldId) break;
-    
-    // Also try the general findSprintField function
-    const foundFieldId = findSprintField(issue);
-    if (foundFieldId && issue.fields[foundFieldId]) {
-      const sprintData = issue.fields[foundFieldId];
-      // Verify it has actual sprint data (not empty array)
-      if ((Array.isArray(sprintData) && sprintData.length > 0) || 
-          (!Array.isArray(sprintData) && sprintData !== null)) {
-        sprintFieldId = foundFieldId;
-        break;
-      }
-    }
+    return { inScope: false, reason: 'Missing SPORTSWEB label' };
   }
   
-  // Group issues by sprint - only use actual sprint data from Jira
-  // Include all issues (resolved and unresolved) to capture current sprint work
-  // If issue is in multiple sprints, assign all points to the first sprint (earliest by start date)
-  let issuesWithoutSprint = 0;
-  issues.forEach(issue => {
-    
-    const storyPoints = getStoryPoints(issue);
-    
-    const sprintField = sprintFieldId 
-      ? issue.fields[sprintFieldId]
-      : (issue.fields.customfield_10020 || issue.fields.customfield_10007);
-    
-    const sprintInfo = extractSprintInfo(sprintField, issue.fields.resolutiondate, issue.key);
-    
-    // Only process issues that have actual sprint data with dates
-    if (!sprintInfo || !sprintInfo.id || (!sprintInfo.startDate && !sprintInfo.endDate)) {
-      issuesWithoutSprint++;
-      return; // Skip issues without valid sprint data
+  // CTOI with Web root cause
+  if (project === 'CTOI') {
+    // Extract the actual root cause value (could be string or object with value property)
+    const actualRootCause = typeof rootCause === 'object' ? rootCause?.value : rootCause;
+    const isWebRootCause = actualRootCause === 'Code Defect - Client Code - Web';
+    if (isWebRootCause) {
+      return { inScope: true, reason: null };
     }
-    
-    // Require both start and end dates from Jira
-    if (!sprintInfo.startDate || !sprintInfo.endDate) {
-      issuesWithoutSprint++;
-      return; // Skip issues without complete sprint date information
-    }
-    
-    const sprintKey = `sprint-${sprintInfo.id}`;
-    const sprintName = sprintInfo.name || `Sprint ${sprintInfo.id}`;
-    const boardName = getBoardName(sprintName, sprintInfo.rapidViewId);
-    
-    // Initialize board if needed
-    if (!sprintsByBoard[boardName]) {
-      sprintsByBoard[boardName] = {};
-    }
-    
-    if (!sprintsByBoard[boardName][sprintKey]) {
-      sprintsByBoard[boardName][sprintKey] = {
-        id: sprintInfo.id,
-        name: sprintName,
-        startDate: sprintInfo.startDate,
-        endDate: sprintInfo.endDate,
-        boardName: boardName,
-        points: 0,
-        issues: 0,
-        timeSpent: 0,
-        issueKeys: [] // Track issue keys for linking
-      };
-    }
-    
-    sprintsByBoard[boardName][sprintKey].points += storyPoints;
-    sprintsByBoard[boardName][sprintKey].issues += 1;
-    sprintsByBoard[boardName][sprintKey].timeSpent += (issue.fields.timespent || 0) / 3600;
-    if (issue.key && !sprintsByBoard[boardName][sprintKey].issueKeys.includes(issue.key)) {
-      sprintsByBoard[boardName][sprintKey].issueKeys.push(issue.key);
-    }
-  });
-  
-
-  // Collect all sprints from all boards
-  const allSprints = [];
-  for (const [boardName, sprints] of Object.entries(sprintsByBoard)) {
-    for (const sprint of Object.values(sprints)) {
-      allSprints.push(sprint);
-    }
-  }
-  
-  // Filter sprints by date range if provided
-  let filteredSprints = allSprints;
-    if (dateRange) {
-    const { getDateRange } = require('../utils/dateHelpers');
-      const range = getDateRange(dateRange);
-      
-    filteredSprints = allSprints.filter(sprint => {
-        if (range.start === null && range.end === null) return true;
-        
-        const sprintStart = sprint.startDate ? new Date(sprint.startDate) : null;
-        const sprintEnd = sprint.endDate ? new Date(sprint.endDate) : null;
-        
-        if (!sprintStart && !sprintEnd) return false;
-        
-        if (range.start && range.end) {
-          const rangeStart = new Date(range.start);
-          rangeStart.setHours(0, 0, 0, 0);
-          const rangeEnd = new Date(range.end);
-          rangeEnd.setHours(23, 59, 59, 999);
-          if (sprintStart && sprintEnd) {
-            return sprintStart <= rangeEnd && sprintEnd >= rangeStart;
-          }
-          if (sprintStart) return sprintStart <= rangeEnd && sprintStart >= rangeStart;
-          if (sprintEnd) return sprintEnd >= rangeStart && sprintEnd <= rangeEnd;
-        } else if (range.start) {
-          const rangeStart = new Date(range.start);
-          rangeStart.setHours(0, 0, 0, 0);
-          if (sprintEnd) return sprintEnd >= rangeStart;
-          if (sprintStart) return sprintStart >= rangeStart;
-        } else if (range.end) {
-          const rangeEnd = new Date(range.end);
-          rangeEnd.setHours(23, 59, 59, 999);
-          if (sprintStart) return sprintStart <= rangeEnd;
-          if (sprintEnd) return sprintEnd <= rangeEnd;
-        }
-        
-        return false;
-      });
-    }
-    
-  // Group sprints by overlapping time periods
-  // Sprints that overlap in time are grouped together for averaging
-  // Uses transitive closure: if A overlaps B and B overlaps C, then A, B, C are all grouped together
-  const sprintGroups = [];
-  const sprintToGroup = new Map(); // Maps sprint ID to group index
-  
-  // Helper function to check if two sprints overlap
-  function sprintsOverlap(sprint1, sprint2) {
-    const start1 = sprint1.startDate ? new Date(sprint1.startDate) : null;
-    const end1 = sprint1.endDate ? new Date(sprint1.endDate) : null;
-    const start2 = sprint2.startDate ? new Date(sprint2.startDate) : null;
-    const end2 = sprint2.endDate ? new Date(sprint2.endDate) : null;
-    
-    if (!start1 || !end1 || !start2 || !end2) return false;
-    
-    // Sprints overlap if one starts before the other ends and vice versa
-    return start1 <= end2 && end1 >= start2;
-  }
-  
-  // Build groups using transitive closure
-  for (const sprint of filteredSprints) {
-    let assignedGroup = null;
-    
-    // Check if this sprint overlaps with any existing group
-    for (let i = 0; i < sprintGroups.length; i++) {
-      const group = sprintGroups[i];
-      // If sprint overlaps with any sprint in this group, add it to the group
-      if (group.some(existingSprint => sprintsOverlap(sprint, existingSprint))) {
-        group.push(sprint);
-        sprintToGroup.set(sprint.id, i);
-        assignedGroup = i;
-        break;
-      }
-    }
-    
-    // If no overlap found, create a new group
-    if (assignedGroup === null) {
-      sprintGroups.push([sprint]);
-      sprintToGroup.set(sprint.id, sprintGroups.length - 1);
-    }
-  }
-  
-  // Merge groups that have transitive overlaps
-  // If group A has a sprint that overlaps with group B, merge them
-  let merged = true;
-  while (merged) {
-    merged = false;
-    for (let i = 0; i < sprintGroups.length; i++) {
-      for (let j = i + 1; j < sprintGroups.length; j++) {
-        const groupI = sprintGroups[i];
-        const groupJ = sprintGroups[j];
-        
-        // Check if any sprint in group I overlaps with any sprint in group J
-        const hasOverlap = groupI.some(sprintI => 
-          groupJ.some(sprintJ => sprintsOverlap(sprintI, sprintJ))
-        );
-        
-        if (hasOverlap) {
-          // Merge group J into group I
-          sprintGroups[i] = [...groupI, ...groupJ];
-          sprintGroups.splice(j, 1);
-          merged = true;
-          break;
-        }
-      }
-      if (merged) break;
-    }
-  }
-  
-  // Calculate velocities for overlapping sprint groups
-  // For overlapping sprints, SUM their points (since work happens concurrently)
-  // Then calculate average velocity per time period
-  const boardResults = {};
-  const combinedSprintVelocities = []; // Store combined velocities for overlapping groups
-  
-  for (const group of sprintGroups) {
-    // Sort group by date
-    group.sort((a, b) => {
-      const dateA = a.endDate || a.startDate;
-      const dateB = b.endDate || b.startDate;
-      return dateA - dateB;
-    });
-    
-    // For overlapping sprints, SUM their points (work happens concurrently)
-    const combinedPoints = group.reduce((sum, sprint) => sum + (sprint.points || 0), 0);
-    
-    // Only count groups with points > 0
-    if (combinedPoints > 0) {
-      combinedSprintVelocities.push(combinedPoints);
-    }
-    
-    // Group sprints by board for display
-    for (const sprint of group) {
-      const boardName = sprint.boardName || 'Unknown';
-      if (!boardResults[boardName]) {
-        boardResults[boardName] = {
-          sprints: [],
-          averageVelocity: 0,
-          totalSprints: 0
-        };
-      }
-      boardResults[boardName].sprints.push(sprint);
-    }
-  }
-  
-  // Calculate overall average velocity from combined sprint velocities
-  // Each overlapping group counts as one sprint with summed points
-  const overallAvgVelocity = combinedSprintVelocities.length > 0
-    ? combinedSprintVelocities.reduce((a, b) => a + b, 0) / combinedSprintVelocities.length
-    : 0;
-  
-  // For each board, calculate its average (for display purposes)
-  for (const [boardName, boardData] of Object.entries(boardResults)) {
-    const boardVelocities = boardData.sprints
-      .filter(sprint => sprint.points > 0)
-      .map(sprint => sprint.points);
-    
-    const boardAvgVelocity = boardVelocities.length > 0
-      ? boardVelocities.reduce((a, b) => a + b, 0) / boardVelocities.length
-      : 0;
-    
-    boardResults[boardName] = {
-      sprints: boardData.sprints.sort((a, b) => {
-        const dateA = a.endDate || a.startDate;
-        const dateB = b.endDate || b.startDate;
-        return dateA - dateB;
-      }),
-      averageVelocity: Math.round(boardAvgVelocity * 10) / 10,
-      totalSprints: boardData.sprints.length
+    // Show what the current root cause is so user knows what to change
+    const currentValue = actualRootCause || '(not set)';
+    return { 
+      inScope: false, 
+      reason: `Root Cause is "${currentValue}" → needs "Code Defect - Client Code - Web"` 
     };
   }
   
-  // Combined average velocity (overlapping sprints are summed, then averaged)
-  const combinedAvgVelocity = Math.round(overallAvgVelocity * 10) / 10;
+  // ESPN Flagship Paywall/App Experience with ESPN Web component
+  if (project === 'EFP' || project === 'EFAE' || project === 'EFWatch') {
+    const hasWebComponent = components.includes('ESPN Web');
+    if (hasWebComponent) {
+      return { inScope: true, reason: null };
+    }
+    return { inScope: false, reason: 'Missing "ESPN Web" component' };
+  }
+  
+  // Other projects not in scope
+  return { inScope: false, reason: `Project "${project}" not in ESPN Web scope` };
+}
 
+function calculateVelocity(issues, dateRange = null) {
+  const { format } = require('date-fns');
+  
+  // Only count resolved issues (status = Done or Closed, or has resolutiondate)
+  const resolvedIssues = issues.filter(issue => {
+    const status = issue.fields?.status?.name?.toLowerCase() || '';
+    const hasResolution = !!issue.fields?.resolutiondate;
+    return hasResolution || status === 'done' || status === 'closed';
+  });
+  
+  // Track issues not in ESPN Web scope (for user awareness)
+  const untrackedByMonth = {};
+  
+  // Group resolved issues by month (using resolution date)
+  const monthlyPoints = {};
+  const monthlyIssues = {};
+  const monthlyIssueKeys = {};
+  
+  resolvedIssues.forEach(issue => {
+    // Use resolution date, fall back to updated date
+    const dateStr = issue.fields?.resolutiondate || issue.fields?.updated;
+    if (!dateStr) return;
+    
+    const date = new Date(dateStr);
+    const monthKey = format(date, 'yyyy-MM'); // e.g., "2025-01"
+    const storyPoints = getStoryPoints(issue);
+    
+    if (!monthlyPoints[monthKey]) {
+      monthlyPoints[monthKey] = 0;
+      monthlyIssues[monthKey] = 0;
+      monthlyIssueKeys[monthKey] = [];
+    }
+    
+    monthlyPoints[monthKey] += storyPoints;
+    monthlyIssues[monthKey] += 1;
+    if (issue.key) {
+      monthlyIssueKeys[monthKey].push(issue.key);
+    }
+    
+    // Track issues not in ESPN Web scope
+    const scopeCheck = isInESPNWebScope(issue);
+    if (!scopeCheck.inScope) {
+      if (!untrackedByMonth[monthKey]) {
+        untrackedByMonth[monthKey] = [];
+      }
+      untrackedByMonth[monthKey].push({
+        key: issue.key,
+        summary: issue.fields?.summary || '',
+        project: issue.fields?.project?.key || '',
+        points: storyPoints,
+        reason: scopeCheck.reason,
+        url: `https://jira.disney.com/browse/${issue.key}`
+      });
+    }
+  });
+  
+  // Filter by date range if provided
+  let filteredMonths = Object.keys(monthlyPoints);
+  if (dateRange) {
+    const { getDateRange } = require('../utils/dateHelpers');
+    const range = getDateRange(dateRange);
+    
+    if (range.start || range.end) {
+      filteredMonths = filteredMonths.filter(monthKey => {
+        const monthDate = new Date(monthKey + '-01');
+        const monthEnd = new Date(monthDate);
+        monthEnd.setMonth(monthEnd.getMonth() + 1);
+        monthEnd.setDate(0); // Last day of month
+        
+        if (range.start && range.end) {
+          const rangeStart = new Date(range.start);
+          const rangeEnd = new Date(range.end);
+          return monthDate <= rangeEnd && monthEnd >= rangeStart;
+        } else if (range.start) {
+          return monthEnd >= new Date(range.start);
+        } else if (range.end) {
+          return monthDate <= new Date(range.end);
+        }
+        return true;
+      });
+    }
+  }
+  
+  // Sort months chronologically
+  filteredMonths.sort();
+  
+  // Build monthly velocity data (formatted like sprints for chart compatibility)
+  const monthlyVelocityData = filteredMonths.map(monthKey => {
+    const points = monthlyPoints[monthKey] || 0;
+    const approxVelocity = Math.round((points / 2) * 10) / 10; // Points per sprint (assumes 2 sprints/month)
+    
+    // Parse month for display
+    const [year, month] = monthKey.split('-');
+    const monthDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+    const monthName = format(monthDate, 'MMM yyyy');
+    
+    // Get untracked issues for this month
+    const untracked = untrackedByMonth[monthKey] || [];
+    const untrackedPoints = untracked.reduce((sum, i) => sum + (i.points || 0), 0);
+    
+    return {
+      id: monthKey,
+      name: monthName,
+      month: monthKey,
+      points: points,                    // Total points for the month
+      approxVelocity: approxVelocity,    // Points / 2 (engineering-metrics style)
+      issues: monthlyIssues[monthKey] || 0,
+      issueKeys: monthlyIssueKeys[monthKey] || [],
+      // Issues not tracked by engineering-metrics (outside ESPN Web scope)
+      untracked: untracked,
+      untrackedCount: untracked.length,
+      untrackedPoints: untrackedPoints,
+      // For chart compatibility (VelocityChart expects these)
+      startDate: new Date(parseInt(year), parseInt(month) - 1, 1),
+      endDate: new Date(parseInt(year), parseInt(month), 0) // Last day of month
+    };
+  });
+  
+  // Calculate overall average velocity (engineering-metrics style: total points / 2 / months)
+  const totalPoints = filteredMonths.reduce((sum, m) => sum + (monthlyPoints[m] || 0), 0);
+  const totalMonths = filteredMonths.length;
+  
+  // Average velocity per sprint = (total points / total months) / 2
+  // Or equivalently: total points / (total months * 2)
+  const avgVelocityPerSprint = totalMonths > 0 
+    ? Math.round((totalPoints / totalMonths / 2) * 10) / 10 
+    : 0;
+  
   return {
-    byBoard: boardResults,
-    sprints: Object.values(sprintsByBoard).flatMap(sprints => Object.values(sprints)).sort((a, b) => {
-      const dateA = a.endDate || a.startDate;
-      const dateB = b.endDate || b.startDate;
-      return dateA - dateB;
-    }), // Keep for backward compatibility
-    averageVelocity: combinedAvgVelocity,
-    combinedAverageVelocity: combinedAvgVelocity, // Explicit combined average
-    totalSprints: Object.values(sprintsByBoard).reduce((sum, sprints) => sum + Object.keys(sprints).length, 0)
+    // Monthly data for charting
+    monthlyVelocity: monthlyVelocityData,
+    sprints: monthlyVelocityData, // Alias for backward compatibility with VelocityChart
+    
+    // Summary stats
+    averageVelocity: avgVelocityPerSprint,        // Avg points per sprint (engineering-metrics style)
+    combinedAverageVelocity: avgVelocityPerSprint,
+    totalPoints: totalPoints,
+    totalMonths: totalMonths,
+    totalSprints: totalMonths * 2,                // Assumed 2 sprints per month
+    
+    // Keep byBoard empty since we're not using sprint-based calculation anymore
+    byBoard: null
   };
 }
 
@@ -840,47 +824,9 @@ function calculateVelocity(issues, dateRange = null) {
 async function calculateStats(issues, dateRange = null) {
   const now = new Date();
   
-  // Filter issues by date range - use 'updated' to match issues page filtering
-  // This shows issues the user worked on during the date range
-  let filteredIssues = dateRange 
-    ? filterByDateRange(issues, 'fields.updated', dateRange)
-    : issues;
-
-  // Further filter by "In Progress" date if available (to match issues page logic)
-  // Fetch changelog for issues that need it to get "In Progress" dates
-  if (dateRange && dateRange.start) {
-    const rangeStart = new Date(dateRange.start);
-    
-    // Fetch changelog for all issues to get "In Progress" dates
-    // This ensures accurate filtering by In Progress date
-    const issuesNeedingChangelog = filteredIssues.filter(issue => !issue.changelog);
-    
-    // Fetch changelog in batches
-    const batchSize = 20;
-    for (let i = 0; i < issuesNeedingChangelog.length; i += batchSize) {
-      const batch = issuesNeedingChangelog.slice(i, i + batchSize);
-      await Promise.all(batch.map(async (issue) => {
-        try {
-          const response = await jiraApi.get(`/rest/api/2/issue/${issue.key}`, {
-            params: { expand: 'changelog' }
-          });
-          issue.changelog = response.data.changelog;
-        } catch (error) {
-          // Silently fail
-        }
-      }));
-    }
-    
-    // Filter by "In Progress" date for issues that have it
-    filteredIssues = filteredIssues.filter(issue => {
-      const inProgressDate = getInProgressDate(issue);
-      if (inProgressDate) {
-        return inProgressDate >= rangeStart;
-      }
-      // If no "In Progress" date, use updated date (already filtered above)
-      return true;
-    });
-  }
+  // Don't filter issues by date - the velocity calculation groups by month from resolutiondate
+  // Engineering-metrics counts by resolution date, not "In Progress" date
+  let filteredIssues = issues;
 
   // Exclude closed unassigned tickets (cancelled/no work needed)
   filteredIssues = filteredIssues.filter(issue => {
@@ -914,40 +860,13 @@ async function calculateStats(issues, dateRange = null) {
     issue.fields.status.name === 'Closed'
   ).length;
 
-  // Calculate average resolution time (from In Progress to Ready for QA Release)
-  // Note: This tracks time from when ticket goes to "In Progress" to "Ready for QA Release"
-  const resolvedIssues = filteredIssues.filter(issue => issue.fields.resolutiondate);
-  let avgResolutionTime = 0;
-  let resolutionTimeCount = 0;
-  if (resolvedIssues.length > 0) {
-    // Fetch changelog for all resolved issues that don't have it
-    const issuesNeedingChangelog = resolvedIssues.filter(issue => !issue.changelog);
-    
-    // Fetch changelog in parallel (fetch for all resolved issues for accurate stats)
-    const changelogPromises = issuesNeedingChangelog.map(async (issue) => {
-      try {
-        const response = await jiraApi.get(`/rest/api/2/issue/${issue.key}`, {
-          params: { expand: 'changelog' }
-        });
-        issue.changelog = response.data.changelog;
-      } catch (error) {
-        // Silently fail - will use null for this issue's calculation
-      }
-      return issue;
-    });
-    
-    // Wait for changelog fetches to complete
-    await Promise.all(changelogPromises);
-    
-    const resolutionTimes = resolvedIssues
-      .map(issue => calculateInProgressToQAReadyTime(issue))
-      .filter(time => time !== null); // Only include issues where we can calculate the time
-    
-    resolutionTimeCount = resolutionTimes.length;
-    if (resolutionTimes.length > 0) {
-      avgResolutionTime = resolutionTimes.reduce((a, b) => a + b, 0) / resolutionTimes.length;
-    }
-  }
+  // Calculate cycle time (created → resolved) to match engineering-metrics
+  // This is simpler and more consistent than status-based tracking
+  const cycleTimeByPriority = calculateCycleTimeByPriority(filteredIssues);
+  
+  // Keep legacy avgResolutionTime for backwards compatibility (now uses created→resolved)
+  const avgResolutionTime = cycleTimeByPriority.overall || 0;
+  const resolutionTimeCount = cycleTimeByPriority.counts.total;
 
   // Group by issue type
   const byType = {};
@@ -1012,8 +931,10 @@ async function calculateStats(issues, dateRange = null) {
     inProgress,
     done,
     totalStoryPoints,
+    // Cycle time matching engineering-metrics (created → resolved)
+    cycleTime: cycleTimeByPriority,
     avgResolutionTime: Math.round(avgResolutionTime * 10) / 10,
-    avgResolutionTimeCount: resolutionTimeCount, // Track how many issues were used in calculation
+    avgResolutionTimeCount: resolutionTimeCount,
     byType: byType,
     byProject: byProject,
     velocity: velocity,
@@ -1961,9 +1882,136 @@ async function getProjectsByEpic(dateRange = null) {
   }
 }
 
+/**
+ * Get CTOI participation stats (matches engineering-metrics format)
+ * Tracks "Fixed" (assignee) vs "Participated" (participant but not assignee)
+ * 
+ * JQL pattern from engineering-metrics:
+ * (project = CTOI OR ...) AND (Participants in (...) OR "Root Cause" = "Code Defect - Client Code - Web")
+ * AND status changed to Closed DURING (start, end)
+ */
+async function getCTOIStats(dateRange = null) {
+  const cache = require('../utils/cache');
+  const cacheKey = `jira-ctoi:${JSON.stringify(dateRange)}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    console.log('✓ CTOI stats served from cache');
+    return cached;
+  }
+
+  console.log('📋 Fetching CTOI participation stats...');
+  const startTime = Date.now();
+
+  // Get current user info
+  const userCacheKey = 'jira-user';
+  let cachedUser = cache.get(userCacheKey);
+  let userEmail = null;
+
+  if (cachedUser) {
+    userEmail = cachedUser.emailAddress;
+  } else {
+    try {
+      const user = await getCurrentUser();
+      userEmail = user.emailAddress;
+      cache.set(userCacheKey, { accountId: user.accountId, emailAddress: userEmail }, 600);
+    } catch (error) {
+      console.error('Failed to get current user for CTOI:', error.message);
+      return { fixed: 0, participated: 0, total: 0, byPriority: {} };
+    }
+  }
+
+  // Build JQL for CTOI tickets where user participated
+  // This matches the engineering-metrics pattern
+  let jql = `project = CTOI AND status changed to Closed`;
+  
+  if (dateRange?.start && dateRange?.end) {
+    jql += ` DURING ("${dateRange.start}", "${dateRange.end}")`;
+  } else if (dateRange?.start) {
+    jql += ` AFTER "${dateRange.start}"`;
+  }
+  
+  jql += ` ORDER BY updated DESC`;
+
+  const issues = [];
+  let startAt = 0;
+  const maxResults = 100;
+  let hasMore = true;
+
+  // Fetch all CTOI issues
+  while (hasMore) {
+    try {
+      const response = await jiraApi.post('/rest/api/2/search', {
+        jql: jql,
+        startAt: startAt,
+        maxResults: maxResults,
+        fields: ['key', 'summary', 'status', 'priority', 'assignee', 'resolutiondate', 'created', 'customfield_10000'] // customfield for participants varies by instance
+      });
+
+      if (response.data.issues.length === 0) {
+        hasMore = false;
+      } else {
+        issues.push(...response.data.issues);
+        startAt += maxResults;
+        
+        if (response.data.issues.length < maxResults || issues.length >= response.data.total) {
+          hasMore = false;
+        }
+      }
+    } catch (error) {
+      console.error('CTOI fetch error:', error.message);
+      hasMore = false;
+    }
+  }
+
+  // Calculate fixed vs participated
+  let fixed = 0;
+  let participated = 0;
+  const byPriority = {
+    P1: { fixed: 0, participated: 0 },
+    P2: { fixed: 0, participated: 0 },
+    P3: { fixed: 0, participated: 0 },
+    P4: { fixed: 0, participated: 0 }
+  };
+
+  for (const issue of issues) {
+    const assigneeEmail = issue.fields?.assignee?.emailAddress || '';
+    const priority = getIssuePriority(issue);
+    const isAssignee = assigneeEmail.toLowerCase() === userEmail?.toLowerCase();
+
+    if (isAssignee) {
+      fixed++;
+      if (byPriority[priority]) {
+        byPriority[priority].fixed++;
+      }
+    } else {
+      // Assume if the ticket came back in the search, user participated
+      // (The actual Participants field check would require knowing the custom field ID)
+      participated++;
+      if (byPriority[priority]) {
+        byPriority[priority].participated++;
+      }
+    }
+  }
+
+  const result = {
+    fixed,
+    participated,
+    total: fixed + participated,
+    byPriority,
+    // Cycle time for CTOI tickets
+    cycleTime: calculateCycleTimeByPriority(issues)
+  };
+
+  cache.set(cacheKey, result, 300);
+  console.log(`  ✓ CTOI: ${fixed} fixed, ${participated} participated (${Date.now() - startTime}ms)`);
+
+  return result;
+}
+
 module.exports = {
   getStats,
   getAllIssuesForPage,
-  getProjectsByEpic
+  getProjectsByEpic,
+  getCTOIStats
 };
 

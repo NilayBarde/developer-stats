@@ -67,8 +67,105 @@ const AUTHORED_MRS_QUERY = `
 `;
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+const GITLAB_ACTIONS = ['commented', 'created', 'merged', 'approved'];
+
+// ============================================================================
 // Core Data Fetching
 // ============================================================================
+
+/**
+ * Get current user ID from GitLab (needed for Events API)
+ */
+async function getCurrentUserId() {
+  const cacheKey = 'gitlab-user-id';
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const response = await gitlabApi.get('/user');
+    const userId = response.data.id;
+    cache.set(cacheKey, userId, 3600); // Cache for 1 hour
+    return userId;
+  } catch (error) {
+    console.error('Failed to get GitLab user ID:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Fetch events by action type using Events API (matches engineering-metrics)
+ * Actions: commented, created, merged, approved
+ */
+async function getEventsByAction(action, dateRange = null) {
+  const userId = await getCurrentUserId();
+  if (!userId) return [];
+
+  const events = [];
+  let page = 1;
+  const maxPages = 10; // Limit pagination
+
+  // Build date params
+  const params = { action, per_page: 100 };
+  if (dateRange?.start) params.after = dateRange.start;
+  if (dateRange?.end) params.before = dateRange.end;
+
+  while (page <= maxPages) {
+    try {
+      const response = await gitlabApi.get(`/users/${userId}/events`, {
+        params: { ...params, page }
+      });
+
+      // Stop only when we get an empty page (GitLab may return < 100 but still have more pages)
+      if (response.data.length === 0) break;
+      events.push(...response.data);
+      page++;
+    } catch (error) {
+      console.error(`  Events API error for action ${action}:`, error.message);
+      break;
+    }
+  }
+
+  return events;
+}
+
+/**
+ * Get action stats using Events API (matches engineering-metrics format)
+ * Returns: { commented, created, merged, approved }
+ */
+async function getActionStats(dateRange = null) {
+  const cacheKey = `gitlab-actions:v1:${JSON.stringify(dateRange)}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    console.log('✓ GitLab action stats served from cache');
+    return cached;
+  }
+
+  console.log('🔷 Fetching GitLab action stats via Events API...');
+  const startTime = Date.now();
+
+  // Fetch all actions in parallel
+  const [commentedEvents, createdEvents, mergedEvents, approvedEvents] = await Promise.all([
+    getEventsByAction('commented', dateRange),
+    getEventsByAction('created', dateRange),
+    getEventsByAction('merged', dateRange),
+    getEventsByAction('approved', dateRange)
+  ]);
+
+  const result = {
+    commented: commentedEvents.length,
+    created: createdEvents.length,
+    merged: mergedEvents.length,
+    approved: approvedEvents.length
+  };
+
+  cache.set(cacheKey, result, 300);
+  console.log(`  ✓ Actions: commented=${result.commented}, created=${result.created}, merged=${result.merged}, approved=${result.approved} (${Date.now() - startTime}ms)`);
+
+  return result;
+}
 
 /**
  * Fetch all MRs authored by user via GraphQL
@@ -167,23 +264,30 @@ async function getProjectNames(projectIds) {
 // ============================================================================
 
 /**
- * Get GitLab stats with optional date range filtering
+ * Get GitLab stats using Events API to match engineering-metrics format
+ * Primary metrics: commented, created, merged, approved
+ * Also includes MR details for monthly breakdown and dashboard compatibility
  */
 async function getStats(dateRange = null) {
   if (!GITLAB_USERNAME || !GITLAB_TOKEN) {
     throw new Error('GitLab credentials not configured');
   }
 
-  const cacheKey = `gitlab-stats:v3:${JSON.stringify(dateRange)}`;
+  const cacheKey = `gitlab-stats:v5:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log('✓ GitLab stats served from cache');
     return cached;
   }
 
-  const mrs = await getAllMergeRequests();
-  
-  const stats = calculatePRStats(mrs, [], dateRange, {
+  // Fetch both Events API (for engineering-metrics alignment) AND MR details (for monthly breakdown)
+  const [actionStats, mrs] = await Promise.all([
+    getActionStats(dateRange),
+    getAllMergeRequests()
+  ]);
+
+  // Calculate MR stats for monthly data and dashboard compatibility
+  const mrStats = calculatePRStats(mrs, [], dateRange, {
     mergedField: 'merged_at',
     getState: (mr) => mr.state,
     isMerged: (mr) => mr.state === 'merged',
@@ -191,15 +295,24 @@ async function getStats(dateRange = null) {
     isClosed: (mr) => mr.state === 'closed',
     groupByKey: (mr) => mr._projectPath || 'unknown'
   });
-  
+
   const result = {
-    ...stats,
     source: 'gitlab',
     username: GITLAB_USERNAME,
-    byProject: stats.grouped,
-    mrs: stats.items,
-    monthlyMRs: stats.monthlyMRs || [],
-    avgMRsPerMonth: stats.avgMRsPerMonth
+    // Primary metrics matching engineering-metrics format
+    commented: actionStats.commented,
+    created: actionStats.created,
+    merged: actionStats.merged,
+    approved: actionStats.approved,
+    // Legacy/dashboard fields for backwards compatibility
+    total: mrStats.total,
+    avgMRsPerMonth: mrStats.avgMRsPerMonth,
+    monthlyMRs: mrStats.monthlyMRs,
+    monthlyMerged: mrStats.monthlyMerged,
+    reposAuthored: mrStats.reposAuthored,
+    repoBreakdown: mrStats.repoBreakdown,
+    byProject: mrStats.grouped,
+    mrs: mrStats.items
   };
   
   cache.set(cacheKey, result, 300);
@@ -397,5 +510,6 @@ async function getReviewComments(dateRange = null) {
 module.exports = {
   getStats,
   getAllMRsForPage,
-  getReviewComments
+  getReviewComments,
+  getActionStats
 };

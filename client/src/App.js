@@ -22,8 +22,10 @@ function App() {
   // Progressive loading: separate state for each data source
   const [jiraStats, setJiraStats] = useState(null);
   const [gitStats, setGitStats] = useState(null);
+  const [ctoiStats, setCtoiStats] = useState(null);
   const [jiraLoading, setJiraLoading] = useState(true);
   const [gitLoading, setGitLoading] = useState(true);
+  const [ctoiLoading, setCtoiLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   
@@ -70,13 +72,29 @@ function App() {
     }
   }, [dateRange, mockParam]);
 
+  // Fetch CTOI stats (matches engineering-metrics)
+  const fetchCtoiStats = useCallback(async () => {
+    try {
+      setCtoiLoading(true);
+      const url = buildApiUrl('/api/stats/ctoi', dateRange) + mockParam;
+      const response = await axios.get(url);
+      setCtoiStats(response.data);
+    } catch (err) {
+      console.error('Error fetching CTOI stats:', err);
+      // CTOI is optional, don't set error
+    } finally {
+      setCtoiLoading(false);
+    }
+  }, [dateRange, mockParam]);
+
   // Fetch all stats in parallel (progressive)
   const fetchAllStats = useCallback(async () => {
     setError(null);
-    // Start both fetches in parallel - each section updates independently
+    // Start all fetches in parallel - each section updates independently
     fetchJiraStats();
     fetchGitStats();
-  }, [fetchJiraStats, fetchGitStats]);
+    fetchCtoiStats();
+  }, [fetchJiraStats, fetchGitStats, fetchCtoiStats]);
 
   useEffect(() => {
     // Only fetch stats on the dashboard route
@@ -159,7 +177,7 @@ function App() {
                 </div>
               ) : (
                 <>
-                  <JiraSection stats={jiraStats} />
+                  <JiraSection stats={jiraStats} ctoiStats={ctoiLoading ? null : ctoiStats} />
                   {renderErrorSection('jira', '', jiraStats?.error)}
                 </>
               )}

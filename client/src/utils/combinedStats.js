@@ -69,6 +69,8 @@ export function combinePRLists(...sources) {
 
 /**
  * Calculate combined stats from GitHub and GitLab data
+ * Uses engineering-metrics aligned `created` field for totals,
+ * and monthly PR/MR data for averages
  */
 export function calculateCombinedStats(githubStats, gitlabStats) {
   const githubPRs = githubStats?.monthlyPRs || [];
@@ -78,11 +80,17 @@ export function calculateCombinedStats(githubStats, gitlabStats) {
   
   const avgPRsPerMonth = calculateAverage(combinedMonthly);
   
-  const totalPRs = (githubStats?.total || 0) + (gitlabStats?.total || 0);
+  // Use engineering-metrics aligned `created` field if available, fallback to `total`
+  const githubCreated = githubStats?.created ?? githubStats?.total ?? 0;
+  const gitlabCreated = gitlabStats?.created ?? gitlabStats?.total ?? 0;
+  const totalPRs = githubCreated + gitlabCreated;
   
   return {
     totalPRs,
-    avgPRsPerMonth
+    avgPRsPerMonth,
+    // Individual platform counts for subtitle
+    githubCount: githubCreated,
+    gitlabCount: gitlabCreated
   };
 }
 

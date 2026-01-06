@@ -23,7 +23,7 @@ function CombinedOverview({ githubStats, gitlabStats, jiraStats, gitLoading = fa
           <StatsCard
             title="Total PRs/MRs"
             value={combined.totalPRs}
-            subtitle={`${githubStats?.total || 0} GitHub, ${gitlabStats?.total || 0} GitLab`}
+            subtitle={`${combined.githubCount} GitHub, ${combined.gitlabCount} GitLab`}
           />
         )}
         {gitLoading ? (

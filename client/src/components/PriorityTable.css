@@ -1,0 +1,81 @@
+.priority-table-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  padding: 20px;
+  color: white;
+  margin-top: 16px;
+}
+
+.priority-table-title {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.9;
+}
+
+.priority-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.priority-table th {
+  padding: 8px 12px;
+  font-weight: 500;
+  opacity: 0.8;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.priority-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.priority-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.priority-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.priority-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.summary-row {
+  border-top: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.summary-row td {
+  padding-top: 12px;
+  border-bottom: none;
+}
+
+/* Responsive: stack tables on mobile */
+@media (max-width: 768px) {
+  .priority-table-card {
+    padding: 16px;
+  }
+  
+  .priority-table th,
+  .priority-table td {
+    padding: 8px;
+  }
+  
+  .priority-badge {
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+}
+
