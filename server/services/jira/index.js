@@ -300,11 +300,17 @@ async function getAllIssuesForEpic(epicKey) {
       }
     }
   } catch (error) {
+    // Handle rate limiting (429) - return empty array, will use user's issues as fallback
+    if (error.response?.status === 429) {
+      console.warn(`Rate limited (429) when fetching issues for epic ${epicKey}. Using user's issues only.`);
+      return [];
+    }
+    
     // If the combined query fails (e.g., some fields don't exist), try individual queries
     if (error.response?.status === 400) {
       console.warn(`Combined JQL query failed for epic ${epicKey}, trying individual queries...`);
       
-      // Fallback: try queries individually
+      // Fallback: try queries individually (but skip if we're rate limited)
       for (const condition of epicConditions) {
         try {
           const fallbackJql = `${condition} AND issuetype != Epic ORDER BY updated DESC`;
@@ -332,7 +338,12 @@ async function getAllIssuesForEpic(epicKey) {
             }
           }
         } catch (fallbackError) {
-          // Continue to next condition if this one fails
+          // Stop trying if we hit rate limit
+          if (fallbackError.response?.status === 429) {
+            console.warn(`Rate limited (429) when fetching issues for epic ${epicKey}. Stopping individual queries.`);
+            break;
+          }
+          // Continue to next condition if this one fails (but not for 400/404)
           if (fallbackError.response?.status !== 400 && fallbackError.response?.status !== 404) {
             console.warn(`Error fetching issues for epic ${epicKey} with condition "${condition}":`, fallbackError.message);
           }
@@ -523,7 +534,15 @@ async function getProjectsByEpic(dateRange = null) {
     }
     
     // Fetch epic details and all issues for each epic
-    for (const epicKey of epicKeys) {
+    let rateLimited = false;
+    for (let i = 0; i < epicKeys.length; i++) {
+      const epicKey = epicKeys[i];
+      
+      // Add a small delay between epic fetches to avoid rate limiting (except for first one)
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 300)); // 300ms delay
+      }
+      
       // Get user's issues for this epic
       const userEpicIssues = issuesByEpic[epicKey] || [];
       
@@ -554,7 +573,26 @@ async function getProjectsByEpic(dateRange = null) {
       
       try {
         // Fetch ALL issues for this epic (not just user's issues)
-        const allEpicIssues = await getAllIssuesForEpic(epicKey);
+        // If this fails due to rate limiting, we'll use user's issues as fallback
+        let allEpicIssues = [];
+        if (!rateLimited) {
+          try {
+            allEpicIssues = await getAllIssuesForEpic(epicKey);
+          } catch (epicError) {
+            // If we can't fetch all issues (e.g., rate limited), use user's issues
+            if (epicError.response?.status === 429) {
+              console.warn(`Rate limited when fetching all issues for epic ${epicKey}. Using user's issues only for remaining epics.`);
+              rateLimited = true;
+              allEpicIssues = userEpicIssues;
+            } else {
+              // For other errors, still try to use user's issues
+              allEpicIssues = userEpicIssues;
+            }
+          }
+        } else {
+          // Already rate limited, skip fetching all issues
+          allEpicIssues = userEpicIssues;
+        }
         
         // Calculate metrics for ALL epic issues
         const allDoneIssues = allEpicIssues.filter(i => i.fields?.resolutiondate || ['Done', 'Closed', 'Resolved'].includes(i.fields?.status?.name));
@@ -608,10 +646,19 @@ async function getProjectsByEpic(dateRange = null) {
       } catch (error) {
         // If getAllIssuesForEpic fails, still create epic with user's issues
         let allEpicIssues = [];
-        try {
-          allEpicIssues = await getAllIssuesForEpic(epicKey);
-        } catch (epicError) {
-          // If we can't fetch all issues, use user's issues as fallback
+        if (!rateLimited) {
+          try {
+            allEpicIssues = await getAllIssuesForEpic(epicKey);
+          } catch (epicError) {
+            // If we can't fetch all issues (rate limited or other error), use user's issues as fallback
+            if (epicError.response?.status === 429) {
+              console.warn(`Rate limited when fetching all issues for epic ${epicKey} in catch block. Using user's issues only for remaining epics.`);
+              rateLimited = true;
+            }
+            allEpicIssues = userEpicIssues;
+          }
+        } else {
+          // Already rate limited, skip fetching all issues
           allEpicIssues = userEpicIssues;
         }
         
