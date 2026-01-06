@@ -177,7 +177,12 @@ function App() {
                 </div>
               ) : (
                 <>
-                  <JiraSection stats={jiraStats} ctoiStats={ctoiLoading ? null : ctoiStats} />
+                  <JiraSection 
+                    stats={jiraStats} 
+                    ctoiStats={ctoiLoading ? null : ctoiStats} 
+                    loading={jiraLoading}
+                    ctoiLoading={ctoiLoading}
+                  />
                   {renderErrorSection('jira', '', jiraStats?.error)}
                 </>
               )}

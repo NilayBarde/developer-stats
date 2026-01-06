@@ -6,6 +6,7 @@ import MonthlyChart from './MonthlyChart';
 import VelocityChart from './VelocityChart';
 import ChartCard from './ChartCard';
 import PRList from './PRList';
+import Skeleton from './ui/Skeleton';
 import './JiraSection.css';
 
 /**
@@ -92,13 +93,35 @@ function MonthlyVelocityChart({ velocity, baseUrl }) {
   );
 }
 
-function JiraSection({ stats, ctoiStats, compact = false }) {
+function JiraSection({ stats, ctoiStats, compact = false, loading = false, ctoiLoading = false }) {
   const navigate = useNavigate();
   
+  if (loading && !stats) {
+    return (
+      <div className="source-section">
+        <h2>Jira</h2>
+        <div className="cards-grid">
+          <Skeleton variant="stat-card" count={4} />
+        </div>
+        <div className="priority-tables-row">
+          <Skeleton variant="card" />
+          <Skeleton variant="card" />
+        </div>
+      </div>
+    );
+  }
+
   if (!stats || stats.error) return null;
-  
+
   // Cycle time from engineering-metrics format (created → resolved)
   const cycleTime = stats.cycleTime || {};
+  
+  // Check if cycle time data is available (has counts or any priority values)
+  const hasCycleTimeData = cycleTime.counts && (cycleTime.P1 || cycleTime.P2 || cycleTime.P3 || cycleTime.P4);
+  
+  // CTOI stats can come from props or from stats.ctoi (since we merged it)
+  const effectiveCtoiStats = ctoiStats || stats.ctoi;
+  const hasCtoiData = effectiveCtoiStats && (effectiveCtoiStats.fixed > 0 || effectiveCtoiStats.participated > 0);
 
   return (
     <div className="source-section">
@@ -136,7 +159,18 @@ function JiraSection({ stats, ctoiStats, compact = false }) {
       {/* Compact tables for priority breakdowns */}
       <div className="priority-tables-row">
         {/* Cycle Time by Priority - compact table */}
-        {cycleTime.counts && (cycleTime.P1 || cycleTime.P2 || cycleTime.P3 || cycleTime.P4) && (
+        {loading ? (
+          <PriorityTable
+            title="Cycle Time by Priority"
+            columns={[
+              { key: 'priority', label: 'Priority', align: 'left' },
+              { key: 'days', label: 'Avg Days', align: 'center' },
+              { key: 'issues', label: 'Issues', align: 'center' }
+            ]}
+            rows={[]}
+            loading={true}
+          />
+        ) : hasCycleTimeData ? (
           <PriorityTable
             title="Cycle Time by Priority"
             columns={[
@@ -156,10 +190,21 @@ function JiraSection({ stats, ctoiStats, compact = false }) {
               issues: cycleTime.counts.total || 0
             }}
           />
-        )}
+        ) : null}
         
         {/* CTOI Participation - compact table */}
-        {ctoiStats && (ctoiStats.fixed > 0 || ctoiStats.participated > 0) && (
+        {(loading || ctoiLoading) ? (
+          <PriorityTable
+            title="CTOI Participation"
+            columns={[
+              { key: 'priority', label: 'Priority', align: 'left' },
+              { key: 'fixed', label: 'Fixed', align: 'center' },
+              { key: 'participated', label: 'Participated', align: 'center' }
+            ]}
+            rows={[]}
+            loading={true}
+          />
+        ) : hasCtoiData ? (
           <PriorityTable
             title="CTOI Participation"
             columns={[
@@ -168,18 +213,18 @@ function JiraSection({ stats, ctoiStats, compact = false }) {
               { key: 'participated', label: 'Participated', align: 'center' }
             ]}
             rows={[
-              { priority: 'P1', fixed: ctoiStats.byPriority?.P1?.fixed || 0, participated: ctoiStats.byPriority?.P1?.participated || 0 },
-              { priority: 'P2', fixed: ctoiStats.byPriority?.P2?.fixed || 0, participated: ctoiStats.byPriority?.P2?.participated || 0 },
-              { priority: 'P3', fixed: ctoiStats.byPriority?.P3?.fixed || 0, participated: ctoiStats.byPriority?.P3?.participated || 0 },
-              { priority: 'P4', fixed: ctoiStats.byPriority?.P4?.fixed || 0, participated: ctoiStats.byPriority?.P4?.participated || 0 }
+              { priority: 'P1', fixed: effectiveCtoiStats.byPriority?.P1?.fixed || 0, participated: effectiveCtoiStats.byPriority?.P1?.participated || 0 },
+              { priority: 'P2', fixed: effectiveCtoiStats.byPriority?.P2?.fixed || 0, participated: effectiveCtoiStats.byPriority?.P2?.participated || 0 },
+              { priority: 'P3', fixed: effectiveCtoiStats.byPriority?.P3?.fixed || 0, participated: effectiveCtoiStats.byPriority?.P3?.participated || 0 },
+              { priority: 'P4', fixed: effectiveCtoiStats.byPriority?.P4?.fixed || 0, participated: effectiveCtoiStats.byPriority?.P4?.participated || 0 }
             ].filter(row => row.fixed > 0 || row.participated > 0)}
             summary={{
               label: 'Total',
-              fixed: ctoiStats.fixed,
-              participated: ctoiStats.participated
+              fixed: effectiveCtoiStats.fixed,
+              participated: effectiveCtoiStats.participated
             }}
           />
-        )}
+        ) : null}
       </div>
 
       {/* Untracked tickets warning - always show this */}

@@ -1,4 +1,5 @@
 import React from 'react';
+import Skeleton from './ui/Skeleton';
 import './PriorityTable.css';
 
 /**
@@ -8,9 +9,36 @@ import './PriorityTable.css';
  * @param {Array} columns - Column definitions: [{ key: string, label: string, align?: 'left'|'center'|'right' }]
  * @param {Array} rows - Data rows: [{ priority: 'P1', ...values }]
  * @param {Object} summary - Optional summary row: { label: string, ...values }
+ * @param {boolean} loading - Whether to show loading skeleton
  */
-function PriorityTable({ title, columns, rows, summary }) {
-  if (!rows || rows.length === 0) return null;
+function PriorityTable({ title, columns, rows, summary, loading = false }) {
+  if (loading) {
+    return (
+      <div className="priority-table-card">
+        <Skeleton variant="text" width="200px" height="24px" className="priority-table-title-skeleton" />
+        <div className="priority-table-skeleton">
+          <Skeleton variant="table-row" count={4} />
+          {summary && <Skeleton variant="table-row" count={1} />}
+        </div>
+      </div>
+    );
+  }
+
+  if (!rows || rows.length === 0) {
+    // Show skeleton if we have columns defined but no data yet
+    if (columns && columns.length > 0) {
+      return (
+        <div className="priority-table-card">
+          <Skeleton variant="text" width="200px" height="24px" className="priority-table-title-skeleton" />
+          <div className="priority-table-skeleton">
+            <Skeleton variant="table-row" count={4} />
+            {summary && <Skeleton variant="table-row" count={1} />}
+          </div>
+        </div>
+      );
+    }
+    return null;
+  }
 
   // Priority labels and colors
   const priorityLabels = {

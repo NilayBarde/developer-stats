@@ -240,7 +240,13 @@ function IssuesPage() {
         </div>
       ) : displayStats && (
         <div className="stats-section">
-          <JiraSection stats={displayStats} ctoiStats={ctoiLoading ? null : ctoiStats} compact={true} />
+          <JiraSection 
+            stats={displayStats} 
+            ctoiStats={ctoiLoading ? null : ctoiStats} 
+            compact={true}
+            loading={!displayStats}
+            ctoiLoading={ctoiLoading}
+          />
           {renderErrorSection('jira', '', displayStats?.error)}
         </div>
       )}
