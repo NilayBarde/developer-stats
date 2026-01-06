@@ -139,28 +139,33 @@ async function calculateStats(issues, dateRange = null) {
 /**
  * Get JIRA stats (main entry point)
  * @param {Object|null} dateRange - Optional date range
+ * @param {Object|null} credentials - Optional credentials { email, pat, baseURL }
  * @returns {Promise<Object>} JIRA stats
  */
-async function getStats(dateRange = null) {
-  if (!isConfigured()) {
+async function getStats(dateRange = null, credentials = null) {
+  const pat = credentials?.pat || JIRA_PAT;
+  const baseURL = credentials?.baseURL || JIRA_BASE_URL;
+  
+  if (!pat || !baseURL) {
     throw new Error('Jira credentials not configured. Please set JIRA_PAT and JIRA_BASE_URL environment variables.');
   }
 
   const cache = require('../../utils/cache');
-  const cacheKey = `jira-stats:${JSON.stringify(dateRange)}`;
+  const userEmail = credentials?.email || 'default';
+  const cacheKey = `jira-stats:${userEmail}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log('✓ Jira stats served from cache');
     return cached;
   }
 
-  console.log('📋 Fetching JIRA stats...');
+  console.log(`📋 Fetching JIRA stats for ${userEmail}...`);
   const startTime = Date.now();
 
   // Fetch both main stats and CTOI stats in parallel
   const [issues, ctoiStats] = await Promise.all([
-    getAllIssues(dateRange),
-    getCTOIStats(dateRange).catch(err => {
+    getAllIssues(dateRange, { credentials }),
+    getCTOIStats(dateRange, credentials).catch(err => {
       console.warn('⚠️ Failed to fetch CTOI stats:', err.message);
       return null;
     })
@@ -207,16 +212,9 @@ async function getAllIssuesForPage(dateRange = null) {
       return dateB - dateA;
     });
 
-    // Local filtering by date range
+    // Note: Date range filtering is already done at JQL level in getAllIssues()
+    // Only filter by "In Progress" date (custom field) which isn't in JQL
     let filteredIssues = sortedIssues;
-    if (dateRange && (dateRange.start || dateRange.end)) {
-      filteredIssues = sortedIssues.filter(issue => {
-        const updated = new Date(issue.fields.updated);
-        if (dateRange.start && updated < new Date(dateRange.start)) return false;
-        if (dateRange.end && updated > new Date(dateRange.end)) return false;
-        return true;
-      });
-    }
     
     // Filter by "In Progress" date if date range is specified
     if (dateRange && dateRange.start) {

@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { buildJqlDateFilter, buildJqlQuery } = require('../../utils/jiraHelpers');
 
 const JIRA_PAT = process.env.JIRA_PAT;
 const JIRA_BASE_URL = process.env.JIRA_BASE_URL;
@@ -21,11 +22,30 @@ const jiraApi = axios.create({
 });
 
 /**
- * Get current Jira user
+ * Create Jira API client with custom credentials
  */
-async function getCurrentUser() {
+function createJiraClient(pat, baseURL) {
+  const normalizedURL = baseURL ? baseURL.replace(/\/$/, '') : '';
+  return axios.create({
+    baseURL: normalizedURL,
+    headers: {
+      'Authorization': `Bearer ${pat}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    timeout: 30000
+  });
+}
+
+/**
+ * Get current Jira user
+ * @param {Object|null} credentials - Optional credentials { email, pat, baseURL }
+ */
+async function getCurrentUser(credentials = null) {
+  const client = credentials ? createJiraClient(credentials.pat, credentials.baseURL) : jiraApi;
+  
   try {
-    const response = await jiraApi.get('/rest/api/2/myself');
+    const response = await client.get('/rest/api/2/myself');
     return response.data;
   } catch (error) {
     if (error.response?.status === 401) {
@@ -43,41 +63,59 @@ async function getCurrentUser() {
  * @param {Object} dateRange - Optional date range filter
  * @param {Object} options - Options object
  * @param {boolean} options.includeAllStatuses - If true, fetch all issues (not just Done/Closed)
+ * @param {Object|null} options.credentials - Optional credentials { email, pat, baseURL }
  */
 async function getAllIssues(dateRange = null, options = {}) {
-  const { includeAllStatuses = false } = options;
+  const { includeAllStatuses = false, credentials = null } = options;
   
-  // Check cache for raw issues (cache for 10 minutes - issues don't change that often)
+  const userEmail = credentials?.email;
   const cache = require('../../utils/cache');
-  const cacheKey = `jira-raw-issues:${includeAllStatuses ? 'all' : 'resolved'}:${JSON.stringify(dateRange)}`;
+  const cacheKey = `jira-raw-issues:${userEmail || 'default'}:${includeAllStatuses ? 'all' : 'resolved'}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log(`✓ Raw issues served from cache (${includeAllStatuses ? 'all statuses' : 'resolved only'})`);
     return cached;
   }
   
+  const client = credentials ? createJiraClient(credentials.pat, credentials.baseURL) : jiraApi;
   const issues = [];
   let startAt = 0;
   const maxResults = 100;
   let hasMore = true;
   
-  // Get current user info first to use their accountId or email
-  const userCacheKey = 'jira-user';
-  let cachedUser = cache.get(userCacheKey);
+  // When credentials.email is provided, use it directly (don't call getCurrentUser)
+  // getCurrentUser() returns the PAT owner, not the user we're querying for
   let userAccountId = null;
-  let userEmail = null;
+  let resolvedUserEmail = userEmail;
   
-  if (cachedUser) {
-    userAccountId = cachedUser.accountId;
-    userEmail = cachedUser.emailAddress;
+  if (credentials && userEmail) {
+    // We have an explicit email to query - use it directly
+    resolvedUserEmail = userEmail;
+    // Try to get accountId from cache if available, but don't call getCurrentUser
+    const userCacheKey = `jira-user:${userEmail}`;
+    const cachedUser = cache.get(userCacheKey);
+    if (cachedUser) {
+      userAccountId = cachedUser.accountId;
+      // Use cached email if available, otherwise use provided email
+      resolvedUserEmail = cachedUser.emailAddress || userEmail;
+    }
+    // Note: We don't call getCurrentUser here because it would return PAT owner's info
   } else {
-    try {
-      const user = await getCurrentUser();
-      userAccountId = user.accountId;
-      userEmail = user.emailAddress;
-      cache.set(userCacheKey, { accountId: userAccountId, emailAddress: userEmail }, 600);
-    } catch (error) {
-      // Silently fail - will try alternative JQL queries
+    // No explicit credentials - get current user (PAT owner)
+    const userCacheKey = 'jira-user';
+    let cachedUser = cache.get(userCacheKey);
+    if (cachedUser) {
+      userAccountId = cachedUser.accountId;
+      resolvedUserEmail = cachedUser.emailAddress || userEmail;
+    } else {
+      try {
+        const user = await getCurrentUser(credentials);
+        userAccountId = user.accountId;
+        resolvedUserEmail = user.emailAddress || userEmail;
+        cache.set(userCacheKey, { accountId: userAccountId, emailAddress: resolvedUserEmail }, 600);
+      } catch (error) {
+        // Silently fail - will try alternative JQL queries
+      }
     }
   }
 
@@ -86,15 +124,34 @@ async function getAllIssues(dateRange = null, options = {}) {
     ? '' 
     : `status in (Done, Closed)`;
 
+  // Date range filter for JQL
+  // For resolved issues, filter by resolutiondate (matches engineering-metrics)
+  // For all-status queries, filter by updated date
+  // Note: Velocity calculation filters months afterward, so date filtering here is correct
+  const dateField = includeAllStatuses ? 'updated' : 'resolutiondate';
+  const dateFilter = buildJqlDateFilter(dateRange, dateField);
+
   // Build JQL queries - try different assignee formats
-  const baseQueries = [
-    statusFilter ? `assignee = currentUser() AND ${statusFilter}` : `assignee = currentUser()`,
-    userEmail ? (statusFilter ? `assignee = "${userEmail}" AND ${statusFilter}` : `assignee = "${userEmail}"`) : null,
-    userAccountId ? (statusFilter ? `assignee = ${userAccountId} AND ${statusFilter}` : `assignee = ${userAccountId}`) : null
-  ].filter(Boolean);
-  
+  // When credentials are provided (querying for specific user), skip currentUser() 
+  // because it will refer to the PAT owner, not the user we're querying for
+  const baseQueries = [];
   const orderBy = includeAllStatuses ? 'ORDER BY updated DESC' : 'ORDER BY resolved DESC';
-  const jqlQueries = baseQueries.map(base => `${base} ${orderBy}`);
+  const filters = [statusFilter, dateFilter].filter(f => f);
+  
+  if (!credentials) {
+    // Only use currentUser() when no explicit credentials (default user)
+    baseQueries.push(buildJqlQuery('assignee = currentUser()', filters, orderBy));
+  }
+  
+  // Always try email and accountId when available
+  if (resolvedUserEmail) {
+    baseQueries.push(buildJqlQuery(`assignee = "${resolvedUserEmail}"`, filters, orderBy));
+  }
+  if (userAccountId) {
+    baseQueries.push(buildJqlQuery(`assignee = ${userAccountId}`, filters, orderBy));
+  }
+  
+  const jqlQueries = baseQueries;
 
   // Only fetch fields we actually need to reduce payload size
   const requiredFields = [
@@ -116,7 +173,7 @@ async function getAllIssues(dateRange = null, options = {}) {
   while (hasMore && jqlIndex < jqlQueries.length) {
     try {
       const jql = jqlQueries[jqlIndex];
-      const response = await jiraApi.post('/rest/api/2/search', {
+      const response = await client.post('/rest/api/2/search', {
         jql: jql,
         startAt: startAt,
         maxResults: maxResults,
@@ -171,6 +228,7 @@ module.exports = {
   getCurrentUser,
   getAllIssues,
   isConfigured,
+  createJiraClient,
   JIRA_PAT,
   JIRA_BASE_URL,
   normalizedBaseURL

@@ -6,31 +6,36 @@
 
 const cache = require('../../utils/cache');
 const { calculatePRStats } = require('../../utils/statsHelpers');
-const { graphqlQuery, CONTRIBUTIONS_QUERY, GITHUB_USERNAME, GITHUB_TOKEN } = require('./api');
+const { graphqlQuery, CONTRIBUTIONS_QUERY, GITHUB_USERNAME, GITHUB_TOKEN, createGraphQLClient, createRestClient } = require('./api');
 const { getAllPRs } = require('./prs');
 
 /**
  * Get contribution stats via GraphQL contributionsCollection
  */
-async function getContributionStats(dateRange = null) {
-  const cacheKey = `github-contributions:v2:${JSON.stringify(dateRange)}`;
+async function getContributionStats(dateRange = null, credentials = null) {
+  const username = credentials?.username || GITHUB_USERNAME;
+  const token = credentials?.token || GITHUB_TOKEN;
+  const baseURL = credentials?.baseURL || process.env.GITHUB_BASE_URL || 'https://github.com';
+  
+  const cacheKey = `github-contributions:v2:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log('✓ GitHub contributions served from cache');
     return cached;
   }
 
-  console.log('📦 Fetching GitHub contribution stats...');
+  console.log(`📦 Fetching GitHub contribution stats for ${username}...`);
 
   const to = dateRange?.end ? new Date(dateRange.end) : new Date();
   const from = dateRange?.start ? new Date(dateRange.start) : new Date(to.getTime() - 365 * 24 * 60 * 60 * 1000);
 
   try {
+    const customClient = credentials ? createGraphQLClient(username, token, baseURL) : null;
     const data = await graphqlQuery(CONTRIBUTIONS_QUERY, { 
-      login: GITHUB_USERNAME, 
+      login: username, 
       from: from.toISOString(),
       to: to.toISOString()
-    });
+    }, customClient);
     
     const c = data.user?.contributionsCollection;
     if (!c) return null;
@@ -63,13 +68,18 @@ async function getContributionStats(dateRange = null) {
  * Get GitHub stats using contributionsCollection to match engineering-metrics format
  * Primary metrics: PRs Created (totalPullRequestContributions), PR Reviews (totalPullRequestReviewContributions)
  * Also includes PR details for monthly breakdown and dashboard compatibility
+ * @param {Object|null} dateRange - Optional date range
+ * @param {Object|null} credentials - Optional credentials { username, token, baseURL }
  */
-async function getStats(dateRange = null) {
-  if (!GITHUB_USERNAME || !GITHUB_TOKEN) {
+async function getStats(dateRange = null, credentials = null) {
+  const username = credentials?.username || GITHUB_USERNAME;
+  const token = credentials?.token || GITHUB_TOKEN;
+  
+  if (!username || !token) {
     throw new Error('GitHub credentials not configured');
   }
 
-  const cacheKey = `github-stats:v5:${JSON.stringify(dateRange)}`;
+  const cacheKey = `github-stats:v5:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log('✓ GitHub stats served from cache');
@@ -78,8 +88,8 @@ async function getStats(dateRange = null) {
 
   // Fetch both contributionsCollection (for engineering-metrics alignment) AND PR details (for monthly breakdown)
   const [contributions, prs] = await Promise.all([
-    getContributionStats(dateRange),
-    getAllPRs()
+    getContributionStats(dateRange, credentials),
+    getAllPRs(credentials)
   ]);
   
   if (!contributions) {
@@ -98,7 +108,7 @@ async function getStats(dateRange = null) {
 
   const result = {
     source: 'github',
-    username: GITHUB_USERNAME,
+    username: username,
     // Primary metrics matching engineering-metrics format
     created: contributions.totalPRs,           // PRs created (totalPullRequestContributions)
     reviews: contributions.totalPRReviews,     // PR reviews (totalPullRequestReviewContributions)

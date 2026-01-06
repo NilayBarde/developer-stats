@@ -63,8 +63,98 @@ This will start:
 - `GET /api/stats/github` - Get GitHub stats only
 - `GET /api/stats/gitlab` - Get GitLab stats only
 - `GET /api/stats/jira` - Get Jira stats only
+- `GET /api/stats/leaderboard` - Get stats for all users (leaderboard)
 - `GET /api/health` - Health check endpoint
 - `GET /api/debug/env` - Check which environment variables are set (for debugging)
+
+## Leaderboard Configuration
+
+The leaderboard page displays stats for multiple users. Users can be configured in several ways:
+
+### Option 1: Extract from Engineering-Metrics Source Files (Recommended)
+
+Since engineering-metrics has users hardcoded in source files, you can extract them automatically:
+
+1. **Run the extraction script** to generate `server/config/users.json`:
+
+```bash
+node server/utils/extractUsersFromEngineeringMetrics.js [path-to-engineering-metrics]
+```
+
+If engineering-metrics is in a sibling directory (`../engineering-metrics`), you can omit the path:
+
+```bash
+node server/utils/extractUsersFromEngineeringMetrics.js
+```
+
+The script reads users from:
+- `individual_github/github.js` (GitHub usernames)
+- `individual_gitlab/user_processing/gitlab.js` (GitLab user IDs)
+- `JIRA/jira_authored.js`, `JIRA/jira_coding_overall.js`, `JIRA/jira_coding_ctoi.js` (JIRA email addresses)
+
+You can also use the npm script:
+```bash
+npm run extract-users
+```
+
+2. **Or set `ENGINEERING_METRICS_PATH`** to extract on-the-fly:
+
+```bash
+ENGINEERING_METRICS_PATH=/path/to/engineering-metrics
+```
+
+The system will automatically extract users from the source files when the server starts.
+
+### Option 2: Load from Engineering-Metrics API
+
+Set the `ENGINEERING_METRICS_USERS_URL` environment variable to fetch users directly from an API:
+
+```bash
+ENGINEERING_METRICS_USERS_URL=https://engineering-metrics.example.com/api/users
+```
+
+The API should return an array of user objects in one of these formats:
+```json
+[
+  {
+    "id": "user1",
+    "github": { "username": "user1" },
+    "gitlab": { "username": "user1" },
+    "jira": { "email": "user1@example.com" }
+  }
+]
+```
+
+### Option 3: Load from Engineering-Metrics JSON File
+
+Set the `ENGINEERING_METRICS_USERS_FILE` environment variable to load users from a local JSON file:
+
+```bash
+ENGINEERING_METRICS_USERS_FILE=/path/to/engineering-metrics-users.json
+```
+
+### Option 4: Use Config File (Default)
+
+Create `server/config/users.json` manually with user IDs/usernames:
+
+```json
+[
+  {
+    "id": "user1",
+    "github": {
+      "username": "user1"
+    },
+    "gitlab": {
+      "username": "user1"
+    },
+    "jira": {
+      "email": "user1@example.com"
+    }
+  }
+]
+```
+
+**Note**: You only need to set your own tokens (`GITHUB_TOKEN`, `GITLAB_TOKEN`, `JIRA_PAT`) in environment variables. The system will use these tokens to query stats for all users listed in the config.
 
 ## Metrics Tracked
 

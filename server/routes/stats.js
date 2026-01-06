@@ -214,5 +214,167 @@ router.get('/adobe', createSimpleEndpoint({
   fetchFn: (dateRange) => adobeAnalyticsService.getStats(dateRange)
 }));
 
+/**
+ * Fetch all stats for a single user (GitHub, GitLab, Jira)
+ * Uses operator tokens to query other users' stats
+ */
+async function fetchUserStats(user, dateRange) {
+  const userId = user.id || user.github?.username || user.gitlab?.username || user.jira?.email || 'unknown';
+  const userResult = {
+    user: {
+      id: userId,
+      githubUsername: user.github?.username,
+      gitlabUsername: user.gitlab?.username,
+      jiraEmail: user.jira?.email
+    },
+    github: null,
+    gitlab: null,
+    jira: null,
+    errors: {}
+  };
+  
+  // Fetch all services in parallel
+  const [githubStats, gitlabStats, jiraStats] = await Promise.allSettled([
+    user.github?.username ? githubService.getStats(dateRange, {
+      username: user.github.username,
+      token: user.github.token || process.env.GITHUB_TOKEN,
+      baseURL: user.github.baseURL || process.env.GITHUB_BASE_URL || 'https://github.com'
+    }) : Promise.resolve(null),
+    user.gitlab?.username ? gitlabService.getStats(dateRange, {
+      username: user.gitlab.username,
+      token: user.gitlab.token || process.env.GITLAB_TOKEN,
+      baseURL: user.gitlab.baseURL || process.env.GITLAB_BASE_URL || 'https://gitlab.com'
+    }) : Promise.resolve(null),
+    user.jira?.email ? jiraService.getStats(dateRange, {
+      email: user.jira.email,
+      pat: user.jira.pat || process.env.JIRA_PAT,
+      baseURL: user.jira.baseURL || process.env.JIRA_BASE_URL
+    }) : Promise.resolve(null)
+  ]);
+  
+  // Process results
+  if (githubStats.status === 'fulfilled' && githubStats.value) {
+    userResult.github = githubStats.value;
+  } else if (githubStats.status === 'rejected') {
+    console.error(`  ❌ GitHub stats failed for ${userId}:`, githubStats.reason?.message);
+    userResult.errors.github = githubStats.reason?.message;
+  }
+  
+  if (gitlabStats.status === 'fulfilled' && gitlabStats.value) {
+    userResult.gitlab = gitlabStats.value;
+  } else if (gitlabStats.status === 'rejected') {
+    console.error(`  ❌ GitLab stats failed for ${userId}:`, gitlabStats.reason?.message);
+    userResult.errors.gitlab = gitlabStats.reason?.message;
+  }
+  
+  if (jiraStats.status === 'fulfilled' && jiraStats.value) {
+    userResult.jira = jiraStats.value;
+  } else if (jiraStats.status === 'rejected') {
+    console.error(`  ❌ Jira stats failed for ${userId}:`, jiraStats.reason?.message);
+    userResult.errors.jira = jiraStats.reason?.message;
+  }
+  
+  return userResult;
+}
+
+// Get leaderboard stats for all users
+router.get('/leaderboard', async (req, res) => {
+  try {
+    const dateRange = parseDateRange(req.query);
+    const rangeKey = JSON.stringify(dateRange);
+    
+    // Load users from engineering-metrics or config file
+    const { getUsers, normalizeEngineeringMetricsUser } = require('../utils/userHelpers');
+    let users = await getUsers();
+    
+    if (!users || users.length === 0) {
+      return res.json([]);
+    }
+    
+    // Normalize users from engineering-metrics format if needed
+    const processedUsers = users.map(user => normalizeEngineeringMetricsUser(user));
+    
+    const cacheKey = `leaderboard:${users.map(u => u.id || u.github?.username || u.gitlab?.username || u.jira?.email || 'unknown').join(',')}:${rangeKey}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      console.log('✓ Leaderboard served from cache');
+      setCacheHeaders(res, true);
+      return res.json(cached);
+    }
+    
+    const startTime = Date.now();
+    console.log(`📊 Fetching leaderboard stats for ${processedUsers.length} users...`);
+    
+    // Process users in batches to avoid overwhelming APIs and improve perceived performance
+    // Each batch processes in parallel, but batches run sequentially
+    const BATCH_SIZE = 10;
+    const leaderboard = [];
+    
+    for (let i = 0; i < processedUsers.length; i += BATCH_SIZE) {
+      const batch = processedUsers.slice(i, i + BATCH_SIZE);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(processedUsers.length / BATCH_SIZE);
+      console.log(`  Processing batch ${batchNum}/${totalBatches} (${batch.length} users)...`);
+      
+      // Fetch stats for batch in parallel with timeout
+      const batchPromises = batch.map(user => 
+        Promise.race([
+          fetchUserStats(user, dateRange),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Request timeout')), 30000) // 30s timeout per user
+          )
+        ]).catch(error => {
+          const userId = user.id || user.github?.username || user.gitlab?.username || user.jira?.email || 'unknown';
+          console.warn(`  ⚠️ Stats fetch timeout/failed for ${userId}:`, error.message);
+          return {
+            user: {
+              id: userId,
+              githubUsername: user.github?.username,
+              gitlabUsername: user.gitlab?.username,
+              jiraEmail: user.jira?.email
+            },
+            github: null,
+            gitlab: null,
+            jira: null,
+            errors: { general: error.message || 'Request timeout' }
+          };
+        })
+      );
+      
+      const batchResults = await Promise.allSettled(batchPromises);
+      batchResults.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          leaderboard.push(result.value);
+        } else {
+          const user = batch[index];
+          const userId = user.id || user.github?.username || user.gitlab?.username || user.jira?.email || 'unknown';
+          leaderboard.push({
+            user: {
+              id: userId,
+              githubUsername: user.github?.username,
+              gitlabUsername: user.gitlab?.username,
+              jiraEmail: user.jira?.email
+            },
+            github: null,
+            gitlab: null,
+            jira: null,
+            errors: { general: result.reason?.message || 'Unknown error' }
+          });
+        }
+      });
+      
+      console.log(`  ✓ Batch ${batchNum} complete (${((Date.now() - startTime) / 1000).toFixed(1)}s elapsed)`);
+    }
+    
+    cache.set(cacheKey, leaderboard, 300);
+    console.log(`✓ Leaderboard fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    setCacheHeaders(res, false);
+    res.json(leaderboard);
+  } catch (error) {
+    console.error('Error fetching leaderboard:', error);
+    res.status(500).json({ error: 'Failed to fetch leaderboard stats' });
+  }
+});
+
 module.exports = router;
 

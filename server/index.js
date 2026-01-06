@@ -242,6 +242,9 @@ app.get('/api/debug/env', (req, res) => {
     ADOBE_TECHNICAL_ACCOUNT_EMAIL: process.env.ADOBE_TECHNICAL_ACCOUNT_EMAIL ? 'set' : 'not set',
     ADOBE_PRIVATE_KEY: process.env.ADOBE_PRIVATE_KEY ? 'set' : 'not set',
     ADOBE_REPORT_SUITE_ID: process.env.ADOBE_REPORT_SUITE_ID || 'not set',
+    ENGINEERING_METRICS_USERS_URL: process.env.ENGINEERING_METRICS_USERS_URL || 'not set',
+    ENGINEERING_METRICS_USERS_FILE: process.env.ENGINEERING_METRICS_USERS_FILE || 'not set',
+    ENGINEERING_METRICS_PATH: process.env.ENGINEERING_METRICS_PATH || 'not set',
   });
 });
 

@@ -56,10 +56,39 @@ const githubApi = axios.create({
 });
 
 /**
+ * Create GraphQL API client with custom credentials
+ */
+function createGraphQLClient(username, token, baseURL = GITHUB_BASE_URL) {
+  return axios.create({
+    baseURL: getGraphQLURL(baseURL),
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    timeout: 30000
+  });
+}
+
+/**
+ * Create REST API client with custom credentials
+ */
+function createRestClient(username, token, baseURL = GITHUB_BASE_URL) {
+  return axios.create({
+    baseURL: getRestURL(baseURL),
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github.v3+json'
+    },
+    timeout: 30000
+  });
+}
+
+/**
  * Execute a GraphQL query
  */
-async function graphqlQuery(query, variables = {}) {
-  const response = await githubGraphQL.post('', { query, variables });
+async function graphqlQuery(query, variables = {}, customClient = null) {
+  const client = customClient || githubGraphQL;
+  const response = await client.post('', { query, variables });
   if (response.data.errors) {
     throw new Error(`GraphQL error: ${response.data.errors[0]?.message}`);
   }
@@ -124,6 +153,8 @@ module.exports = {
   githubGraphQL,
   githubApi,
   graphqlQuery,
+  createGraphQLClient,
+  createRestClient,
   AUTHORED_PRS_QUERY,
   CONTRIBUTIONS_QUERY
 };

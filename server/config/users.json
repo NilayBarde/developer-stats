@@ -1,0 +1,383 @@
+[
+  {
+    "id": "aaron-ching",
+    "name": "Aaron",
+    "github": {
+      "username": "aaron-ching"
+    },
+    "gitlab": {
+      "username": "18105"
+    },
+    "jira": {
+      "email": "aaron.ching@disney.com"
+    }
+  },
+  {
+    "id": "MATUA022",
+    "name": "Adrian",
+    "github": {
+      "username": "MATUA022"
+    },
+    "gitlab": {
+      "username": "18817"
+    },
+    "jira": {
+      "email": "adrian.maturano.vargas.-nd@disney.com"
+    }
+  },
+  {
+    "id": "BENJAMIN-CHAPMIN",
+    "name": "Ben",
+    "github": {
+      "username": "BENJAMIN-CHAPMIN"
+    },
+    "gitlab": {
+      "username": "13540"
+    },
+    "jira": {
+      "email": "benjamin.chapman@disney.com"
+    }
+  },
+  {
+    "id": "RAMIC171",
+    "name": "Eduardo",
+    "github": {
+      "username": "RAMIC171"
+    },
+    "gitlab": {
+      "username": "14663"
+    },
+    "jira": {
+      "email": "ramic171@disney.com"
+    }
+  },
+  {
+    "id": "Christopher-A-Kelly",
+    "name": "Chris",
+    "github": {
+      "username": "Christopher-A-Kelly"
+    },
+    "gitlab": {
+      "username": "6145"
+    },
+    "jira": {
+      "email": "christopher.a.kelly@disney.com"
+    }
+  },
+  {
+    "id": "david-murley",
+    "name": "David M",
+    "github": {
+      "username": "david-murley"
+    },
+    "gitlab": {
+      "username": "18454"
+    },
+    "jira": {
+      "email": "david.murley@disney.com"
+    }
+  },
+  {
+    "id": "david-nguyen2",
+    "name": "David N",
+    "github": {
+      "username": "david-nguyen2"
+    },
+    "gitlab": {
+      "username": "16267"
+    },
+    "jira": {
+      "email": "david.nguyen2@disney.com"
+    }
+  },
+  {
+    "id": "garciaju",
+    "name": "Dorali",
+    "github": {
+      "username": "garciaju"
+    },
+    "gitlab": {
+      "username": "5142"
+    },
+    "jira": {
+      "email": "dorali.garcia@disney.com"
+    }
+  },
+  {
+    "id": "giorgi-alvarez",
+    "name": "Gio",
+    "github": {
+      "username": "giorgi-alvarez"
+    },
+    "gitlab": {
+      "username": "18234"
+    },
+    "jira": {
+      "email": "giorgi.alvarez@disney.com"
+    }
+  },
+  {
+    "id": "Grace-M-Mallett",
+    "name": "Grace",
+    "github": {
+      "username": "Grace-M-Mallett"
+    },
+    "gitlab": {
+      "username": "5364"
+    },
+    "jira": {
+      "email": "grace.m.mallett@disney.com"
+    }
+  },
+  {
+    "id": "Graham-M-Schilling",
+    "name": "Graham",
+    "github": {
+      "username": "Graham-M-Schilling"
+    },
+    "gitlab": {
+      "username": "4620"
+    },
+    "jira": {
+      "email": "graham.m.schilling@disney.com"
+    }
+  },
+  {
+    "id": "gillg",
+    "name": "Grant",
+    "github": {
+      "username": "gillg"
+    },
+    "gitlab": {
+      "username": "4991"
+    },
+    "jira": {
+      "email": "grant.d.gill@disney.com"
+    }
+  },
+  {
+    "id": "gus-argueta",
+    "name": "Gus",
+    "github": {
+      "username": "gus-argueta"
+    },
+    "gitlab": {
+      "username": "21715"
+    },
+    "jira": {
+      "email": "gus.argueta@disneystreaming.com"
+    }
+  },
+  {
+    "id": "james-parkin",
+    "name": "James",
+    "github": {
+      "username": "james-parkin"
+    },
+    "gitlab": {
+      "username": "26407"
+    },
+    "jira": {
+      "email": "james.parkin@disney.com"
+    }
+  },
+  {
+    "id": "Jordan-J-Falcon",
+    "name": "Jordan",
+    "github": {
+      "username": "Jordan-J-Falcon"
+    },
+    "gitlab": {
+      "username": "5778"
+    },
+    "jira": {
+      "email": "jordan.j.falcon@disney.com"
+    }
+  },
+  {
+    "id": "jorge-jacome",
+    "name": "Jorge",
+    "github": {
+      "username": "jorge-jacome"
+    },
+    "gitlab": {
+      "username": "27227"
+    },
+    "jira": {
+      "email": "jorge.jacome@disney.com"
+    }
+  },
+  {
+    "id": "judy-lee",
+    "name": "Judy",
+    "github": {
+      "username": "judy-lee"
+    },
+    "gitlab": {
+      "username": "16820"
+    },
+    "jira": {
+      "email": "judy.lee@disney.com"
+    }
+  },
+  {
+    "id": "liam-odonnell",
+    "name": "Liam",
+    "github": {
+      "username": "liam-odonnell"
+    },
+    "gitlab": {
+      "username": "29083"
+    },
+    "jira": {
+      "email": "liam.odonnell@disney.com"
+    }
+  },
+  {
+    "id": "lindsay-m-paredes",
+    "name": "Lindsay",
+    "github": {
+      "username": "lindsay-m-paredes"
+    },
+    "gitlab": {
+      "username": "5214"
+    },
+    "jira": {
+      "email": "lindsay.m.paredes@disney.com"
+    }
+  },
+  {
+    "id": "NILAY-BARDE",
+    "name": "Nilay",
+    "github": {
+      "username": "NILAY-BARDE"
+    },
+    "gitlab": {
+      "username": "10957"
+    },
+    "jira": {
+      "email": "nilay.barde@disney.com"
+    }
+  },
+  {
+    "id": "AGUDO001",
+    "name": "Oscar",
+    "github": {
+      "username": "AGUDO001"
+    },
+    "gitlab": {
+      "username": "11896"
+    },
+    "jira": {
+      "email": "oscar.agudelo.-nd@disney.com"
+    }
+  },
+  {
+    "id": "pia-rodriguez",
+    "name": "Pia",
+    "github": {
+      "username": "pia-rodriguez"
+    },
+    "gitlab": {
+      "username": "25921"
+    },
+    "jira": {
+      "email": "pia.rodriguez@disney.com"
+    }
+  },
+  {
+    "id": "Randi-K-Abe",
+    "name": "Randi",
+    "github": {
+      "username": "Randi-K-Abe"
+    },
+    "gitlab": {
+      "username": "4903"
+    },
+    "jira": {
+      "email": "randi.k.abe@disney.com"
+    }
+  },
+  {
+    "id": "fergusor",
+    "name": "Raymee",
+    "github": {
+      "username": "fergusor"
+    },
+    "gitlab": {
+      "username": "4902"
+    },
+    "jira": {
+      "email": "raymee.ferguson@disney.com"
+    }
+  },
+  {
+    "id": "RENDS008",
+    "name": "Samuel",
+    "github": {
+      "username": "RENDS008"
+    },
+    "gitlab": {
+      "username": "16314"
+    },
+    "jira": {
+      "email": "samuel.rendon.gutierrez.-nd@disney.com"
+    }
+  },
+  {
+    "id": "LUCAS031",
+    "name": "Solomon",
+    "github": {
+      "username": "LUCAS031"
+    },
+    "gitlab": {
+      "username": "11043"
+    },
+    "jira": {
+      "email": "solomon.e.lucasthornton@disney.com"
+    }
+  },
+  {
+    "id": "tripti-taparia",
+    "name": "Trip",
+    "github": {
+      "username": "tripti-taparia"
+    },
+    "gitlab": {
+      "username": "24157"
+    },
+    "jira": {
+      "email": "trip.taparia.-nd@disney.com"
+    }
+  },
+  {
+    "id": "ryan-kawahara",
+    "name": "Ryan",
+    "github": {
+      "username": "ryan-kawahara"
+    },
+    "gitlab": {
+      "username": "30126"
+    },
+    "jira": {
+      "email": "ryan.kawahara@disney.com"
+    }
+  },
+  {
+    "id": "gitlab-33362",
+    "name": "Muskan",
+    "gitlab": {
+      "username": "33362"
+    },
+    "jira": {
+      "email": "muskan.vyas@disney.com"
+    }
+  },
+  {
+    "id": "jira-carlos.ramirez.-nd",
+    "name": "Carlos Ramirez -nd",
+    "jira": {
+      "email": "carlos.ramirez.-nd@disney.com"
+    }
+  }
+]

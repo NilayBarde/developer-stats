@@ -32,10 +32,36 @@ const gitlabGraphQL = axios.create({
 });
 
 /**
+ * Create REST API client with custom credentials
+ */
+function createRestClient(username, token, baseURL = GITLAB_BASE_URL) {
+  return axios.create({
+    baseURL: `${baseURL}/api/v4`,
+    headers: { 'PRIVATE-TOKEN': token },
+    timeout: 30000
+  });
+}
+
+/**
+ * Create GraphQL API client with custom credentials
+ */
+function createGraphQLClient(username, token, baseURL = GITLAB_BASE_URL) {
+  return axios.create({
+    baseURL: `${baseURL}/api`,
+    headers: { 
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    timeout: 30000
+  });
+}
+
+/**
  * Execute a GraphQL query
  */
-async function graphqlQuery(query, variables = {}) {
-  const response = await gitlabGraphQL.post('/graphql', { query, variables });
+async function graphqlQuery(query, variables = {}, customClient = null) {
+  const client = customClient || gitlabGraphQL;
+  const response = await client.post('/graphql', { query, variables });
   if (response.data.errors) {
     throw new Error(`GraphQL error: ${response.data.errors[0]?.message}`);
   }
@@ -80,6 +106,8 @@ module.exports = {
   gitlabApi,
   gitlabGraphQL,
   graphqlQuery,
+  createRestClient,
+  createGraphQLClient,
   AUTHORED_MRS_QUERY,
   GITLAB_ACTIONS
 };

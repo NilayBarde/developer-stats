@@ -5,13 +5,15 @@
  */
 
 const cache = require('../../utils/cache');
-const { graphqlQuery, AUTHORED_PRS_QUERY, GITHUB_USERNAME } = require('./api');
+const { graphqlQuery, AUTHORED_PRS_QUERY, GITHUB_USERNAME, createGraphQLClient } = require('./api');
 
 /**
  * Fetch all PRs authored by user via GraphQL
+ * @param {Object|null} credentials - Optional credentials { username, token, baseURL }
  */
-async function getAllPRs() {
-  const cacheKey = 'github-prs:v3';
+async function getAllPRs(credentials = null) {
+  const username = credentials?.username || GITHUB_USERNAME;
+  const cacheKey = `github-prs:v3:${username}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log('✓ GitHub PRs served from cache');
@@ -19,14 +21,15 @@ async function getAllPRs() {
   }
 
   const startTime = Date.now();
-  console.log('📦 Fetching GitHub PRs via GraphQL...');
+  console.log(`📦 Fetching GitHub PRs via GraphQL for ${username}...`);
 
   const allPRs = [];
   let hasNextPage = true;
   let cursor = null;
+  const customClient = credentials ? createGraphQLClient(username, credentials.token, credentials.baseURL) : null;
 
   while (hasNextPage) {
-    const data = await graphqlQuery(AUTHORED_PRS_QUERY, { login: GITHUB_USERNAME, cursor });
+    const data = await graphqlQuery(AUTHORED_PRS_QUERY, { login: username, cursor }, customClient);
     const connection = data.user?.pullRequests;
     
     if (!connection?.nodes) break;
