@@ -66,6 +66,95 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Debug endpoint for GitHub contributions
+router.get('/github/debug', async (req, res) => {
+  try {
+    const dateRange = parseDateRange(req.query);
+    const { getContributionStats } = require('../services/github/stats');
+    const result = await getContributionStats(dateRange);
+    
+    res.json({
+      dateRange,
+      username: process.env.GITHUB_USERNAME,
+      baseURL: process.env.GITHUB_BASE_URL || 'https://github.com',
+      result,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: error.message, 
+      stack: error.stack,
+      username: process.env.GITHUB_USERNAME,
+      baseURL: process.env.GITHUB_BASE_URL || 'https://github.com'
+    });
+  }
+});
+
+// Debug endpoint to check a specific PR for reviews
+router.get('/github/pr/:owner/:repo/:number', async (req, res) => {
+  try {
+    const { owner, repo, number } = req.params;
+    const { githubApi } = require('../services/github/api');
+    
+    const repoPath = `${owner}/${repo}`;
+    
+    // Fetch PR reviews
+    const reviewsRes = await githubApi.get(`/repos/${repoPath}/pulls/${number}/reviews`).catch(() => ({ data: [] }));
+    const reviews = reviewsRes.data || [];
+    
+    // Fetch PR comments
+    const commentsRes = await githubApi.get(`/repos/${repoPath}/pulls/${number}/comments`).catch(() => ({ data: [] }));
+    const comments = commentsRes.data || [];
+    
+    // Fetch issue comments
+    const issueCommentsRes = await githubApi.get(`/repos/${repoPath}/issues/${number}/comments`).catch(() => ({ data: [] }));
+    const issueComments = issueCommentsRes.data || [];
+    
+    const username = process.env.GITHUB_USERNAME;
+    
+    // Filter for current user
+    const userReviews = reviews.filter(r => r.user?.login === username);
+    const userComments = comments.filter(c => c.user?.login === username);
+    const userIssueComments = issueComments.filter(c => c.user?.login === username);
+    
+    res.json({
+      pr: `${repoPath}#${number}`,
+      username,
+      reviews: {
+        total: reviews.length,
+        userReviews: userReviews.map(r => ({
+          id: r.id,
+          state: r.state,
+          body: r.body?.substring(0, 100),
+          submittedAt: r.submitted_at,
+          user: r.user?.login
+        })),
+        all: reviews.map(r => ({
+          id: r.id,
+          state: r.state,
+          user: r.user?.login,
+          submittedAt: r.submitted_at
+        }))
+      },
+      comments: {
+        reviewComments: userComments.length,
+        issueComments: userIssueComments.length,
+        total: userComments.length + userIssueComments.length
+      },
+      summary: {
+        hasReview: userReviews.length > 0,
+        reviewStates: userReviews.map(r => r.state),
+        hasComments: userComments.length > 0 || userIssueComments.length > 0
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: error.message, 
+      stack: error.stack
+    });
+  }
+});
+
 // Get GitHub stats
 router.get('/github', createSimpleEndpoint({
   fetchFn: (dateRange) => githubService.getStats(dateRange)

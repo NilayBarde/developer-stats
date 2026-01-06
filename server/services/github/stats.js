@@ -6,11 +6,71 @@
 
 const cache = require('../../utils/cache');
 const { calculatePRStats } = require('../../utils/statsHelpers');
-const { graphqlQuery, CONTRIBUTIONS_QUERY, GITHUB_USERNAME, GITHUB_TOKEN, createGraphQLClient, createRestClient } = require('./api');
+const { graphqlQuery, CONTRIBUTIONS_QUERY, GITHUB_USERNAME, GITHUB_TOKEN, createGraphQLClient, createRestClient, githubApi } = require('./api');
 const { getAllPRs } = require('./prs');
 
 /**
- * Get contribution stats via GraphQL contributionsCollection
+ * Fetch reviews via REST API (more reliable than contributionsCollection for GitHub Enterprise)
+ */
+async function getReviewsViaREST(username, startDate, endDate, baseURL, restClient) {
+  try {
+    // Search for PRs reviewed by user (not authored by them)
+    const searchQuery = `reviewed-by:${username} type:pr -author:${username} updated:>=${startDate} updated:<=${endDate}`;
+    
+    const reviewedPRs = [];
+    let page = 1;
+    
+    while (page <= 10) {
+      try {
+        const response = await restClient.get('/search/issues', {
+          params: { 
+            q: searchQuery, 
+            per_page: 100, 
+            page, 
+            sort: 'updated', 
+            order: 'desc' 
+          }
+        });
+        
+        if (!response.data.items || response.data.items.length === 0) break;
+        reviewedPRs.push(...response.data.items);
+        
+        if (response.data.items.length < 100 || reviewedPRs.length >= response.data.total_count) break;
+        page++;
+      } catch (error) {
+        console.error(`  REST API search error (page ${page}):`, error.message);
+        break;
+      }
+    }
+    
+    // Group by repository
+    const reviewsByRepo = new Map();
+    reviewedPRs.forEach(pr => {
+      const repo = pr.repository_url?.match(/repos\/(.+)$/)?.[1];
+      if (repo) {
+        if (!reviewsByRepo.has(repo)) {
+          reviewsByRepo.set(repo, 0);
+        }
+        reviewsByRepo.set(repo, reviewsByRepo.get(repo) + 1);
+      }
+    });
+    
+    return {
+      totalReviews: reviewedPRs.length,
+      reviewsByRepo: Array.from(reviewsByRepo.entries()).map(([repo, count]) => ({
+        repo,
+        count
+      }))
+    };
+  } catch (error) {
+    console.error(`  REST API reviews fetch failed:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * Get contribution stats via GraphQL contributionsCollection (for PRs created, commits, issues)
+ * Uses REST API for reviews (more reliable for GitHub Enterprise)
  */
 async function getContributionStats(dateRange = null, credentials = null) {
   const username = credentials?.username || GITHUB_USERNAME;
@@ -29,7 +89,11 @@ async function getContributionStats(dateRange = null, credentials = null) {
   const to = dateRange?.end ? new Date(dateRange.end) : new Date();
   const from = dateRange?.start ? new Date(dateRange.start) : new Date(to.getTime() - 365 * 24 * 60 * 60 * 1000);
 
+  const startDateStr = from.toISOString().split('T')[0];
+  const endDateStr = to.toISOString().split('T')[0];
+
   try {
+    // Fetch PRs created, commits, issues from contributionsCollection (works reliably)
     const customClient = credentials ? createGraphQLClient(username, token, baseURL) : null;
     const data = await graphqlQuery(CONTRIBUTIONS_QUERY, { 
       login: username, 
@@ -38,22 +102,34 @@ async function getContributionStats(dateRange = null, credentials = null) {
     }, customClient);
     
     const c = data.user?.contributionsCollection;
-    if (!c) return null;
+    if (!c) {
+      console.log('⚠️ contributionsCollection not available');
+      return null;
+    }
+
+    // Fetch reviews via REST API (more reliable for GitHub Enterprise)
+    const restClient = credentials ? createRestClient(username, token, baseURL) : githubApi;
+    console.log('  → Fetching reviews via REST API...');
+    const restReviews = await getReviewsViaREST(username, startDateStr, endDateStr, baseURL, restClient);
 
     const result = {
       totalPRs: c.totalPullRequestContributions,
-      totalPRReviews: c.totalPullRequestReviewContributions,
+      totalPRReviews: restReviews?.totalReviews ?? c.totalPullRequestReviewContributions ?? 0,
       totalCommits: c.totalCommitContributions,
       totalIssues: c.totalIssueContributions,
       prsByRepo: c.pullRequestContributionsByRepository?.map(r => ({
         repo: r.repository.nameWithOwner,
         count: r.contributions.totalCount
       })) || [],
-      reviewsByRepo: c.pullRequestReviewContributionsByRepository?.map(r => ({
+      reviewsByRepo: restReviews?.reviewsByRepo ?? c.pullRequestReviewContributionsByRepository?.map(r => ({
         repo: r.repository.nameWithOwner,
         count: r.contributions.totalCount
-      })) || []
+      })) ?? []
     };
+
+    if (restReviews && restReviews.totalReviews !== c.totalPullRequestReviewContributions) {
+      console.log(`  ℹ️ REST API found ${restReviews.totalReviews} reviews vs ${c.totalPullRequestReviewContributions} from contributionsCollection`);
+    }
 
     cache.set(cacheKey, result, 300);
     console.log(`  ✓ Got contributions: ${result.totalPRs} PRs, ${result.totalPRReviews} reviews`);
