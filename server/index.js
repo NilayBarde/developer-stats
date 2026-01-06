@@ -10,6 +10,7 @@ const gitlabService = require('./services/gitlab');
 const jiraService = require('./services/jira');
 const adobeAnalyticsService = require('./services/analytics');
 const { fetchProjectsWithAnalytics, fetchProjectSpecificAnalytics, fetchProjectAnalytics } = require('./routes/projects');
+const { fetchLeaderboard } = require('./routes/stats');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -116,6 +117,14 @@ async function warmCache() {
         cache.set(`projects-v3:${rangeKey}`, projectsRes, 300);
       } catch (e) {
         console.error('    ❌ Error warming Projects:', e.message);
+      }
+      
+      try {
+        const leaderboard = await fetchLeaderboard(range, true); // Skip cache check, always fetch fresh
+        // Cache is already set inside fetchLeaderboard, but we verify it worked
+        console.log(`    ✓ Leaderboard cached (${leaderboard.length} users)`);
+      } catch (e) {
+        console.error('    ❌ Error warming Leaderboard:', e.message);
       }
     }
     

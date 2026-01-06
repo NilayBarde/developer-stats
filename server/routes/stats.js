@@ -366,98 +366,120 @@ async function fetchUserStats(user, dateRange) {
   return userResult;
 }
 
+/**
+ * Fetch leaderboard stats for all users
+ * @param {Object} dateRange - Date range object
+ * @param {boolean} skipCache - If true, skip cache check and always fetch fresh data
+ * @returns {Promise<Array>} Leaderboard array
+ */
+async function fetchLeaderboard(dateRange, skipCache = false) {
+  const rangeKey = JSON.stringify(dateRange);
+  
+  // Load users from engineering-metrics or config file
+  const { getUsers, normalizeEngineeringMetricsUser } = require('../utils/userHelpers');
+  let users = await getUsers();
+  
+  if (!users || users.length === 0) {
+    return [];
+  }
+  
+  // Normalize users from engineering-metrics format if needed
+  const processedUsers = users.map(user => normalizeEngineeringMetricsUser(user));
+  
+  const cacheKey = `leaderboard:${users.map(u => u.id || u.github?.username || u.gitlab?.username || u.jira?.email || 'unknown').join(',')}:${rangeKey}`;
+  
+  if (!skipCache) {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      console.log('✓ Leaderboard served from cache');
+      return cached;
+    }
+  }
+  
+  const startTime = Date.now();
+  console.log(`📊 Fetching leaderboard stats for ${processedUsers.length} users...`);
+  
+  // Process users in batches to avoid overwhelming APIs and improve perceived performance
+  // Each batch processes in parallel, but batches run sequentially
+  const BATCH_SIZE = 10;
+  const leaderboard = [];
+  
+  for (let i = 0; i < processedUsers.length; i += BATCH_SIZE) {
+    const batch = processedUsers.slice(i, i + BATCH_SIZE);
+    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+    const totalBatches = Math.ceil(processedUsers.length / BATCH_SIZE);
+    console.log(`  Processing batch ${batchNum}/${totalBatches} (${batch.length} users)...`);
+    
+    // Fetch stats for batch in parallel with timeout
+    const batchPromises = batch.map(user => 
+      Promise.race([
+        fetchUserStats(user, dateRange),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Request timeout')), 30000) // 30s timeout per user
+        )
+      ]).catch(error => {
+        const userId = user.id || user.github?.username || user.gitlab?.username || user.jira?.email || 'unknown';
+        console.warn(`  ⚠️ Stats fetch timeout/failed for ${userId}:`, error.message);
+        return {
+          user: {
+            id: userId,
+            githubUsername: user.github?.username,
+            gitlabUsername: user.gitlab?.username,
+            jiraEmail: user.jira?.email
+          },
+          github: null,
+          gitlab: null,
+          jira: null,
+          errors: { general: error.message || 'Request timeout' }
+        };
+      })
+    );
+    
+    const batchResults = await Promise.allSettled(batchPromises);
+    batchResults.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        leaderboard.push(result.value);
+      } else {
+        const user = batch[index];
+        const userId = user.id || user.github?.username || user.gitlab?.username || user.jira?.email || 'unknown';
+        leaderboard.push({
+          user: {
+            id: userId,
+            githubUsername: user.github?.username,
+            gitlabUsername: user.gitlab?.username,
+            jiraEmail: user.jira?.email
+          },
+          github: null,
+          gitlab: null,
+          jira: null,
+          errors: { general: result.reason?.message || 'Unknown error' }
+        });
+      }
+    });
+    
+    console.log(`  ✓ Batch ${batchNum} complete (${((Date.now() - startTime) / 1000).toFixed(1)}s elapsed)`);
+  }
+  
+  cache.set(cacheKey, leaderboard, 300);
+  console.log(`✓ Leaderboard fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+  return leaderboard;
+}
+
 // Get leaderboard stats for all users
 router.get('/leaderboard', async (req, res) => {
   try {
     const dateRange = parseDateRange(req.query);
     const rangeKey = JSON.stringify(dateRange);
     
-    // Load users from engineering-metrics or config file
-    const { getUsers, normalizeEngineeringMetricsUser } = require('../utils/userHelpers');
-    let users = await getUsers();
-    
-    if (!users || users.length === 0) {
-      return res.json([]);
-    }
-    
-    // Normalize users from engineering-metrics format if needed
-    const processedUsers = users.map(user => normalizeEngineeringMetricsUser(user));
-    
+    // Load users to build cache key
+    const { getUsers } = require('../utils/userHelpers');
+    const users = await getUsers();
     const cacheKey = `leaderboard:${users.map(u => u.id || u.github?.username || u.gitlab?.username || u.jira?.email || 'unknown').join(',')}:${rangeKey}`;
     const cached = cache.get(cacheKey);
-    if (cached) {
-      console.log('✓ Leaderboard served from cache');
-      setCacheHeaders(res, true);
-      return res.json(cached);
-    }
     
-    const startTime = Date.now();
-    console.log(`📊 Fetching leaderboard stats for ${processedUsers.length} users...`);
+    const leaderboard = await fetchLeaderboard(dateRange);
     
-    // Process users in batches to avoid overwhelming APIs and improve perceived performance
-    // Each batch processes in parallel, but batches run sequentially
-    const BATCH_SIZE = 10;
-    const leaderboard = [];
-    
-    for (let i = 0; i < processedUsers.length; i += BATCH_SIZE) {
-      const batch = processedUsers.slice(i, i + BATCH_SIZE);
-      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-      const totalBatches = Math.ceil(processedUsers.length / BATCH_SIZE);
-      console.log(`  Processing batch ${batchNum}/${totalBatches} (${batch.length} users)...`);
-      
-      // Fetch stats for batch in parallel with timeout
-      const batchPromises = batch.map(user => 
-        Promise.race([
-          fetchUserStats(user, dateRange),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Request timeout')), 30000) // 30s timeout per user
-          )
-        ]).catch(error => {
-          const userId = user.id || user.github?.username || user.gitlab?.username || user.jira?.email || 'unknown';
-          console.warn(`  ⚠️ Stats fetch timeout/failed for ${userId}:`, error.message);
-          return {
-            user: {
-              id: userId,
-              githubUsername: user.github?.username,
-              gitlabUsername: user.gitlab?.username,
-              jiraEmail: user.jira?.email
-            },
-            github: null,
-            gitlab: null,
-            jira: null,
-            errors: { general: error.message || 'Request timeout' }
-          };
-        })
-      );
-      
-      const batchResults = await Promise.allSettled(batchPromises);
-      batchResults.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-          leaderboard.push(result.value);
-        } else {
-          const user = batch[index];
-          const userId = user.id || user.github?.username || user.gitlab?.username || user.jira?.email || 'unknown';
-          leaderboard.push({
-            user: {
-              id: userId,
-              githubUsername: user.github?.username,
-              gitlabUsername: user.gitlab?.username,
-              jiraEmail: user.jira?.email
-            },
-            github: null,
-            gitlab: null,
-            jira: null,
-            errors: { general: result.reason?.message || 'Unknown error' }
-          });
-        }
-      });
-      
-      console.log(`  ✓ Batch ${batchNum} complete (${((Date.now() - startTime) / 1000).toFixed(1)}s elapsed)`);
-    }
-    
-    cache.set(cacheKey, leaderboard, 300);
-    console.log(`✓ Leaderboard fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
-    setCacheHeaders(res, false);
+    setCacheHeaders(res, !!cached);
     res.json(leaderboard);
   } catch (error) {
     console.error('Error fetching leaderboard:', error);
@@ -466,4 +488,5 @@ router.get('/leaderboard', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.fetchLeaderboard = fetchLeaderboard;
 
