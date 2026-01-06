@@ -7,6 +7,9 @@ import Skeleton from '../components/ui/Skeleton';
 import clientCache from '../utils/clientCache';
 import './LeaderboardPage.css';
 
+// Current user identifier - update this to match your user ID
+const CURRENT_USER_ID = 'NILAY-BARDE';
+
 function LeaderboardPage() {
   const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -145,6 +148,18 @@ function LeaderboardPage() {
     return sortConfig.direction === 'asc' ? '↑' : '↓';
   };
 
+  const isCurrentUser = useCallback((entry) => {
+    const userId = entry.user?.id;
+    const githubUsername = entry.user?.githubUsername;
+    const gitlabUsername = entry.user?.gitlabUsername;
+    const jiraEmail = entry.user?.jiraEmail;
+    
+    return userId === CURRENT_USER_ID ||
+           githubUsername?.toUpperCase() === CURRENT_USER_ID ||
+           gitlabUsername === CURRENT_USER_ID ||
+           jiraEmail?.toLowerCase() === 'nilay.barde@disney.com';
+  }, []);
+
   const renderLoadingTable = () => {
     const skeletonRows = Array.from({ length: 10 }, (_, i) => i);
     
@@ -270,10 +285,11 @@ function LeaderboardPage() {
                 const displayName = entry.user?.id || entry.user?.githubUsername || entry.user?.gitlabUsername || entry.user?.jiraEmail || '-';
                 const gitCreated = (entry.github?.created || 0) + (entry.gitlab?.created || 0);
                 const gitReviews = (entry.github?.reviews || 0) + (entry.gitlab?.commented || 0) + (entry.gitlab?.approved || 0);
+                const isCurrentUserRow = isCurrentUser(entry);
                 
                 return (
-                  <tr key={entry.user?.id || index}>
-                    <td className="name-cell">{displayName}</td>
+                  <tr key={entry.user?.id || index} className={isCurrentUserRow ? 'current-user-row' : ''}>
+                    <td className={`name-cell ${isCurrentUserRow ? 'current-user-name' : ''}`}>{displayName}</td>
                     <td>{formatValue(gitCreated)}</td>
                     <td>{formatValue(gitReviews)}</td>
                     <td>{formatValue(entry.jira?.velocity?.averageVelocity)}</td>
