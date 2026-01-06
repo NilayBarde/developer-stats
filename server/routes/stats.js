@@ -560,8 +560,8 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
 function calculateBenchmarks(leaderboard) {
   if (!leaderboard || leaderboard.length === 0) {
     return {
-      fte: { avgPRsPerMonth: null, avgVelocity: null },
-      p2: { avgPRsPerMonth: null, avgVelocity: null }
+      fte: { avgPRsPerMonth: null, avgVelocity: null, totalPRs: null },
+      p2: { avgPRsPerMonth: null, avgVelocity: null, totalPRs: null }
     };
   }
 
@@ -584,6 +584,14 @@ function calculateBenchmarks(leaderboard) {
     return parseFloat((monthsWithData.reduce((a, b) => a + b, 0) / monthsWithData.length).toFixed(1));
   };
 
+  // Helper to calculate total PRs from GitHub + GitLab stats
+  const calculateTotalPRs = (githubStats, gitlabStats) => {
+    const githubCreated = githubStats?.created > 0 ? githubStats.created : (githubStats?.total ?? 0);
+    const gitlabCreated = gitlabStats?.created ?? gitlabStats?.total ?? 0;
+    const total = githubCreated + gitlabCreated;
+    return total > 0 ? total : null;
+  };
+
   // Helper to get velocity from Jira stats
   const getVelocity = (jiraStats) => {
     return jiraStats?.velocity?.combinedAverageVelocity || 
@@ -593,12 +601,18 @@ function calculateBenchmarks(leaderboard) {
 
   // Calculate FTE averages (all users)
   const ftePRs = [];
+  const fteTotalPRs = [];
   const fteVelocities = [];
   
   leaderboard.forEach(entry => {
     const avgPRs = calculateAvgPRsPerMonth(entry.github, entry.gitlab);
     if (avgPRs !== null) {
       ftePRs.push(avgPRs);
+    }
+    
+    const totalPRs = calculateTotalPRs(entry.github, entry.gitlab);
+    if (totalPRs !== null) {
+      fteTotalPRs.push(totalPRs);
     }
     
     const velocity = getVelocity(entry.jira);
@@ -610,6 +624,9 @@ function calculateBenchmarks(leaderboard) {
   const fteAvgPRs = ftePRs.length > 0 
     ? parseFloat((ftePRs.reduce((a, b) => a + b, 0) / ftePRs.length).toFixed(1))
     : null;
+  const fteAvgTotalPRs = fteTotalPRs.length > 0
+    ? parseFloat((fteTotalPRs.reduce((a, b) => a + b, 0) / fteTotalPRs.length).toFixed(1))
+    : null;
   const fteAvgVelocity = fteVelocities.length > 0
     ? parseFloat((fteVelocities.reduce((a, b) => a + b, 0) / fteVelocities.length).toFixed(1))
     : null;
@@ -618,7 +635,8 @@ function calculateBenchmarks(leaderboard) {
   const benchmarks = {
     fte: {
       avgPRsPerMonth: fteAvgPRs,
-      avgVelocity: fteAvgVelocity
+      avgVelocity: fteAvgVelocity,
+      totalPRs: fteAvgTotalPRs
     }
   };
 
@@ -643,12 +661,18 @@ function calculateBenchmarks(leaderboard) {
   Object.keys(usersByLevel).forEach(level => {
     const levelUsers = usersByLevel[level];
     const levelPRs = [];
+    const levelTotalPRs = [];
     const levelVelocities = [];
 
     levelUsers.forEach(entry => {
       const avgPRs = calculateAvgPRsPerMonth(entry.github, entry.gitlab);
       if (avgPRs !== null) {
         levelPRs.push(avgPRs);
+      }
+      
+      const totalPRs = calculateTotalPRs(entry.github, entry.gitlab);
+      if (totalPRs !== null) {
+        levelTotalPRs.push(totalPRs);
       }
       
       const velocity = getVelocity(entry.jira);
@@ -660,13 +684,17 @@ function calculateBenchmarks(leaderboard) {
     const levelAvgPRs = levelPRs.length > 0
       ? parseFloat((levelPRs.reduce((a, b) => a + b, 0) / levelPRs.length).toFixed(1))
       : null;
+    const levelAvgTotalPRs = levelTotalPRs.length > 0
+      ? parseFloat((levelTotalPRs.reduce((a, b) => a + b, 0) / levelTotalPRs.length).toFixed(1))
+      : null;
     const levelAvgVelocity = levelVelocities.length > 0
       ? parseFloat((levelVelocities.reduce((a, b) => a + b, 0) / levelVelocities.length).toFixed(1))
       : null;
 
     benchmarks[level.toLowerCase()] = {
       avgPRsPerMonth: levelAvgPRs,
-      avgVelocity: levelAvgVelocity
+      avgVelocity: levelAvgVelocity,
+      totalPRs: levelAvgTotalPRs
     };
   });
 

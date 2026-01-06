@@ -14,6 +14,34 @@ function CombinedOverview({ githubStats, gitlabStats, jiraStats, gitLoading = fa
   const combined = calculateCombinedStats(githubStats, gitlabStats);
   const combinedVelocity = jiraStats?.velocity?.combinedAverageVelocity || jiraStats?.velocity?.averageVelocity || 0;
 
+  // Helper to render total PRs subtitle with benchmarks
+  const renderTotalPRsSubtitle = () => {
+    if (benchmarksLoading) {
+      return <span className="benchmarks-loading">Loading benchmarks...</span>;
+    }
+    
+    const parts = [`${combined.githubCount} GitHub, ${combined.gitlabCount} GitLab`];
+    
+    if (benchmarks) {
+      const fteTotal = benchmarks?.fte?.totalPRs;
+      const p2Total = benchmarks?.p2?.totalPRs;
+      
+      const benchmarkParts = [];
+      if (fteTotal !== null && fteTotal !== undefined) {
+        benchmarkParts.push(`FTE: ${fteTotal}`);
+      }
+      if (p2Total !== null && p2Total !== undefined) {
+        benchmarkParts.push(`P2: ${p2Total}`);
+      }
+      
+      if (benchmarkParts.length > 0) {
+        parts.push(benchmarkParts.join(' | '));
+      }
+    }
+    
+    return parts.join(' | ');
+  };
+
   // Helper to render subtitle with loading state for PR comparison
   const renderPRSubtitle = (content) => {
     if (benchmarksLoading && !content) {
@@ -40,7 +68,7 @@ function CombinedOverview({ githubStats, gitlabStats, jiraStats, gitLoading = fa
           <StatsCard
             title="Total PRs/MRs"
             value={combined.totalPRs}
-            subtitle={`${combined.githubCount} GitHub, ${combined.gitlabCount} GitLab`}
+            subtitle={renderTotalPRsSubtitle()}
           />
         )}
         {gitLoading ? (
