@@ -16,32 +16,15 @@ function AnalyticsLandingPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch project list from config
+    // Fetch project list from server config
     const fetchProjects = async () => {
       try {
         const response = await axios.get('/api/analytics/projects');
         setProjects(response.data.projects || []);
       } catch (err) {
-        // Fallback to hardcoded projects if endpoint doesn't exist
-        setProjects([
-          {
-            key: 'SEWEB-59645',
-            label: 'DraftKings Integration',
-            description: 'Bet clicks tracking across all ESPN pages with DraftKings integration.',
-            launchDate: '2025-12-01',
-            route: '/analytics/draftkings',
-            metrics: ['Bet Clicks', 'Page Breakdown', 'Daily Trends']
-          },
-          {
-            key: 'SEWEB-51747',
-            label: 'Next Gen Gamecast Football',
-            description: 'My Bets feature + redesign for NFL Gamecast. Shows linked bet users their placed bets.',
-            launchDate: '2025-08-25',
-            endDate: '2025-12-01',
-            route: '/analytics/nfl-gamecast',
-            metrics: ['Page Views', 'Bet Clicks', 'Conversion Rate']
-          }
-        ]);
+        console.error('Error fetching projects:', err);
+        // Fallback to empty array if endpoint fails
+        setProjects([]);
       } finally {
         setLoading(false);
       }

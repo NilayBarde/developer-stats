@@ -7,14 +7,16 @@
     {
       "key": "SEWEB-59645",
       "label": "DraftKings Integration",
-      "launchDate": "2025-12-01"
+      "description": "Bet clicks tracking across all ESPN pages with DraftKings integration.",
+      "launchDate": "2025-12-01",
+      "metrics": ["betClicks", "pageBreakdown", "dailyTrends"]
     },
     {
       "key": "SEWEB-51747",
       "label": "Next Gen Gamecast Football",
+      "description": "My Bets feature + redesign for NFL Gamecast. Shows linked bet users their placed bets.",
       "launchDate": "2025-08-25",
-      "myBetsEndDate": "2025-12-01",
-      "description": "Redesign of NFL Gamecast (ongoing) + My Bets feature (Aug 25 - Dec 1). My Bets showed linked bet users their placed bets on the Gamecast page.",
+      "endDate": "2025-12-01",
       "pageFilter": "espn:nfl:game:gamecast",
       "metrics": ["pageViews", "betClicks", "conversionRate"],
       "breakdownBy": "evar122",

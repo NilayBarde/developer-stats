@@ -201,6 +201,64 @@ router.get('/page-event-details', async (req, res) => {
   }
 });
 
+// Get list of all tracked projects
+router.get('/projects', async (req, res) => {
+  try {
+    delete require.cache[require.resolve('../config/projectAnalytics.json')];
+    const projectConfig = require('../config/projectAnalytics.json');
+    
+    const projects = projectConfig.projects || [];
+    
+    // Map projects to the format expected by the frontend
+    const mappedProjects = projects.map(project => {
+      // Determine route based on project key or use a default pattern
+      let route;
+      if (project.key === 'SEWEB-59645') {
+        route = '/analytics/draftkings';
+      } else if (project.key === 'SEWEB-51747') {
+        route = '/analytics/nfl-gamecast';
+      } else {
+        // Default: convert key to route (e.g., SEWEB-12345 -> /analytics/seweb-12345)
+        route = `/analytics/${project.key.toLowerCase().replace(/-/g, '-')}`;
+      }
+      
+      // Map metrics array to display format (capitalize first letter of each word)
+      const metrics = (project.metrics || []).map(metric => {
+        // Convert camelCase to Title Case (e.g., "pageViews" -> "Page Views", "betClicks" -> "Bet Clicks")
+        return metric
+          .replace(/([A-Z])/g, ' $1')
+          .replace(/^./, str => str.toUpperCase())
+          .trim();
+      });
+      
+      // Provide default description if missing
+      let description = project.description || '';
+      if (!description && project.key === 'SEWEB-59645') {
+        description = 'Bet clicks tracking across all ESPN pages with DraftKings integration.';
+      }
+      
+      return {
+        key: project.key,
+        label: project.label,
+        description: description,
+        launchDate: project.launchDate,
+        endDate: project.endDate || project.myBetsEndDate || null,
+        route: route,
+        metrics: metrics.length > 0 ? metrics : (project.key === 'SEWEB-59645' 
+          ? ['Bet Clicks', 'Page Breakdown', 'Daily Trends']
+          : ['Page Views', 'Bet Clicks', 'Conversion Rate'])
+      };
+    });
+    
+    res.json({
+      projects: mappedProjects
+    });
+  } catch (error) {
+    console.error('Error fetching projects list:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get project-specific analytics
 router.get('/project/:projectKey', async (req, res) => {
   const { projectKey } = req.params;
