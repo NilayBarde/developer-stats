@@ -314,7 +314,8 @@ async function fetchUserStats(user, dateRange) {
       id: userId,
       githubUsername: user.github?.username,
       gitlabUsername: user.gitlab?.username,
-      jiraEmail: user.jira?.email
+      jiraEmail: user.jira?.email,
+      level: user.level || null
     },
     github: null,
     gitlab: null,
@@ -469,7 +470,8 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
             id: userId,
             githubUsername: user.github?.username,
             gitlabUsername: user.gitlab?.username,
-            jiraEmail: user.jira?.email
+            jiraEmail: user.jira?.email,
+            level: user.level || null
           },
           github: defaultUserCachedStats.github,
           gitlab: defaultUserCachedStats.gitlab,
@@ -503,7 +505,8 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
               id: userId,
               githubUsername: user.github?.username,
               gitlabUsername: user.gitlab?.username,
-              jiraEmail: user.jira?.email
+              jiraEmail: user.jira?.email,
+              level: user.level || null
             },
             github: null,
             gitlab: null,
@@ -525,7 +528,8 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
             id: userId,
             githubUsername: user.github?.username,
             gitlabUsername: user.gitlab?.username,
-            jiraEmail: user.jira?.email
+            jiraEmail: user.jira?.email,
+            level: user.level || null
           },
           github: null,
           gitlab: null,
@@ -548,6 +552,127 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
   return leaderboard;
 }
 
+/**
+ * Calculate benchmarks from leaderboard data
+ * FTE = average across all users (all levels)
+ * P2, P3, etc. = average for users at that specific level
+ */
+function calculateBenchmarks(leaderboard) {
+  if (!leaderboard || leaderboard.length === 0) {
+    return {
+      fte: { avgPRsPerMonth: null, avgVelocity: null },
+      p2: { avgPRsPerMonth: null, avgVelocity: null }
+    };
+  }
+
+  // Helper to calculate average PRs per month from GitHub + GitLab stats
+  const calculateAvgPRsPerMonth = (githubStats, gitlabStats) => {
+    const githubPRs = githubStats?.monthlyPRs || [];
+    const gitlabMRs = gitlabStats?.monthlyMRs || [];
+    
+    // Combine monthly data
+    const monthlyData = {};
+    [...githubPRs, ...gitlabMRs].forEach(item => {
+      if (item.month && item.count) {
+        monthlyData[item.month] = (monthlyData[item.month] || 0) + item.count;
+      }
+    });
+    
+    const monthsWithData = Object.values(monthlyData).filter(count => count > 0);
+    if (monthsWithData.length === 0) return null;
+    
+    return parseFloat((monthsWithData.reduce((a, b) => a + b, 0) / monthsWithData.length).toFixed(1));
+  };
+
+  // Helper to get velocity from Jira stats
+  const getVelocity = (jiraStats) => {
+    return jiraStats?.velocity?.combinedAverageVelocity || 
+           jiraStats?.velocity?.averageVelocity || 
+           null;
+  };
+
+  // Calculate FTE averages (all users)
+  const ftePRs = [];
+  const fteVelocities = [];
+  
+  leaderboard.forEach(entry => {
+    const avgPRs = calculateAvgPRsPerMonth(entry.github, entry.gitlab);
+    if (avgPRs !== null) {
+      ftePRs.push(avgPRs);
+    }
+    
+    const velocity = getVelocity(entry.jira);
+    if (velocity !== null) {
+      fteVelocities.push(velocity);
+    }
+  });
+
+  const fteAvgPRs = ftePRs.length > 0 
+    ? parseFloat((ftePRs.reduce((a, b) => a + b, 0) / ftePRs.length).toFixed(1))
+    : null;
+  const fteAvgVelocity = fteVelocities.length > 0
+    ? parseFloat((fteVelocities.reduce((a, b) => a + b, 0) / fteVelocities.length).toFixed(1))
+    : null;
+
+  // Calculate averages by level
+  const benchmarks = {
+    fte: {
+      avgPRsPerMonth: fteAvgPRs,
+      avgVelocity: fteAvgVelocity
+    }
+  };
+
+  // Group users by level
+  const usersByLevel = {};
+  let usersWithLevels = 0;
+  leaderboard.forEach(entry => {
+    const level = entry.user?.level;
+    if (level) {
+      usersWithLevels++;
+      if (!usersByLevel[level]) {
+        usersByLevel[level] = [];
+      }
+      usersByLevel[level].push(entry);
+    }
+  });
+  
+  console.log(`📊 Users with levels: ${usersWithLevels}/${leaderboard.length}`);
+  console.log(`📊 Levels found: ${Object.keys(usersByLevel).join(', ')}`);
+
+  // Calculate averages for each level
+  Object.keys(usersByLevel).forEach(level => {
+    const levelUsers = usersByLevel[level];
+    const levelPRs = [];
+    const levelVelocities = [];
+
+    levelUsers.forEach(entry => {
+      const avgPRs = calculateAvgPRsPerMonth(entry.github, entry.gitlab);
+      if (avgPRs !== null) {
+        levelPRs.push(avgPRs);
+      }
+      
+      const velocity = getVelocity(entry.jira);
+      if (velocity !== null) {
+        levelVelocities.push(velocity);
+      }
+    });
+
+    const levelAvgPRs = levelPRs.length > 0
+      ? parseFloat((levelPRs.reduce((a, b) => a + b, 0) / levelPRs.length).toFixed(1))
+      : null;
+    const levelAvgVelocity = levelVelocities.length > 0
+      ? parseFloat((levelVelocities.reduce((a, b) => a + b, 0) / levelVelocities.length).toFixed(1))
+      : null;
+
+    benchmarks[level.toLowerCase()] = {
+      avgPRsPerMonth: levelAvgPRs,
+      avgVelocity: levelAvgVelocity
+    };
+  });
+
+  return benchmarks;
+}
+
 // Get leaderboard stats for all users
 router.get('/leaderboard', async (req, res) => {
   try {
@@ -567,6 +692,39 @@ router.get('/leaderboard', async (req, res) => {
   } catch (error) {
     console.error('Error fetching leaderboard:', error);
     res.status(500).json({ error: 'Failed to fetch leaderboard stats' });
+  }
+});
+
+// Get benchmarks (FTE and per-level averages)
+router.get('/benchmarks', async (req, res) => {
+  try {
+    const dateRange = parseDateRange(req.query);
+    const rangeKey = JSON.stringify(dateRange);
+    const cacheKey = `benchmarks:${rangeKey}`;
+    
+    // Check cache
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      console.log('✓ Benchmarks served from cache');
+      setCacheHeaders(res, true);
+      return res.json(cached);
+    }
+    
+    // Fetch leaderboard to calculate benchmarks (use cache if available to avoid duplicate fetches)
+    console.log('📊 Fetching leaderboard for benchmarks calculation...');
+    const leaderboard = await fetchLeaderboard(dateRange, false); // Use cache if available
+    console.log(`📊 Leaderboard has ${leaderboard.length} users`);
+    const benchmarks = calculateBenchmarks(leaderboard);
+    console.log('📊 Calculated benchmarks:', JSON.stringify(benchmarks, null, 2));
+    
+    // Cache for 5 minutes
+    cache.set(cacheKey, benchmarks, 300);
+    
+    setCacheHeaders(res, false);
+    res.json(benchmarks);
+  } catch (error) {
+    console.error('Error calculating benchmarks:', error);
+    res.status(500).json({ error: 'Failed to calculate benchmarks' });
   }
 });
 

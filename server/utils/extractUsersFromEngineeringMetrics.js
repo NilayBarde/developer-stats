@@ -108,12 +108,18 @@ function extractJiraUsersFromFile(jiraFile) {
   const userMap = {};
   
   // Parse each entry: 'email@disney.com': { level: 'P2' }
-  // Extract email and try to match by name from email
-  const emailRegex = /['"]([^'"]+@[^'"]+)['"]\s*:\s*\{[^}]*\}/g;
+  // Extract email, level, and try to match by name from email
+  const entryRegex = /['"]([^'"]+@[^'"]+)['"]\s*:\s*\{([^}]*)\}/g;
   let match;
   
-  while ((match = emailRegex.exec(peopleMapContent)) !== null) {
+  while ((match = entryRegex.exec(peopleMapContent)) !== null) {
     const email = match[1];
+    const entryContent = match[2];
+    
+    // Extract level from entry content (e.g., level: 'P2' or level: "P2")
+    const levelMatch = entryContent.match(/level\s*:\s*['"]([^'"]+)['"]/);
+    const level = levelMatch ? levelMatch[1] : null;
+    
     // Try to extract name from email (e.g., 'aaron.ching@disney.com' -> 'Aaron')
     // This is approximate - we'll match by name later
     const emailName = email.split('@')[0].split('.').map(part => 
@@ -132,6 +138,10 @@ function extractJiraUsersFromFile(jiraFile) {
         userMap[name] = {};
       }
       userMap[name].jira = email;
+      // Store level if found
+      if (level) {
+        userMap[name].level = level;
+      }
     });
   }
   
@@ -159,6 +169,10 @@ function extractJiraUsers(emPath) {
       }
       // Use the email from this file (they should be the same, but this ensures we get all)
       mergedUserMap[name].jira = fileUserMap[name].jira;
+      // Preserve level if available (prefer first non-null level found)
+      if (fileUserMap[name].level && !mergedUserMap[name].level) {
+        mergedUserMap[name].level = fileUserMap[name].level;
+      }
     });
   });
   
@@ -228,6 +242,7 @@ function areEmailVariations(email1, email2) {
 
 /**
  * Find JIRA user by matching name and optionally deriving from GitHub username
+ * Returns object with email and level, or null
  */
 function findJiraUser(name, jiraUsers, githubUsername = null) {
   const firstName = getFirstName(name);
@@ -241,12 +256,18 @@ function findJiraUser(name, jiraUsers, githubUsername = null) {
     
     // Match by first name + last initial (for "David M" vs "David N")
     if (keyFirstName === firstName && lastNameInitial && keyLastNameInitial === lastNameInitial) {
-      return jiraUsers[key].jira;
+      return {
+        email: jiraUsers[key].jira,
+        level: jiraUsers[key].level || null
+      };
     }
     
     // Match by first name only
     if (keyFirstName === firstName && !lastNameInitial) {
-      return jiraUsers[key].jira;
+      return {
+        email: jiraUsers[key].jira,
+        level: jiraUsers[key].level || null
+      };
     }
   }
   
@@ -254,7 +275,10 @@ function findJiraUser(name, jiraUsers, githubUsername = null) {
   for (const key of jiraKeys) {
     const keyNormalized = normalizeName(key);
     if (keyNormalized.startsWith(firstName) || firstName.startsWith(keyNormalized.split(' ')[0])) {
-      return jiraUsers[key].jira;
+      return {
+        email: jiraUsers[key].jira,
+        level: jiraUsers[key].level || null
+      };
     }
   }
   
@@ -264,11 +288,17 @@ function findJiraUser(name, jiraUsers, githubUsername = null) {
     // Check if derived email exists in JIRA users
     for (const key of jiraKeys) {
       if (jiraUsers[key].jira === derivedEmail) {
-        return derivedEmail;
+        return {
+          email: derivedEmail,
+          level: jiraUsers[key].level || null
+        };
       }
     }
-    // Use derived email even if not in peopleMap
-    return derivedEmail;
+    // Use derived email even if not in peopleMap (no level available)
+    return {
+      email: derivedEmail,
+      level: null
+    };
   }
   
   return null;
@@ -321,10 +351,13 @@ function mergeUsers(githubUsers, gitlabUsers, jiraUsers) {
     }
     
     // Match JIRA by name or derive from GitHub username
-    const jiraEmail = findJiraUser(name, jiraUsers, githubUsername);
-    if (jiraEmail) {
-      user.jira = { email: jiraEmail };
-      markEmailProcessed(jiraEmail);
+    const jiraUser = findJiraUser(name, jiraUsers, githubUsername);
+    if (jiraUser) {
+      user.jira = { email: jiraUser.email };
+      if (jiraUser.level) {
+        user.level = jiraUser.level;
+      }
+      markEmailProcessed(jiraUser.email);
     }
     
     merged[githubUsername] = user;
@@ -340,10 +373,13 @@ function mergeUsers(githubUsers, gitlabUsers, jiraUsers) {
         gitlab: { username: gitlabId }
       };
       
-      const jiraEmail = findJiraUser(name, jiraUsers);
-      if (jiraEmail && !isEmailProcessed(jiraEmail)) {
-        user.jira = { email: jiraEmail };
-        markEmailProcessed(jiraEmail);
+      const jiraUser = findJiraUser(name, jiraUsers);
+      if (jiraUser && !isEmailProcessed(jiraUser.email)) {
+        user.jira = { email: jiraUser.email };
+        if (jiraUser.level) {
+          user.level = jiraUser.level;
+        }
+        markEmailProcessed(jiraUser.email);
       }
       
       merged[user.id] = user;
@@ -355,11 +391,15 @@ function mergeUsers(githubUsers, gitlabUsers, jiraUsers) {
   Object.keys(jiraUsers).forEach(jiraName => {
     const jiraEmail = jiraUsers[jiraName].jira;
     if (!isEmailProcessed(jiraEmail)) {
-      merged[`jira-${jiraEmail.split('@')[0]}`] = {
+      const jiraOnlyUser = {
         id: `jira-${jiraEmail.split('@')[0]}`,
         name: jiraName,
         jira: { email: jiraEmail }
       };
+      if (jiraUsers[jiraName].level) {
+        jiraOnlyUser.level = jiraUsers[jiraName].level;
+      }
+      merged[jiraOnlyUser.id] = jiraOnlyUser;
       markEmailProcessed(jiraEmail);
     }
   });

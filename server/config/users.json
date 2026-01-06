@@ -10,7 +10,8 @@
     },
     "jira": {
       "email": "aaron.ching@disney.com"
-    }
+    },
+    "level": "P2"
   },
   {
     "id": "MATUA022",
@@ -23,7 +24,8 @@
     },
     "jira": {
       "email": "adrian.maturano.vargas.-nd@disney.com"
-    }
+    },
+    "level": "contractor"
   },
   {
     "id": "BENJAMIN-CHAPMIN",
@@ -36,7 +38,8 @@
     },
     "jira": {
       "email": "benjamin.chapman@disney.com"
-    }
+    },
+    "level": "P4"
   },
   {
     "id": "RAMIC171",
@@ -62,7 +65,8 @@
     },
     "jira": {
       "email": "christopher.a.kelly@disney.com"
-    }
+    },
+    "level": "P2"
   },
   {
     "id": "david-murley",
@@ -75,7 +79,8 @@
     },
     "jira": {
       "email": "david.murley@disney.com"
-    }
+    },
+    "level": "P3"
   },
   {
     "id": "david-nguyen2",
@@ -88,7 +93,8 @@
     },
     "jira": {
       "email": "david.nguyen2@disney.com"
-    }
+    },
+    "level": "P1"
   },
   {
     "id": "garciaju",
@@ -101,7 +107,8 @@
     },
     "jira": {
       "email": "dorali.garcia@disney.com"
-    }
+    },
+    "level": "P3"
   },
   {
     "id": "giorgi-alvarez",
@@ -114,7 +121,8 @@
     },
     "jira": {
       "email": "giorgi.alvarez@disney.com"
-    }
+    },
+    "level": "P2"
   },
   {
     "id": "Grace-M-Mallett",
@@ -127,7 +135,8 @@
     },
     "jira": {
       "email": "grace.m.mallett@disney.com"
-    }
+    },
+    "level": "P3"
   },
   {
     "id": "Graham-M-Schilling",
@@ -153,7 +162,8 @@
     },
     "jira": {
       "email": "grant.d.gill@disney.com"
-    }
+    },
+    "level": "P4"
   },
   {
     "id": "gus-argueta",
@@ -166,7 +176,8 @@
     },
     "jira": {
       "email": "gus.argueta@disneystreaming.com"
-    }
+    },
+    "level": "P3"
   },
   {
     "id": "james-parkin",
@@ -179,7 +190,8 @@
     },
     "jira": {
       "email": "james.parkin@disney.com"
-    }
+    },
+    "level": "P3"
   },
   {
     "id": "Jordan-J-Falcon",
@@ -192,7 +204,8 @@
     },
     "jira": {
       "email": "jordan.j.falcon@disney.com"
-    }
+    },
+    "level": "P2"
   },
   {
     "id": "jorge-jacome",
@@ -205,7 +218,8 @@
     },
     "jira": {
       "email": "jorge.jacome@disney.com"
-    }
+    },
+    "level": "P3"
   },
   {
     "id": "judy-lee",
@@ -218,7 +232,8 @@
     },
     "jira": {
       "email": "judy.lee@disney.com"
-    }
+    },
+    "level": "P1"
   },
   {
     "id": "liam-odonnell",
@@ -231,7 +246,8 @@
     },
     "jira": {
       "email": "liam.odonnell@disney.com"
-    }
+    },
+    "level": "P3"
   },
   {
     "id": "lindsay-m-paredes",
@@ -244,7 +260,8 @@
     },
     "jira": {
       "email": "lindsay.m.paredes@disney.com"
-    }
+    },
+    "level": "P2"
   },
   {
     "id": "NILAY-BARDE",
@@ -257,7 +274,8 @@
     },
     "jira": {
       "email": "nilay.barde@disney.com"
-    }
+    },
+    "level": "P2"
   },
   {
     "id": "AGUDO001",
@@ -270,7 +288,8 @@
     },
     "jira": {
       "email": "oscar.agudelo.-nd@disney.com"
-    }
+    },
+    "level": "contractor"
   },
   {
     "id": "pia-rodriguez",
@@ -283,7 +302,8 @@
     },
     "jira": {
       "email": "pia.rodriguez@disney.com"
-    }
+    },
+    "level": "P1"
   },
   {
     "id": "Randi-K-Abe",
@@ -322,7 +342,8 @@
     },
     "jira": {
       "email": "samuel.rendon.gutierrez.-nd@disney.com"
-    }
+    },
+    "level": "contractor"
   },
   {
     "id": "LUCAS031",
@@ -335,7 +356,8 @@
     },
     "jira": {
       "email": "solomon.e.lucasthornton@disney.com"
-    }
+    },
+    "level": "P1"
   },
   {
     "id": "tripti-taparia",
@@ -348,7 +370,8 @@
     },
     "jira": {
       "email": "trip.taparia.-nd@disney.com"
-    }
+    },
+    "level": "contractor"
   },
   {
     "id": "ryan-kawahara",
@@ -361,7 +384,8 @@
     },
     "jira": {
       "email": "ryan.kawahara@disney.com"
-    }
+    },
+    "level": "P1"
   },
   {
     "id": "gitlab-33362",
@@ -371,13 +395,15 @@
     },
     "jira": {
       "email": "muskan.vyas@disney.com"
-    }
+    },
+    "level": "P2"
   },
   {
     "id": "jira-carlos.ramirez.-nd",
     "name": "Carlos Ramirez -nd",
     "jira": {
       "email": "carlos.ramirez.-nd@disney.com"
-    }
+    },
+    "level": "contractor"
   }
 ]

@@ -14,13 +14,7 @@ import ChartCard from './ChartCard';
 import { extractSprintNum } from '../utils/velocityHelpers';
 import './VelocityChart.css';
 
-// Velocity benchmarks
-const VELOCITY_BENCHMARKS = {
-  P2_AVERAGE: 5.9,
-  TEAM_AVERAGE: 6.0
-};
-
-function VelocityChart({ sprints, title = "Velocity Over Time", showBenchmarks = false, baseUrl, isMonthly = false }) {
+function VelocityChart({ sprints, title = "Velocity Over Time", showBenchmarks = false, baseUrl, isMonthly = false, benchmarks = null }) {
   const [tooltipData, setTooltipData] = useState(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   const [isTooltipVisible, setIsTooltipVisible] = useState(false);
@@ -64,10 +58,17 @@ function VelocityChart({ sprints, title = "Velocity Over Time", showBenchmarks =
       isMonthly: isMonthlyData
     };
     
-    // Only add benchmarks if showBenchmarks is true
-    if (showBenchmarks) {
-      dataPoint.teamAvg = VELOCITY_BENCHMARKS.TEAM_AVERAGE;
-      dataPoint.p2Avg = VELOCITY_BENCHMARKS.P2_AVERAGE;
+    // Only add benchmarks if showBenchmarks is true and benchmarks are available
+    if (showBenchmarks && benchmarks) {
+      const fteAvg = benchmarks?.fte?.avgVelocity;
+      const p2Avg = benchmarks?.p2?.avgVelocity;
+      
+      if (fteAvg !== null && fteAvg !== undefined) {
+        dataPoint.teamAvg = fteAvg;
+      }
+      if (p2Avg !== null && p2Avg !== undefined) {
+        dataPoint.p2Avg = p2Avg;
+      }
     }
     
     return dataPoint;

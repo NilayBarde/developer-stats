@@ -66,7 +66,7 @@ function UntrackedTickets({ velocity }) {
  * Monthly velocity chart (engineering-metrics style)
  * Shows monthly story points with "approx points per sprint" (monthly / 2)
  */
-function MonthlyVelocityChart({ velocity, baseUrl }) {
+function MonthlyVelocityChart({ velocity, baseUrl, benchmarks = null }) {
   if (!velocity) return null;
   
   // Use monthlyVelocity or sprints (backward compatible)
@@ -89,11 +89,12 @@ function MonthlyVelocityChart({ velocity, baseUrl }) {
       showBenchmarks={false} 
       baseUrl={baseUrl}
       isMonthly={true}
+      benchmarks={benchmarks}
     />
   );
 }
 
-function JiraSection({ stats, ctoiStats, compact = false, loading = false, ctoiLoading = false }) {
+function JiraSection({ stats, ctoiStats, compact = false, loading = false, ctoiLoading = false, benchmarks = null }) {
   const navigate = useNavigate();
   
   if (loading && !stats) {
@@ -264,6 +265,7 @@ function JiraSection({ stats, ctoiStats, compact = false, loading = false, ctoiL
           <MonthlyVelocityChart 
             velocity={stats.velocity} 
             baseUrl={stats.baseUrl}
+            benchmarks={benchmarks}
           />
 
           {/* Recent Issues List */}

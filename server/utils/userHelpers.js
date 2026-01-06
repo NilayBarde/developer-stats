@@ -127,7 +127,11 @@ async function getUsers() {
     const usersConfig = require('../config/users.json');
     const users = Array.isArray(usersConfig) ? usersConfig : [];
     if (users.length > 0) {
-      console.log(`✓ Loaded ${users.length} users from config file`);
+      const usersWithLevels = users.filter(u => u.level).length;
+      console.log(`✓ Loaded ${users.length} users from config file (${usersWithLevels} with levels)`);
+      if (usersWithLevels === 0 && !engineeringMetricsPath) {
+        console.warn('⚠️  No users have levels. Set ENGINEERING_METRICS_PATH to extract levels from engineering-metrics files.');
+      }
     }
     return users;
   } catch (error) {
@@ -149,8 +153,12 @@ async function getUsers() {
  * @returns {Object} Normalized user object
  */
 function normalizeEngineeringMetricsUser(emUser) {
-  // If already in our format, return as-is
+  // If already in our format, return as-is (but ensure level is preserved)
   if (emUser.id && (emUser.github?.username || emUser.gitlab?.username || emUser.jira?.email)) {
+    // Preserve level if it exists
+    if (emUser.level) {
+      return { ...emUser, level: emUser.level };
+    }
     return emUser;
   }
   
@@ -178,6 +186,11 @@ function normalizeEngineeringMetricsUser(emUser) {
     normalized.jira = { email: emUser.jira.email };
   } else if (emUser.jiraEmail || emUser.jira) {
     normalized.jira = { email: emUser.jiraEmail || emUser.jira };
+  }
+  
+  // Preserve level if it exists
+  if (emUser.level) {
+    normalized.level = emUser.level;
   }
   
   return normalized;

@@ -1,9 +1,3 @@
-// Reference averages (Oct-Jul period)
-export const BENCHMARKS = {
-  FTE_AVG_PR_PER_MONTH: 9.4,
-  P2_AVG_PR_PER_MONTH: 8.6
-};
-
 /**
  * Combine monthly data from multiple sources
  * Returns an object with month as key and combined count as value
@@ -43,10 +37,24 @@ export function calculateAverage(monthlyData) {
 
 /**
  * Get comparison text for PRs/MRs
+ * @param {number} avgPRs - Average PRs per month
+ * @param {Object|null} benchmarks - Dynamic benchmarks object from API, or null
  */
-export function getPRComparison(avgPRs) {
-  const { FTE_AVG_PR_PER_MONTH, P2_AVG_PR_PER_MONTH } = BENCHMARKS;
-  return `FTE: ${FTE_AVG_PR_PER_MONTH} | P2: ${P2_AVG_PR_PER_MONTH}`;
+export function getPRComparison(avgPRs, benchmarks = null) {
+  if (!benchmarks) return '';
+  
+  const fteAvg = benchmarks?.fte?.avgPRsPerMonth;
+  const p2Avg = benchmarks?.p2?.avgPRsPerMonth;
+  
+  const parts = [];
+  if (fteAvg !== null && fteAvg !== undefined) {
+    parts.push(`FTE: ${fteAvg}`);
+  }
+  if (p2Avg !== null && p2Avg !== undefined) {
+    parts.push(`P2: ${p2Avg}`);
+  }
+  
+  return parts.length > 0 ? parts.join(' | ') : '';
 }
 
 /**
@@ -81,7 +89,8 @@ export function calculateCombinedStats(githubStats, gitlabStats) {
   const avgPRsPerMonth = calculateAverage(combinedMonthly);
   
   // Use engineering-metrics aligned `created` field if available, fallback to `total`
-  const githubCreated = githubStats?.created ?? githubStats?.total ?? 0;
+  // If created is 0 but total exists, use total (GraphQL contributionsCollection might miss some PRs)
+  const githubCreated = githubStats?.created > 0 ? githubStats.created : (githubStats?.total ?? 0);
   const gitlabCreated = gitlabStats?.created ?? gitlabStats?.total ?? 0;
   const totalPRs = githubCreated + gitlabCreated;
   

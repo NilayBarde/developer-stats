@@ -155,7 +155,7 @@ async function getStats(dateRange = null, credentials = null) {
     throw new Error('GitHub credentials not configured');
   }
 
-  const cacheKey = `github-stats:v5:${username}:${JSON.stringify(dateRange)}`;
+  const cacheKey = `github-stats:v6:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     console.log('✓ GitHub stats served from cache');
@@ -186,7 +186,8 @@ async function getStats(dateRange = null, credentials = null) {
     source: 'github',
     username: username,
     // Primary metrics matching engineering-metrics format
-    created: contributions.totalPRs,           // PRs created (totalPullRequestContributions)
+    // Use prStats.total if contributions.totalPRs is 0 (GraphQL might miss some PRs)
+    created: contributions.totalPRs > 0 ? contributions.totalPRs : prStats.total,
     reviews: contributions.totalPRReviews,     // PR reviews (totalPullRequestReviewContributions)
     // Additional metrics from contributionsCollection
     totalCommits: contributions.totalCommits,

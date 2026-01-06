@@ -24,6 +24,8 @@ function App() {
   const [jiraStats, setJiraStats] = useState(null);
   const [gitStats, setGitStats] = useState(null);
   const [ctoiStats, setCtoiStats] = useState(null);
+  const [benchmarks, setBenchmarks] = useState(null);
+  const [benchmarksLoading, setBenchmarksLoading] = useState(false);
   const [jiraLoading, setJiraLoading] = useState(true);
   const [gitLoading, setGitLoading] = useState(true);
   const [ctoiLoading, setCtoiLoading] = useState(true);
@@ -92,6 +94,22 @@ function App() {
     }
   }, [dateRange, mockParam]);
 
+  // Fetch benchmarks
+  const fetchBenchmarks = useCallback(async () => {
+    try {
+      setBenchmarksLoading(true);
+      const url = buildApiUrl('/api/stats/benchmarks', dateRange) + mockParam;
+      const response = await axios.get(url, { timeout: 120000 }); // 2 minutes timeout (leaderboard can take a while)
+      setBenchmarks(response.data);
+    } catch (err) {
+      console.error('Error fetching benchmarks:', err);
+      // Benchmarks are optional, use fallback values
+      setBenchmarks(null);
+    } finally {
+      setBenchmarksLoading(false);
+    }
+  }, [dateRange, mockParam]);
+
   // Fetch all stats in parallel (progressive)
   const fetchAllStats = useCallback(async () => {
     setError(null);
@@ -99,7 +117,8 @@ function App() {
     fetchJiraStats();
     fetchGitStats();
     fetchCtoiStats();
-  }, [fetchJiraStats, fetchGitStats, fetchCtoiStats]);
+    fetchBenchmarks();
+  }, [fetchJiraStats, fetchGitStats, fetchCtoiStats, fetchBenchmarks]);
 
   useEffect(() => {
     // Only fetch stats on the dashboard route
@@ -174,6 +193,9 @@ function App() {
                 jiraStats={jiraStats}
                 gitLoading={gitLoading}
                 jiraLoading={jiraLoading}
+                dateRange={dateRange}
+                benchmarks={benchmarks}
+                benchmarksLoading={benchmarksLoading}
               />
 
               {/* Jira Section - loads independently */}
@@ -191,6 +213,7 @@ function App() {
                     ctoiStats={ctoiLoading ? null : ctoiStats} 
                     loading={jiraLoading}
                     ctoiLoading={ctoiLoading}
+                    benchmarks={benchmarks}
                   />
                   {renderErrorSection('jira', '', jiraStats?.error)}
                 </>
