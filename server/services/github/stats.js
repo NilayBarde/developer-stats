@@ -146,14 +146,14 @@ async function getStats(dateRange = null, credentials = null) {
     throw new Error('GitHub credentials not configured');
   }
 
-  const cacheKey = `github-stats:v6:${username}:${JSON.stringify(dateRange)}`;
+  const cacheKey = `github-stats:v7:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
-  // Fetch both contributionsCollection (for engineering-metrics alignment) AND PR details (for monthly breakdown)
-  const [contributions, prs] = await Promise.all([
+  // Fetch contributionsCollection and authored PRs first
+  const [contributions, authoredPRs] = await Promise.all([
     getContributionStats(dateRange, credentials),
     getAllPRs(credentials)
   ]);
@@ -162,15 +162,44 @@ async function getStats(dateRange = null, credentials = null) {
     throw new Error('Failed to fetch GitHub contributions');
   }
 
+  // Use only authored PRs for stats calculation
+  const prs = authoredPRs;
+
   // Calculate PR stats for monthly data and dashboard compatibility
   const prStats = calculatePRStats(prs, [], dateRange, {
     mergedField: 'pull_request.merged_at',
     getState: (pr) => pr.state,
-    isMerged: (pr) => pr.state === 'closed' && pr.pull_request?.merged_at,
+    isMerged: (pr) => {
+      // PR is merged if state is 'merged' OR if merged_at exists (regardless of state)
+      if (pr.state === 'merged') return true;
+      if (pr.pull_request?.merged_at) return true;
+      if (pr.merged_at) return true;
+      return false;
+    },
     isOpen: (pr) => pr.state === 'open',
-    isClosed: (pr) => pr.state === 'closed' && !pr.pull_request?.merged_at,
+    isClosed: (pr) => pr.state === 'closed' && !pr.pull_request?.merged_at && !pr.merged_at,
     groupByKey: (pr) => pr._repoName || pr.repository_url?.split('/repos/')[1] || 'unknown'
   });
+
+  // Recalculate merged count: count PRs merged within date range (by merge date, not creation date)
+  const { isInDateRange } = require('../../utils/dateHelpers');
+  const allMergedPRs = prs.filter(pr => {
+    if (pr.state === 'merged') return true;
+    if (pr.pull_request?.merged_at) return true;
+    if (pr.merged_at) return true;
+    return false;
+  });
+  
+  // Count merged PRs where merge date is within range (or no date range = all merged)
+  const mergedInRange = dateRange && (dateRange.start || dateRange.end)
+    ? allMergedPRs.filter(pr => {
+        const mergeDate = pr.pull_request?.merged_at || pr.merged_at;
+        return mergeDate && isInDateRange(mergeDate, dateRange);
+      })
+    : allMergedPRs;
+  
+  // Update merged count to use merge date filtering
+  prStats.merged = mergedInRange.length;
 
   const result = {
     source: 'github',
@@ -187,7 +216,7 @@ async function getStats(dateRange = null, credentials = null) {
     reviewsByRepo: contributions.reviewsByRepo,
     // Legacy/dashboard fields for backwards compatibility
     total: prStats.total,
-    merged: prStats.merged,
+    merged: prStats.merged, // PRs authored by user that were merged (filtered by merge date if date range provided)
     open: prStats.open,
     closed: prStats.closed,
     avgPRsPerMonth: prStats.avgPRsPerMonth,

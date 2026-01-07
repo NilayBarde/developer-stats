@@ -32,6 +32,7 @@ function GitSection({ githubStats, gitlabStats, reviewStats, dateRange, compact 
 
   // GitHub stats (engineering-metrics format: created, reviews)
   const githubCreated = githubStats?.created || githubStats?.total || 0;
+  const githubMerged = githubStats?.merged || 0;
   const githubReviews = reviewStats?.github?.prsReviewed || githubStats?.reviews || githubStats?.contributions?.totalPRReviews || 0;
   const githubComments = reviewStats?.github?.totalComments || 0;
   
@@ -111,6 +112,11 @@ function GitSection({ githubStats, gitlabStats, reviewStats, dateRange, compact 
               subtitle="totalPullRequestContributions"
             />
             <StatsCard
+              title="PRs Merged"
+              value={githubMerged}
+              subtitle="PRs you authored that were merged"
+            />
+            <StatsCard
               title="PRs Reviewed"
               value={githubReviews}
               subtitle="PRs reviewed (not authored by you)"
@@ -169,6 +175,18 @@ function GitSection({ githubStats, gitlabStats, reviewStats, dateRange, compact 
           </h3>
           <div className="cards-grid">
             <StatsCard
+              title="MRs Created"
+              value={gitlabCreated}
+              subtitle="MR creation events"
+            />
+            {gitlabMerged > 0 && (
+              <StatsCard
+                title="MRs Merged"
+                value={gitlabMerged}
+                subtitle="MRs you authored that were merged"
+              />
+            )}
+            <StatsCard
               title="MRs Reviewed"
               value={gitlabReviews}
               subtitle="MRs reviewed (not authored by you)"
@@ -177,16 +195,6 @@ function GitSection({ githubStats, gitlabStats, reviewStats, dateRange, compact 
               title="Comments"
               value={gitlabComments}
               subtitle="Total comments made on MRs"
-            />
-            <StatsCard
-              title="Created"
-              value={gitlabCreated}
-              subtitle="MR creation events"
-            />
-            <StatsCard
-              title="Merged"
-              value={gitlabMerged}
-              subtitle="MR merge events"
             />
             {gitlabCommentsPerMonth > 0 && (
               <StatsCard

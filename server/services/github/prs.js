@@ -5,7 +5,7 @@
  */
 
 const cache = require('../../utils/cache');
-const { graphqlQuery, AUTHORED_PRS_QUERY, GITHUB_USERNAME, createGraphQLClient } = require('./api');
+const { graphqlQuery, AUTHORED_PRS_QUERY, GITHUB_USERNAME, GITHUB_TOKEN, GITHUB_BASE_URL, createGraphQLClient } = require('./api');
 
 /**
  * Fetch all PRs authored by user via GraphQL
@@ -39,6 +39,7 @@ async function getAllPRs(credentials = null) {
         created_at: pr.createdAt,
         updated_at: pr.updatedAt,
         closed_at: pr.closedAt,
+        merged_at: pr.mergedAt, // Also store directly for easier access
         html_url: pr.url,
         repository_url: pr.repository?.url?.replace('https://github.com', 'https://api.github.com/repos'),
         _repoName: pr.repository?.nameWithOwner,

@@ -188,12 +188,12 @@ router.get('/git', async (req, res) => {
     }
     
     const combinedStats = cache.get(`stats:${rangeKey}`);
-    if (combinedStats && cached?.reviewStats) {
+    if (combinedStats && combinedStats.reviewStats) {
       setCacheHeaders(res, true);
       return res.json({
         github: combinedStats.github,
         gitlab: combinedStats.gitlab,
-        reviewStats: cached.reviewStats,
+        reviewStats: combinedStats.reviewStats,
         timestamp: combinedStats.timestamp
       });
     }

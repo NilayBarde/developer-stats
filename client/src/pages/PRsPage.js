@@ -158,13 +158,15 @@ function PRsPage() {
       github: stats.github ? {
         ...stats.github,
         total: githubItems.length,
-        merged: githubItems.filter(item => item.state === 'closed' && item.pull_request?.merged_at).length,
+        // Use server's merged count (already filtered by date range), don't recalculate from filtered items
+        merged: stats.github.merged || 0,
         open: githubItems.filter(item => item.state === 'open').length
       } : null,
       gitlab: stats.gitlab ? {
         ...stats.gitlab,
         total: gitlabItems.length,
-        merged: gitlabItems.filter(item => item.state === 'merged').length,
+        // Use server's merged count (already filtered by date range), don't recalculate from filtered items
+        merged: stats.gitlab.merged || 0,
         open: gitlabItems.filter(item => item.state === 'opened').length
       } : null
     };
