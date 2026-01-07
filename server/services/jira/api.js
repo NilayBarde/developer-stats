@@ -1,5 +1,5 @@
-const axios = require('axios');
 const { buildJqlDateFilter, buildJqlQuery } = require('../../utils/jiraHelpers');
+const { handleApiError, createApiClient } = require('../../utils/apiHelpers');
 
 const JIRA_PAT = process.env.JIRA_PAT;
 const JIRA_BASE_URL = process.env.JIRA_BASE_URL;
@@ -11,29 +11,25 @@ if (!JIRA_PAT || !JIRA_BASE_URL) {
 // Ensure base URL doesn't have trailing slash
 const normalizedBaseURL = JIRA_BASE_URL ? JIRA_BASE_URL.replace(/\/$/, '') : '';
 
-const jiraApi = axios.create({
+// Create default Jira API client using factory
+const jiraApi = JIRA_PAT && JIRA_BASE_URL ? createApiClient({
   baseURL: normalizedBaseURL,
+  token: JIRA_PAT,
   headers: {
-    'Authorization': `Bearer ${JIRA_PAT}`,
-    'Content-Type': 'application/json',
     'Accept': 'application/json'
-  },
-  timeout: 30000
-});
+  }
+}) : null;
 
 /**
  * Create Jira API client with custom credentials
  */
 function createJiraClient(pat, baseURL) {
-  const normalizedURL = baseURL ? baseURL.replace(/\/$/, '') : '';
-  return axios.create({
-    baseURL: normalizedURL,
+  return createApiClient({
+    baseURL: baseURL,
+    token: pat,
     headers: {
-      'Authorization': `Bearer ${pat}`,
-      'Content-Type': 'application/json',
       'Accept': 'application/json'
-    },
-    timeout: 30000
+    }
   });
 }
 
@@ -48,13 +44,7 @@ async function getCurrentUser(credentials = null) {
     const response = await client.get('/rest/api/2/myself');
     return response.data;
   } catch (error) {
-    if (error.response?.status === 401) {
-      console.error('❌ Jira authentication failed when fetching user (401 Unauthorized)');
-      console.error('   Please check your JIRA_PAT and JIRA_BASE_URL');
-    } else {
-      console.error('Error fetching Jira user:', error.message);
-    }
-    throw error;
+    handleApiError(error, 'Jira');
   }
 }
 
@@ -199,13 +189,8 @@ async function getAllIssues(dateRange = null, options = {}) {
         continue;
       }
       
-      if (error.response?.status === 401) {
-        console.error('❌ Jira authentication failed (401 Unauthorized). Check JIRA_PAT and JIRA_BASE_URL.');
-      } else if (error.response?.status === 403) {
-        console.error('❌ Jira permission denied (403 Forbidden). Check API token permissions.');
-      } else {
-        console.error('Error fetching Jira issues:', error.message);
-      }
+      // For other errors or final query attempt, use standard handler
+      handleApiError(error, 'Jira');
       hasMore = false;
     }
   }

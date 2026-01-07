@@ -7,6 +7,7 @@
 const cache = require('../../utils/cache');
 const { gitlabApi, createRestClient } = require('./api');
 const { getAllMergeRequests } = require('./mrs');
+const { handleApiError } = require('../../utils/apiHelpers');
 
 /**
  * Get current user ID from GitLab (needed for Events API)
@@ -26,7 +27,7 @@ async function getCurrentUserId(credentials = null) {
     cache.set(cacheKey, userId, 3600); // Cache for 1 hour
     return userId;
   } catch (error) {
-    console.error('Failed to get GitLab user ID:', error.message);
+    handleApiError(error, 'GitLab', { logError: false, throwError: false });
     return null;
   }
 }
@@ -64,7 +65,7 @@ async function getEventsByAction(action, dateRange = null, credentials = null) {
       events.push(...response.data);
       page++;
     } catch (error) {
-      console.error(`  Events API error for action ${action}:`, error.message);
+      handleApiError(error, 'GitLab', { logError: false }); // Don't log, just break
       break;
     }
   }

@@ -7,6 +7,7 @@
 const cache = require('../../utils/cache');
 const { gitlabApi, GITLAB_USERNAME, GITLAB_TOKEN, createRestClient } = require('./api');
 const { getAllMergeRequests, getProjectNames } = require('./mrs');
+const { handleApiError } = require('../../utils/apiHelpers');
 
 /**
  * Calculate total months in date range
@@ -93,7 +94,7 @@ async function getReviewComments(dateRange = null, credentials = null) {
       if (response.data.length < 100) break;
       eventsPage++;
     } catch (error) {
-      console.error('  Events API error:', error.message);
+      handleApiError(error, 'GitLab', { logError: false }); // Don't log, just break
       break;
     }
   }
@@ -120,7 +121,7 @@ async function getReviewComments(dateRange = null, credentials = null) {
       if (response.data.length < 100) break;
       reviewerPage++;
     } catch (error) {
-      console.error('  Reviewer MRs error:', error.message);
+      handleApiError(error, 'GitLab', { logError: false }); // Don't log, just break
       break;
     }
   }

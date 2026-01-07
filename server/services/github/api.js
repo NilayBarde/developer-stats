@@ -5,7 +5,7 @@
  * Supports both github.com and GitHub Enterprise instances.
  */
 
-const axios = require('axios');
+const { createApiClient } = require('../../utils/apiHelpers');
 
 const GITHUB_USERNAME = process.env.GITHUB_USERNAME;
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
@@ -36,36 +36,30 @@ function getRestURL(baseURL) {
 }
 
 // GraphQL API client
-const githubGraphQL = axios.create({
+const githubGraphQL = GITHUB_TOKEN && GITHUB_BASE_URL ? createApiClient({
   baseURL: getGraphQLURL(GITHUB_BASE_URL),
-  headers: {
-    'Authorization': `Bearer ${GITHUB_TOKEN}`,
-    'Content-Type': 'application/json'
-  },
-  timeout: 30000
-});
+  token: GITHUB_TOKEN,
+  authType: 'Bearer'
+}) : null;
 
 // REST API client
-const githubApi = axios.create({
+const githubApi = GITHUB_TOKEN && GITHUB_BASE_URL ? createApiClient({
   baseURL: getRestURL(GITHUB_BASE_URL),
+  token: GITHUB_TOKEN,
+  authType: 'Bearer',
   headers: {
-    'Authorization': `Bearer ${GITHUB_TOKEN}`,
     'Accept': 'application/vnd.github.v3+json'
-  },
-  timeout: 30000
-});
+  }
+}) : null;
 
 /**
  * Create GraphQL API client with custom credentials
  */
 function createGraphQLClient(username, token, baseURL = GITHUB_BASE_URL) {
-  return axios.create({
+  return createApiClient({
     baseURL: getGraphQLURL(baseURL),
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    timeout: 30000
+    token: token,
+    authType: 'Bearer'
   });
 }
 
@@ -73,13 +67,13 @@ function createGraphQLClient(username, token, baseURL = GITHUB_BASE_URL) {
  * Create REST API client with custom credentials
  */
 function createRestClient(username, token, baseURL = GITHUB_BASE_URL) {
-  return axios.create({
+  return createApiClient({
     baseURL: getRestURL(baseURL),
+    token: token,
+    authType: 'Bearer',
     headers: {
-      'Authorization': `Bearer ${token}`,
       'Accept': 'application/vnd.github.v3+json'
-    },
-    timeout: 30000
+    }
   });
 }
 

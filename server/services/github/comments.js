@@ -6,6 +6,7 @@
 
 const cache = require('../../utils/cache');
 const { githubApi, GITHUB_USERNAME, GITHUB_TOKEN, createRestClient } = require('./api');
+const { handleApiError } = require('../../utils/apiHelpers');
 
 /**
  * Calculate total months in date range
@@ -82,7 +83,7 @@ async function getReviewComments(dateRange = null, credentials = null) {
       if (response.data.items.length < 100 || reviewedPRs.length >= response.data.total_count) break;
       page++;
     } catch (error) {
-      console.error('  Search error:', error.message);
+      handleApiError(error, 'GitHub', { logError: false }); // Don't log, just break
       break;
     }
   }

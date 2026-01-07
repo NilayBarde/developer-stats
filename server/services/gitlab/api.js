@@ -4,7 +4,7 @@
  * Handles API client setup for both GraphQL and REST APIs.
  */
 
-const axios = require('axios');
+const { createApiClient } = require('../../utils/apiHelpers');
 
 const GITLAB_USERNAME = process.env.GITLAB_USERNAME;
 const GITLAB_TOKEN = process.env.GITLAB_TOKEN;
@@ -14,31 +14,30 @@ if (!GITLAB_USERNAME || !GITLAB_TOKEN) {
   console.warn('GitLab credentials not configured. GitLab stats will not be available.');
 }
 
-// REST API client
-const gitlabApi = axios.create({
+// REST API client - GitLab uses PRIVATE-TOKEN header
+const gitlabApi = GITLAB_TOKEN && GITLAB_BASE_URL ? createApiClient({
   baseURL: `${GITLAB_BASE_URL}/api/v4`,
-  headers: { 'PRIVATE-TOKEN': GITLAB_TOKEN },
-  timeout: 30000
-});
+  token: GITLAB_TOKEN,
+  authType: 'Token',
+  authHeader: 'PRIVATE-TOKEN'
+}) : null;
 
-// GraphQL API client
-const gitlabGraphQL = axios.create({
+// GraphQL API client - GitLab uses Bearer token
+const gitlabGraphQL = GITLAB_TOKEN && GITLAB_BASE_URL ? createApiClient({
   baseURL: `${GITLAB_BASE_URL}/api`,
-  headers: { 
-    'Authorization': `Bearer ${GITLAB_TOKEN}`,
-    'Content-Type': 'application/json'
-  },
-  timeout: 30000
-});
+  token: GITLAB_TOKEN,
+  authType: 'Bearer'
+}) : null;
 
 /**
  * Create REST API client with custom credentials
  */
 function createRestClient(username, token, baseURL = GITLAB_BASE_URL) {
-  return axios.create({
+  return createApiClient({
     baseURL: `${baseURL}/api/v4`,
-    headers: { 'PRIVATE-TOKEN': token },
-    timeout: 30000
+    token: token,
+    authType: 'Token',
+    authHeader: 'PRIVATE-TOKEN'
   });
 }
 
@@ -46,13 +45,10 @@ function createRestClient(username, token, baseURL = GITLAB_BASE_URL) {
  * Create GraphQL API client with custom credentials
  */
 function createGraphQLClient(username, token, baseURL = GITLAB_BASE_URL) {
-  return axios.create({
+  return createApiClient({
     baseURL: `${baseURL}/api`,
-    headers: { 
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    timeout: 30000
+    token: token,
+    authType: 'Bearer'
   });
 }
 

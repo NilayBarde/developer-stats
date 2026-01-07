@@ -8,6 +8,7 @@ const cache = require('../../utils/cache');
 const { calculatePRStats } = require('../../utils/statsHelpers');
 const { graphqlQuery, CONTRIBUTIONS_QUERY, GITHUB_USERNAME, GITHUB_TOKEN, createGraphQLClient, createRestClient, githubApi } = require('./api');
 const { getAllPRs } = require('./prs');
+const { handleApiError } = require('../../utils/apiHelpers');
 
 /**
  * Fetch reviews via REST API (more reliable than contributionsCollection for GitHub Enterprise)
@@ -38,7 +39,7 @@ async function getReviewsViaREST(username, startDate, endDate, baseURL, restClie
         if (response.data.items.length < 100 || reviewedPRs.length >= response.data.total_count) break;
         page++;
       } catch (error) {
-        console.error(`  REST API search error (page ${page}):`, error.message);
+        handleApiError(error, 'GitHub', { logError: false }); // Don't log, just break
         break;
       }
     }

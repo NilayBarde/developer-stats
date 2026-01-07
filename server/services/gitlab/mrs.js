@@ -6,7 +6,8 @@
 
 const cache = require('../../utils/cache');
 const { buildGitLabDateParams } = require('../../utils/gitlabHelpers');
-const { graphqlQuery, AUTHORED_MRS_QUERY, gitlabApi, createGraphQLClient, createRestClient } = require('./api');
+const { gitlabApi, createRestClient } = require('./api');
+const { handleApiError } = require('../../utils/apiHelpers');
 
 /**
  * Fetch all MRs authored by user via REST API (supports querying any user)
@@ -101,7 +102,7 @@ async function getAllMergeRequests(credentials = null, dateRange = null) {
       if (response.data.length < 100) break;
       page++;
     } catch (error) {
-      console.error(`  Error fetching MRs page ${page}:`, error.message);
+      handleApiError(error, 'GitLab');
       break;
     }
   }
