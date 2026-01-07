@@ -14,9 +14,9 @@ import './PriorityTable.css';
 function PriorityTable({ title, columns, rows, summary, loading = false }) {
   if (loading) {
     return (
-      <div className="priority-table-card">
+      <div className="priority-table-card priority-table-loading">
         <Skeleton variant="text" width="200px" height="24px" className="priority-table-title-skeleton" />
-        <div className="priority-table-skeleton">
+        <div className="skeleton-table-wrapper">
           <Skeleton variant="table-row" count={4} />
           {summary && <Skeleton variant="table-row" count={1} />}
         </div>
@@ -28,9 +28,9 @@ function PriorityTable({ title, columns, rows, summary, loading = false }) {
     // Show skeleton if we have columns defined but no data yet
     if (columns && columns.length > 0) {
       return (
-        <div className="priority-table-card">
+        <div className="priority-table-card priority-table-loading">
           <Skeleton variant="text" width="200px" height="24px" className="priority-table-title-skeleton" />
-          <div className="priority-table-skeleton">
+          <div className="skeleton-table-wrapper">
             <Skeleton variant="table-row" count={4} />
             {summary && <Skeleton variant="table-row" count={1} />}
           </div>

@@ -200,26 +200,15 @@ function App() {
               />
 
               {/* Jira Section - loads independently */}
-              {jiraLoading ? (
-                <div className="source-section">
-                  <Skeleton variant="text" width="80px" height="28px" />
-                  <div className="cards-grid" style={{ marginTop: '20px' }}>
-                    <Skeleton variant="stat-card" count={4} />
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <JiraSection 
-                    stats={jiraStats} 
-                    ctoiStats={ctoiLoading ? null : ctoiStats} 
-                    compact={true}
-                    loading={jiraLoading}
-                    ctoiLoading={ctoiLoading}
-                    benchmarks={benchmarks}
-                  />
-                  {renderErrorSection('jira', '', jiraStats?.error)}
-                </>
-              )}
+              <JiraSection 
+                stats={jiraStats} 
+                ctoiStats={ctoiLoading ? null : ctoiStats} 
+                compact={true}
+                loading={jiraLoading}
+                ctoiLoading={ctoiLoading}
+                benchmarks={benchmarks}
+              />
+              {!jiraLoading && renderErrorSection('jira', '', jiraStats?.error)}
 
               {/* Git Section - loads independently */}
               {gitLoading ? (

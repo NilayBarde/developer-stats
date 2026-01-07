@@ -67,23 +67,10 @@
   margin-bottom: 16px;
 }
 
-.priority-table-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.priority-table-skeleton .skeleton-table-row {
-  display: flex;
-  gap: 12px;
-  padding: 10px 0;
-}
-
-.priority-table-skeleton .skeleton-table-row .skeleton {
-  flex: 1;
-  height: 16px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+/* When loading, remove gradient background to match Issues page style */
+.priority-table-card.priority-table-loading {
+  background: white;
+  color: #333;
 }
 
 /* Responsive: stack tables on mobile */

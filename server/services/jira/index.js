@@ -162,14 +162,30 @@ async function getStats(dateRange = null, credentials = null) {
   console.log(`📋 Fetching JIRA stats for ${userEmail}...`);
   const startTime = Date.now();
 
+  // Try to reuse enriched issues from getAllIssuesForPage cache if available
+  // This only works when no credentials are provided (both use default user)
+  let issues = null;
+  if (!credentials) {
+    const issuesPageCacheKey = `issues-page:${JSON.stringify(dateRange)}`;
+    const cachedEnrichedIssues = cache.get(issuesPageCacheKey);
+    if (cachedEnrichedIssues) {
+      console.log('✓ Reusing enriched issues from Issues page cache');
+      issues = cachedEnrichedIssues;
+    }
+  }
+
   // Fetch both main stats and CTOI stats in parallel
-  const [issues, ctoiStats] = await Promise.all([
-    getAllIssues(dateRange, { credentials }),
+  // If we didn't reuse cache, fetch issues fresh
+  const [fetchedIssues, ctoiStats] = await Promise.all([
+    issues ? Promise.resolve(issues) : getAllIssues(dateRange, { includeAllStatuses: true, credentials }),
     getCTOIStats(dateRange, credentials).catch(err => {
       console.warn('⚠️ Failed to fetch CTOI stats:', err.message);
       return null;
     })
   ]);
+  
+  // Use fetched issues (either from cache or fresh fetch)
+  issues = fetchedIssues;
   
   const stats = await calculateStats(issues, dateRange);
   
@@ -203,7 +219,8 @@ async function getAllIssuesForPage(dateRange = null) {
   }
 
   try {
-    const allIssues = await getAllIssues(dateRange);
+    // Get all issues (not just resolved) for the Issues page
+    const allIssues = await getAllIssues(dateRange, { includeAllStatuses: true });
     
     // Enrich issues with sprint name, in progress date, and QA ready date
     const enrichedIssues = allIssues.map(issue => {
@@ -226,28 +243,11 @@ async function getAllIssuesForPage(dateRange = null) {
       return dateB - dateA;
     });
 
-    // Note: Date range filtering is already done at JQL level in getAllIssues()
-    // Only filter by "In Progress" date (custom field) which isn't in JQL
-    let filteredIssues = sortedIssues;
+    // Date range filtering is already done at JQL level in getAllIssues()
+    // No additional filtering needed here
     
-    // Filter by "In Progress" date if date range is specified
-    if (dateRange && dateRange.start) {
-      const rangeStart = new Date(dateRange.start);
-      filteredIssues = filteredIssues.filter(issue => {
-        if (issue._inProgressDate) {
-          const inProgressDate = new Date(issue._inProgressDate);
-          return inProgressDate >= rangeStart;
-        }
-        const updatedDate = issue.fields?.updated ? new Date(issue.fields.updated) : null;
-        if (updatedDate) {
-          return updatedDate >= rangeStart;
-        }
-        return false;
-      });
-    }
-    
-    cache.set(cacheKey, filteredIssues, 120);
-    return filteredIssues;
+    cache.set(cacheKey, sortedIssues, 120);
+    return sortedIssues;
   } catch (error) {
     console.error('Error fetching issues page:', error.message);
     throw error;
