@@ -161,6 +161,14 @@ async function warmCache() {
       console.error('Failed to warm NFL analytics:', err.message);
     }
     
+    try {
+      const dkKey = 'SEWEB-59645';
+      const dkResult = await fetchProjectSpecificAnalytics(dkKey);
+      cache.set(`project-analytics:${dkKey}`, dkResult, 600);
+    } catch (err) {
+      console.error('Failed to warm DraftKings analytics:', err.message);
+    }
+    
     const launchDate = '2025-12-01';
     const today = new Date().toISOString().split('T')[0];
     const analyticsPresets = [
@@ -176,7 +184,7 @@ async function warmCache() {
         const result = await fetchProjectAnalytics(launchDate, preset.start, preset.end);
         cache.set(cacheKey, result, 600);
       } catch (err) {
-        console.error(`Failed to warm DK analytics for ${preset.start}:`, err.message);
+        console.error(`Failed to warm DK analytics list for ${preset.start}:`, err.message);
       }
     }
   } catch (error) {
@@ -184,8 +192,8 @@ async function warmCache() {
   }
 }
 
-// Schedule cache warming every 5 minutes
-cron.schedule('*/5 * * * *', () => {
+// Schedule cache warming every 10 minutes
+cron.schedule('*/10 * * * *', () => {
   warmCache();
 });
 
