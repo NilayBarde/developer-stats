@@ -5,7 +5,7 @@
 
 const { filterByDateRange, calculateMonthlyStats, calculateTimePeriodStats, formatDateRangeForResponse } = require('../../utils/dateHelpers');
 const { jiraApi, getCurrentUser, getAllIssues, isConfigured, JIRA_PAT, JIRA_BASE_URL } = require('./api');
-const { calculateCycleTimeByPriority, getIssuePriority, getInProgressDate } = require('./cycleTime');
+const { calculateCycleTimeByPriority, getIssuePriority, getInProgressDate, getQAReadyDate } = require('./cycleTime');
 const { getStoryPoints, isInESPNWebScope } = require('./scope');
 const { calculateVelocity } = require('./velocity');
 const { getCTOIStats } = require('./ctoi');
@@ -205,8 +205,22 @@ async function getAllIssuesForPage(dateRange = null) {
   try {
     const allIssues = await getAllIssues(dateRange);
     
+    // Enrich issues with sprint name, in progress date, and QA ready date
+    const enrichedIssues = allIssues.map(issue => {
+      const sprintName = getSprintName(issue);
+      const inProgressDate = getInProgressDate(issue);
+      const qaReadyDate = getQAReadyDate(issue);
+      
+      return {
+        ...issue,
+        _sprintName: sprintName,
+        _inProgressDate: inProgressDate ? inProgressDate.toISOString() : null,
+        _qaReadyDate: qaReadyDate ? qaReadyDate.toISOString() : null
+      };
+    });
+    
     // Sort by updated date descending
-    const sortedIssues = [...allIssues].sort((a, b) => {
+    const sortedIssues = [...enrichedIssues].sort((a, b) => {
       const dateA = new Date(a.fields.updated);
       const dateB = new Date(b.fields.updated);
       return dateB - dateA;

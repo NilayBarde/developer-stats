@@ -212,6 +212,7 @@ function App() {
                   <JiraSection 
                     stats={jiraStats} 
                     ctoiStats={ctoiLoading ? null : ctoiStats} 
+                    compact={true}
                     loading={jiraLoading}
                     ctoiLoading={ctoiLoading}
                     benchmarks={benchmarks}
