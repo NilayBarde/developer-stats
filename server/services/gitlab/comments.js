@@ -1,16 +1,55 @@
 /**
  * GitLab Review Comments
  * 
- * Handles fetching comments made by user on MRs.
+ * Fetches comment counts using Events API (matches engineering-metrics script).
+ * Queries each month separately to avoid GitLab pagination limits.
  */
 
 const cache = require('../../utils/cache');
 const { gitlabApi, GITLAB_USERNAME, GITLAB_TOKEN, createRestClient } = require('./api');
-const { getAllMergeRequests, getProjectNames } = require('./mrs');
-const { handleApiError } = require('../../utils/apiHelpers');
+const { getProjectNames } = require('./mrs');
+const { getCurrentUserId } = require('./events');
+
+const MAX_PAGES_PER_MONTH = 30;
+const CACHE_TTL = 300; // 5 minutes
 
 /**
- * Calculate total months in date range
+ * Generate month ranges for the date range (YYYY-MM-DD format)
+ */
+function getMonthRanges(dateRange) {
+  const { getDateRange } = require('../../utils/dateHelpers');
+  const range = getDateRange(dateRange);
+  
+  const start = range.start || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+  const end = range.end || new Date();
+  
+  const months = [];
+  let year = start.getUTCFullYear();
+  let month = start.getUTCMonth();
+  const endYear = end.getUTCFullYear();
+  const endMonth = end.getUTCMonth();
+  
+  while (year < endYear || (year === endYear && month <= endMonth)) {
+    const monthStr = String(month + 1).padStart(2, '0');
+    const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    
+    months.push({
+      start: `${year}-${monthStr}-01`,
+      end: `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`
+    });
+    
+    month++;
+    if (month > 11) {
+      month = 0;
+      year++;
+    }
+  }
+  
+  return months;
+}
+
+/**
+ * Calculate months in date range
  */
 function calculateMonthsInRange(dateRange) {
   if (!dateRange) return 1;
@@ -18,205 +57,141 @@ function calculateMonthsInRange(dateRange) {
   const { getDateRange } = require('../../utils/dateHelpers');
   const range = getDateRange(dateRange);
   
-  if (range.start === null && range.end === null) {
-    return 12; // Default to 12 months for "all time"
-  }
+  if (range.start === null && range.end === null) return 12;
   
   const start = range.start;
   const end = range.end || new Date();
   
-  const startYear = start.getUTCFullYear();
-  const startMonth = start.getUTCMonth();
-  const endYear = end.getUTCFullYear();
-  const endMonth = end.getUTCMonth();
-  
-  // Calculate difference in months
-  const monthsDiff = (endYear - startYear) * 12 + (endMonth - startMonth) + 1; // +1 to include both start and end months
+  const monthsDiff = (end.getUTCFullYear() - start.getUTCFullYear()) * 12 
+    + (end.getUTCMonth() - start.getUTCMonth()) + 1;
   
   return Math.max(1, monthsDiff);
 }
 
 /**
- * Fetch comments made by user on MRs
- * Uses Events API + reviewer MRs + own MRs to find all commented MRs
- * @param {Object|null} dateRange - Optional date range
- * @param {Object|null} credentials - Optional credentials { username, token, baseURL }
+ * Fetch events for a single month
+ */
+async function fetchMonthEvents(apiClient, userId, month) {
+  const events = [];
+  let page = 1;
+  
+  while (page <= MAX_PAGES_PER_MONTH) {
+    try {
+      const response = await apiClient.get(`/users/${userId}/events`, {
+        params: {
+          action: 'commented',
+          per_page: 100,
+          page,
+          after: month.start,
+          before: month.end
+        }
+      });
+      
+      if (!response.data?.length) break;
+      events.push(...response.data);
+      if (response.data.length < 100) break;
+      page++;
+    } catch {
+      break;
+    }
+  }
+  
+  return events;
+}
+
+/**
+ * Fetch comment stats for a user (matches engineering-metrics script)
+ * @param {Object|null} dateRange - Date range to query
+ * @param {Object|null} credentials - { username, token, baseURL }
  */
 async function getReviewComments(dateRange = null, credentials = null) {
   const username = credentials?.username || GITLAB_USERNAME;
   const token = credentials?.token || GITLAB_TOKEN;
   const baseURL = credentials?.baseURL || process.env.GITLAB_BASE_URL || 'https://gitlab.com';
   
-  if (!username || !token) {
-    return { totalComments: 0, mrsReviewed: 0, avgCommentsPerMR: 0, avgReviewsPerMonth: 0, byRepo: [], monthlyComments: {} };
-  }
-
-  // Include username in cache key to avoid cache collisions
-  const cacheKey = `gitlab-comments:v4:${username}:${JSON.stringify(dateRange)}`;
-  const cached = cache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const startTime = Date.now();
+  const emptyResult = { 
+    totalComments: 0, mrsReviewed: 0, avgCommentsPerMR: 0, 
+    avgReviewsPerMonth: 0, avgCommentsPerMonth: 0, byRepo: [], monthlyComments: {} 
+  };
   
-  // Use custom API client if credentials provided, otherwise use default
+  if (!username || !token) return emptyResult;
+
+  const cacheKey = `gitlab-comments:v12:${username}:${JSON.stringify(dateRange)}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+  
   const apiClient = credentials ? createRestClient(username, token, baseURL) : gitlabApi;
   
-  const mrsToCheck = new Map();
-  
-  // Step 1: Events API - tells us which MRs user commented on
-  let eventsPage = 1;
-  while (eventsPage <= 100) {
-    try {
-      const response = await apiClient.get('/events', {
-        params: { action: 'commented', per_page: 100, page: eventsPage }
-      });
-      
-      if (response.data.length === 0) break;
-      
-      for (const event of response.data) {
-        if (event.target_type === 'MergeRequest' && event.project_id && event.target_iid) {
-          const key = `${event.project_id}-${event.target_iid}`;
-          if (!mrsToCheck.has(key)) {
-            mrsToCheck.set(key, {
-              project_id: event.project_id,
-              iid: event.target_iid,
-              title: event.target_title
-            });
-          }
-        }
-      }
-      
-      if (response.data.length < 100) break;
-      eventsPage++;
-    } catch (error) {
-      handleApiError(error, 'GitLab', { logError: false }); // Don't log, just break
-      break;
-    }
+  // Resolve user ID (use directly if numeric)
+  let userId = username;
+  if (!/^\d+$/.test(username)) {
+    userId = await getCurrentUserId(credentials);
+    if (!userId) return emptyResult;
   }
   
-  // Step 2: Reviewer MRs
-  let reviewerPage = 1;
-  while (reviewerPage <= 50) {
-    try {
-      const response = await apiClient.get('/merge_requests', {
-        params: { reviewer_username: username, state: 'all', per_page: 100, page: reviewerPage, scope: 'all' }
-      });
-      
-      if (response.data.length === 0) break;
-      
-      for (const mr of response.data) {
-        const key = `${mr.project_id}-${mr.iid}`;
-        if (!mrsToCheck.has(key)) {
-          mrsToCheck.set(key, mr);
-        }
-      }
-      
-      if (response.data.length < 100) break;
-      reviewerPage++;
-    } catch (error) {
-      handleApiError(error, 'GitLab', { logError: false }); // Don't log, just break
-      break;
-    }
-  }
-  
-  // Step 3: Own MRs
-  const ownMRs = await getAllMergeRequests(credentials, dateRange);
-  for (const mr of ownMRs) {
-    const key = `${mr.project_id}-${mr.iid}`;
-    if (!mrsToCheck.has(key)) {
-      mrsToCheck.set(key, mr);
-    }
-  }
-  
-  // Fetch notes and count comments
+  // Fetch events for each month
+  const monthRanges = getMonthRanges(dateRange);
   const commentsByMonth = new Map();
   const commentsByRepo = new Map();
+  const mrsWithComments = new Set();
   let totalComments = 0;
-  let mrsWithComments = 0;
   
-  const mrsArray = Array.from(mrsToCheck.values());
-  const batchSize = 50;
-  
-  for (let i = 0; i < mrsArray.length; i += batchSize) {
-    const batch = mrsArray.slice(i, i + batchSize);
+  for (const month of monthRanges) {
+    const events = await fetchMonthEvents(apiClient, userId, month);
     
-    await Promise.all(batch.map(async (mr) => {
-      const mrCacheKey = `gitlab-notes:${mr.project_id}-${mr.iid}`;
-      let userNotes = cache.get(mrCacheKey);
+    for (const event of events) {
+      totalComments++;
       
-      if (!userNotes) {
-        try {
-          const response = await apiClient.get(
-            `/projects/${mr.project_id}/merge_requests/${mr.iid}/notes`,
-            { params: { per_page: 100 } }
-          );
-          userNotes = (response.data || []).filter(note => 
-            note.author?.username === username && !note.system
-          );
-          cache.set(mrCacheKey, userNotes, 600);
-        } catch {
-          userNotes = [];
-        }
-      }
-      
-      // Apply date filter
-      const validNotes = userNotes.filter(note => {
-        if (!dateRange?.start && !dateRange?.end) return true;
-        const noteDate = new Date(note.created_at);
-        if (dateRange.start && noteDate < new Date(dateRange.start)) return false;
-        if (dateRange.end && noteDate > new Date(dateRange.end)) return false;
-        return true;
-      });
-      
-      if (validNotes.length > 0) {
-        mrsWithComments++;
-        totalComments += validNotes.length;
+      // Track MR-specific data
+      if (event.target_type === 'MergeRequest' && event.project_id && event.target_iid) {
+        const mrKey = `${event.project_id}-${event.target_iid}`;
+        mrsWithComments.add(mrKey);
         
-        for (const note of validNotes) {
-          const month = note.created_at?.substring(0, 7) || 'unknown';
-          commentsByMonth.set(month, (commentsByMonth.get(month) || 0) + 1);
-        }
-        
-        const projectId = mr.project_id?.toString() || 'unknown';
+        const projectId = String(event.project_id);
         if (!commentsByRepo.has(projectId)) {
-          commentsByRepo.set(projectId, { comments: 0, mrsReviewed: 0 });
+          commentsByRepo.set(projectId, { comments: 0, mrsReviewed: new Set() });
         }
-        commentsByRepo.get(projectId).comments += validNotes.length;
-        commentsByRepo.get(projectId).mrsReviewed++;
+        commentsByRepo.get(projectId).comments++;
+        commentsByRepo.get(projectId).mrsReviewed.add(mrKey);
       }
-    }));
+      
+      // Track monthly totals
+      if (event.created_at) {
+        const eventMonth = event.created_at.substring(0, 7);
+        commentsByMonth.set(eventMonth, (commentsByMonth.get(eventMonth) || 0) + 1);
+      }
+    }
   }
   
-  // Get project names for repo breakdown
-  const projectIds = [...commentsByRepo.keys()].filter(id => id !== 'unknown');
+  // Get project names for display
+  const projectIds = [...commentsByRepo.keys()];
   const projectNamesMap = await getProjectNames(projectIds, credentials);
   
-  const byRepo = Array.from(commentsByRepo.entries()).map(([projectId, data]) => ({
-    repo: projectNamesMap.get(projectId) || projectId,
-    comments: data.comments,
-    mrsReviewed: data.mrsReviewed
-  })).sort((a, b) => b.comments - a.comments);
+  const byRepo = Array.from(commentsByRepo.entries())
+    .map(([projectId, data]) => ({
+      repo: projectNamesMap.get(projectId) || projectId,
+      comments: data.comments,
+      mrsReviewed: data.mrsReviewed.size
+    }))
+    .sort((a, b) => b.comments - a.comments);
 
-  const totalMonthsInRange = calculateMonthsInRange(dateRange);
+  const totalMonths = calculateMonthsInRange(dateRange);
+  const mrsReviewedCount = mrsWithComments.size;
 
   const result = {
     totalComments,
-    mrsReviewed: mrsWithComments,
-    avgCommentsPerMR: mrsWithComments > 0 ? Math.round((totalComments / mrsWithComments) * 10) / 10 : 0,
-    avgReviewsPerMonth: Math.round((mrsWithComments / totalMonthsInRange) * 10) / 10, // MRs reviewed per month
-    avgCommentsPerMonth: Math.round((totalComments / totalMonthsInRange) * 10) / 10, // Comments per month
+    mrsReviewed: mrsReviewedCount,
+    avgCommentsPerMR: mrsReviewedCount > 0 ? Math.round((totalComments / mrsReviewedCount) * 10) / 10 : 0,
+    avgReviewsPerMonth: Math.round((mrsReviewedCount / totalMonths) * 10) / 10,
+    avgCommentsPerMonth: Math.round((totalComments / totalMonths) * 10) / 10,
     byRepo,
     monthlyComments: Object.fromEntries(commentsByMonth)
   };
 
-  cache.set(cacheKey, result, 300);
-  
+  cache.set(cacheKey, result, CACHE_TTL);
   return result;
 }
 
 module.exports = {
   getReviewComments
 };
-

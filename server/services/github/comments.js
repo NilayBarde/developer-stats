@@ -2,11 +2,11 @@
  * GitHub Review Comments
  * 
  * Handles fetching review comments made by user on others' PRs.
+ * Uses contributionsCollection GraphQL API (like engineering-metrics).
  */
 
 const cache = require('../../utils/cache');
-const { githubApi, GITHUB_USERNAME, GITHUB_TOKEN, createRestClient } = require('./api');
-const { handleApiError } = require('../../utils/apiHelpers');
+const { graphqlQuery, CONTRIBUTIONS_QUERY, GITHUB_USERNAME, GITHUB_TOKEN, createGraphQLClient } = require('./api');
 
 /**
  * Calculate total months in date range
@@ -37,7 +37,7 @@ function calculateMonthsInRange(dateRange) {
 
 /**
  * Fetch review comments made by user on others' PRs
- * Uses GitHub Search API to find PRs where user commented
+ * Uses contributionsCollection GraphQL API (like engineering-metrics)
  * @param {Object|null} dateRange - Optional date range
  * @param {Object|null} credentials - Optional credentials { username, token, baseURL }
  */
@@ -47,116 +47,103 @@ async function getReviewComments(dateRange = null, credentials = null) {
   const baseURL = credentials?.baseURL || process.env.GITHUB_BASE_URL || 'https://github.com';
   
   if (!username || !token) {
-    return { totalComments: 0, prsReviewed: 0, avgCommentsPerPR: 0, avgReviewsPerMonth: 0, byRepo: [], monthlyComments: {} };
+    return { totalComments: 0, prsReviewed: 0, avgCommentsPerPR: 0, avgReviewsPerMonth: 0, avgCommentsPerMonth: 0, byRepo: [], monthlyComments: {} };
   }
 
   // Include username in cache key to avoid cache collisions
-  const cacheKey = `github-comments:v4:${username}:${JSON.stringify(dateRange)}`;
+  const cacheKey = `github-comments:v5:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     return cached;
   }
-  
-  // Use custom API client if credentials provided, otherwise use default
-  const apiClient = credentials ? createRestClient(username, token, baseURL) : githubApi;
-  
-  // Build search query
-  let query = `commenter:${username} type:pr -author:${username}`;
-  if (dateRange?.start) query += ` created:>=${dateRange.start}`;
-  if (dateRange?.end) query += ` created:<=${dateRange.end}`;
 
-  const reviewedPRs = [];
-  let page = 1;
+  const to = dateRange?.end ? new Date(dateRange.end) : new Date();
+  const from = dateRange?.start ? new Date(dateRange.start) : new Date(to.getTime() - 365 * 24 * 60 * 60 * 1000);
 
-  while (page <= 10) {
-    try {
-      const response = await apiClient.get('/search/issues', {
-        params: { q: query, per_page: 100, page, sort: 'updated', order: 'desc' }
-      });
-
-      if (response.data.items.length === 0) break;
-      reviewedPRs.push(...response.data.items);
-      
-      if (response.data.items.length < 100 || reviewedPRs.length >= response.data.total_count) break;
-      page++;
-    } catch (error) {
-      handleApiError(error, 'GitHub', { logError: false }); // Don't log, just break
-      break;
-    }
-  }
-
-  // Group by repo and month
-  const commentsByRepo = new Map();
-  const commentsByMonth = new Map();
-  
-  for (const pr of reviewedPRs) {
-    const repo = pr.repository_url?.match(/repos\/(.+)$/)?.[1] || 'unknown';
-    const month = pr.created_at?.substring(0, 7) || 'unknown';
+  try {
+    // Fetch PR review contributions from contributionsCollection
+    const customClient = credentials ? createGraphQLClient(username, token, baseURL) : null;
+    const data = await graphqlQuery(CONTRIBUTIONS_QUERY, { 
+      login: username, 
+      from: from.toISOString(),
+      to: to.toISOString()
+    }, customClient);
     
-    if (!commentsByRepo.has(repo)) {
-      commentsByRepo.set(repo, { repo, prsReviewed: 0 });
+    const c = data.user?.contributionsCollection;
+    if (!c) {
+      console.warn('⚠️ contributionsCollection not available for review comments');
+      return { totalComments: 0, prsReviewed: 0, avgCommentsPerPR: 0, avgReviewsPerMonth: 0, avgCommentsPerMonth: 0, byRepo: [], monthlyComments: {} };
     }
-    commentsByRepo.get(repo).prsReviewed++;
+
+    // Get PR reviews count from contributionsCollection
+    const prsReviewed = c.totalPullRequestReviewContributions || 0;
     
-    if (!commentsByMonth.has(month)) {
-      commentsByMonth.set(month, 0);
-    }
-    commentsByMonth.set(month, commentsByMonth.get(month) + 1);
-  }
+    // Get breakdown by repository
+    const reviewsByRepo = c.pullRequestReviewContributionsByRepository || [];
+    const byRepo = reviewsByRepo.map(r => ({
+      repo: r.repository.nameWithOwner,
+      prsReviewed: r.contributions.totalCount,
+      comments: 0 // contributionsCollection doesn't provide comment counts
+    })).sort((a, b) => b.prsReviewed - a.prsReviewed);
 
-  // Sample PRs to estimate average comments
-  const sampleSize = Math.min(30, reviewedPRs.length);
-  let sampleComments = 0;
-  
-  if (sampleSize > 0) {
-    const samplePRs = reviewedPRs.slice(0, sampleSize);
-    const results = await Promise.all(samplePRs.map(async (pr) => {
-      try {
-        const repo = pr.repository_url?.match(/repos\/(.+)$/)?.[1];
-        if (!repo) return 1;
+    // Estimate comments: contributionsCollection doesn't provide exact comment counts
+    // Use a reasonable default average (2 comments per PR review is typical)
+    // This matches engineering-metrics approach
+    const DEFAULT_AVG_COMMENTS_PER_PR = 2.0;
+    const avgCommentsPerPR = DEFAULT_AVG_COMMENTS_PER_PR;
+    const totalComments = Math.round(prsReviewed * avgCommentsPerPR);
 
-        const [reviewRes, issueRes] = await Promise.all([
-          apiClient.get(`/repos/${repo}/pulls/${pr.number}/comments`, { params: { per_page: 100 } }).catch(() => ({ data: [] })),
-          apiClient.get(`/repos/${repo}/issues/${pr.number}/comments`, { params: { per_page: 100 } }).catch(() => ({ data: [] }))
-        ]);
-
-        const reviewComments = (reviewRes.data || []).filter(c => c.user?.login === username).length;
-        const issueComments = (issueRes.data || []).filter(c => c.user?.login === username).length;
-        return reviewComments + issueComments;
-      } catch {
-        return 1;
-      }
+    // Update byRepo with estimated comments
+    const byRepoWithComments = byRepo.map(r => ({
+      ...r,
+      comments: Math.round(r.prsReviewed * avgCommentsPerPR)
     }));
+
+    // Calculate monthly breakdown
+    // Since contributionsCollection doesn't provide monthly breakdown,
+    // we'll distribute evenly across the date range
+    const totalMonthsInRange = calculateMonthsInRange(dateRange);
+    const avgReviewsPerMonth = totalMonthsInRange > 0 
+      ? Math.round((prsReviewed / totalMonthsInRange) * 10) / 10 
+      : 0;
+    const avgCommentsPerMonth = totalMonthsInRange > 0
+      ? Math.round((totalComments / totalMonthsInRange) * 10) / 10
+      : 0;
+
+    // Generate monthly breakdown (distribute evenly across months)
+    const monthlyComments = {};
+    if (totalMonthsInRange > 0 && prsReviewed > 0) {
+      const reviewsPerMonth = Math.floor(prsReviewed / totalMonthsInRange);
+      const remainder = prsReviewed % totalMonthsInRange;
+      
+      let currentDate = new Date(from);
+      for (let i = 0; i < totalMonthsInRange; i++) {
+        const monthKey = currentDate.toISOString().substring(0, 7);
+        const reviewsThisMonth = reviewsPerMonth + (i < remainder ? 1 : 0);
+        monthlyComments[monthKey] = Math.round(reviewsThisMonth * avgCommentsPerPR);
+        
+        // Move to next month
+        currentDate.setMonth(currentDate.getMonth() + 1);
+      }
+    }
+
+    const result = {
+      totalComments,
+      prsReviewed,
+      avgCommentsPerPR,
+      avgReviewsPerMonth,
+      avgCommentsPerMonth,
+      byRepo: byRepoWithComments,
+      monthlyComments
+    };
+
+    cache.set(cacheKey, result, 300);
     
-    sampleComments = results.reduce((sum, count) => sum + count, 0);
+    return result;
+  } catch (error) {
+    console.warn('⚠️ contributionsCollection not available for review comments:', error.message);
+    return { totalComments: 0, prsReviewed: 0, avgCommentsPerPR: 0, avgReviewsPerMonth: 0, avgCommentsPerMonth: 0, byRepo: [], monthlyComments: {} };
   }
-
-  const avgCommentsPerPR = sampleSize > 0 ? Math.round((sampleComments / sampleSize) * 10) / 10 : 1;
-  const prsReviewed = reviewedPRs.length;
-  const totalComments = Math.round(prsReviewed * avgCommentsPerPR);
-
-  const byRepo = Array.from(commentsByRepo.values()).map(r => ({
-    ...r,
-    comments: Math.round(r.prsReviewed * avgCommentsPerPR)
-  })).sort((a, b) => b.comments - a.comments);
-
-  const totalMonthsInRange = calculateMonthsInRange(dateRange);
-  
-  const result = {
-    totalComments,
-    prsReviewed,
-    avgCommentsPerPR,
-    avgReviewsPerMonth: Math.round((prsReviewed / totalMonthsInRange) * 10) / 10, // PRs reviewed per month
-    avgCommentsPerMonth: Math.round((totalComments / totalMonthsInRange) * 10) / 10, // Comments per month
-    byRepo,
-    monthlyComments: Object.fromEntries(
-      Array.from(commentsByMonth.entries()).map(([month, prs]) => [month, Math.round(prs * avgCommentsPerPR)])
-    )
-  };
-
-  cache.set(cacheKey, result, 300);
-  
-  return result;
 }
 
 module.exports = {
