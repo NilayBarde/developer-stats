@@ -23,8 +23,10 @@ function PRsPage() {
   const [filters, setFilters] = useState({ status: 'all', source: 'all', repo: 'all' });
   const [sort, setSort] = useState({ by: 'updated', order: 'desc' });
   
-  // Check for mock mode
-  const mockParam = new URLSearchParams(window.location.search).get('mock') === 'true' ? '&mock=true' : '';
+  // Check for mock mode - memoize to avoid unnecessary re-renders
+  const mockParam = useMemo(() => {
+    return new URLSearchParams(window.location.search).get('mock') === 'true' ? '&mock=true' : '';
+  }, []);
   
   const workYearStart = getCurrentWorkYearStart();
   const [dateRange, setDateRange] = useState({
@@ -72,7 +74,7 @@ function PRsPage() {
     } finally {
       setLoading(false);
     }
-  }, [dateRange]);
+  }, [dateRange, mockParam]);
 
   const fetchStats = useCallback(async () => {
     // Check cache first
@@ -93,7 +95,7 @@ function PRsPage() {
     } finally {
       setStatsLoading(false);
     }
-  }, [dateRange]);
+  }, [dateRange, mockParam]);
 
   useEffect(() => {
     fetchData();
