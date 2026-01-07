@@ -54,11 +54,8 @@ async function getReviewComments(dateRange = null, credentials = null) {
   const cacheKey = `github-comments:v4:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log(`✓ GitHub comments served from cache for ${username}`);
     return cached;
   }
-
-  console.log(`📦 Fetching GitHub review comments for ${username}...`);
   
   // Use custom API client if credentials provided, otherwise use default
   const apiClient = credentials ? createRestClient(username, token, baseURL) : githubApi;
@@ -88,8 +85,6 @@ async function getReviewComments(dateRange = null, credentials = null) {
     }
   }
 
-  console.log(`  Found ${reviewedPRs.length} PRs where user commented`);
-
   // Group by repo and month
   const commentsByRepo = new Map();
   const commentsByMonth = new Map();
@@ -114,8 +109,6 @@ async function getReviewComments(dateRange = null, credentials = null) {
   let sampleComments = 0;
   
   if (sampleSize > 0) {
-    console.log(`  → Sampling ${sampleSize} PRs for comment counts...`);
-    
     const samplePRs = reviewedPRs.slice(0, sampleSize);
     const results = await Promise.all(samplePRs.map(async (pr) => {
       try {
@@ -162,7 +155,6 @@ async function getReviewComments(dateRange = null, credentials = null) {
   };
 
   cache.set(cacheKey, result, 300);
-  console.log(`  ✓ ${prsReviewed} PRs reviewed, ~${totalComments} comments`);
   
   return result;
 }

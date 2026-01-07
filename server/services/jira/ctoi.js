@@ -17,12 +17,8 @@ async function getCTOIStats(dateRange = null, credentials = null) {
   const cacheKey = `jira-ctoi:${userEmail || 'default'}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ CTOI stats served from cache');
     return cached;
   }
-
-  console.log(`📋 Fetching CTOI participation stats for ${userEmail || 'default user'}...`);
-  const startTime = Date.now();
 
   const client = credentials ? createJiraClient(credentials.pat, credentials.baseURL) : jiraApi;
 
@@ -201,7 +197,6 @@ async function getCTOIStats(dateRange = null, credentials = null) {
   };
 
   cache.set(cacheKey, result, 300);
-  console.log(`  ✓ CTOI: ${fixed} fixed, ${participated} participated (${Date.now() - startTime}ms)`);
 
   return result;
 }

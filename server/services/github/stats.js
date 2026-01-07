@@ -81,11 +81,8 @@ async function getContributionStats(dateRange = null, credentials = null) {
   const cacheKey = `github-contributions:v2:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ GitHub contributions served from cache');
     return cached;
   }
-
-  console.log(`📦 Fetching GitHub contribution stats for ${username}...`);
 
   const to = dateRange?.end ? new Date(dateRange.end) : new Date();
   const from = dateRange?.start ? new Date(dateRange.start) : new Date(to.getTime() - 365 * 24 * 60 * 60 * 1000);
@@ -104,13 +101,11 @@ async function getContributionStats(dateRange = null, credentials = null) {
     
     const c = data.user?.contributionsCollection;
     if (!c) {
-      console.log('⚠️ contributionsCollection not available');
       return null;
     }
 
     // Fetch reviews via REST API (more reliable for GitHub Enterprise)
     const restClient = credentials ? createRestClient(username, token, baseURL) : githubApi;
-    console.log('  → Fetching reviews via REST API...');
     const restReviews = await getReviewsViaREST(username, startDateStr, endDateStr, baseURL, restClient);
 
     const result = {
@@ -128,12 +123,7 @@ async function getContributionStats(dateRange = null, credentials = null) {
       })) ?? []
     };
 
-    if (restReviews && restReviews.totalReviews !== c.totalPullRequestReviewContributions) {
-      console.log(`  ℹ️ REST API found ${restReviews.totalReviews} reviews vs ${c.totalPullRequestReviewContributions} from contributionsCollection`);
-    }
-
     cache.set(cacheKey, result, 300);
-    console.log(`  ✓ Got contributions: ${result.totalPRs} PRs, ${result.totalPRReviews} reviews`);
     return result;
   } catch (error) {
     console.warn('⚠️ contributionsCollection not available:', error.message);
@@ -159,7 +149,6 @@ async function getStats(dateRange = null, credentials = null) {
   const cacheKey = `github-stats:v6:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ GitHub stats served from cache');
     return cached;
   }
 

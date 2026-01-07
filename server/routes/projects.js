@@ -186,7 +186,6 @@ router.get('/', async (req, res) => {
   
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ projects-v3 served from cache');
     setCacheHeaders(res, true);
     return res.json(cached);
   }

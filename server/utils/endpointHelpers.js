@@ -21,7 +21,6 @@ function createCachedEndpoint({ cacheKeyPrefix, fetchFn, ttl = 300, transformRes
       
       const cached = cache.get(cacheKey);
       if (cached) {
-        console.log(`✓ ${cacheKeyPrefix} served from cache`);
         setCacheHeaders(res, true);
         return res.json(cached);
       }
@@ -33,7 +32,6 @@ function createCachedEndpoint({ cacheKeyPrefix, fetchFn, ttl = 300, transformRes
       
       cache.set(cacheKey, response, ttl);
       const itemCount = Array.isArray(data) ? data.length : (data.items?.length || 0);
-      console.log(`✓ ${cacheKeyPrefix} fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s${itemCount ? ` (${itemCount} items)` : ''}`);
       
       setCacheHeaders(res, false);
       res.json(response);

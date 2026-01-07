@@ -94,30 +94,24 @@ async function getUsers() {
   
   // Try engineering-metrics API first
   if (engineeringMetricsUrl) {
-    console.log(`📡 Fetching users from engineering-metrics API: ${engineeringMetricsUrl}`);
     const users = await fetchUsersFromEngineeringMetrics(engineeringMetricsUrl);
     if (users && users.length > 0) {
-      console.log(`✓ Loaded ${users.length} users from engineering-metrics API`);
       return users;
     }
   }
   
   // Try engineering-metrics file
   if (engineeringMetricsFile) {
-    console.log(`📄 Loading users from engineering-metrics file: ${engineeringMetricsFile}`);
     const users = await loadUsersFromFile(engineeringMetricsFile);
     if (users && users.length > 0) {
-      console.log(`✓ Loaded ${users.length} users from engineering-metrics file`);
       return users;
     }
   }
   
   // Try extracting directly from engineering-metrics source files
   if (engineeringMetricsPath) {
-    console.log(`📂 Extracting users from engineering-metrics source files: ${engineeringMetricsPath}`);
     const users = await loadUsersFromEngineeringMetricsFiles(engineeringMetricsPath);
     if (users && users.length > 0) {
-      console.log(`✓ Extracted ${users.length} users from engineering-metrics source files`);
       return users;
     }
   }
@@ -128,7 +122,6 @@ async function getUsers() {
     const users = Array.isArray(usersConfig) ? usersConfig : [];
     if (users.length > 0) {
       const usersWithLevels = users.filter(u => u.level).length;
-      console.log(`✓ Loaded ${users.length} users from config file (${usersWithLevels} with levels)`);
       if (usersWithLevels === 0 && !engineeringMetricsPath) {
         console.warn('⚠️  No users have levels. Set ENGINEERING_METRICS_PATH to extract levels from engineering-metrics files.');
       }

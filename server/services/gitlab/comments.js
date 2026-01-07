@@ -55,12 +55,10 @@ async function getReviewComments(dateRange = null, credentials = null) {
   const cacheKey = `gitlab-comments:v4:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log(`✓ GitLab comments served from cache for ${username}`);
     return cached;
   }
 
   const startTime = Date.now();
-  console.log(`🔷 Fetching GitLab comments for ${username}...`);
   
   // Use custom API client if credentials provided, otherwise use default
   const apiClient = credentials ? createRestClient(username, token, baseURL) : gitlabApi;
@@ -68,7 +66,6 @@ async function getReviewComments(dateRange = null, credentials = null) {
   const mrsToCheck = new Map();
   
   // Step 1: Events API - tells us which MRs user commented on
-  console.log('  → Fetching comment events...');
   let eventsPage = 1;
   while (eventsPage <= 100) {
     try {
@@ -98,10 +95,8 @@ async function getReviewComments(dateRange = null, credentials = null) {
       break;
     }
   }
-  console.log(`    Found ${mrsToCheck.size} MRs from events`);
   
   // Step 2: Reviewer MRs
-  console.log('  → Fetching reviewer MRs...');
   let reviewerPage = 1;
   while (reviewerPage <= 50) {
     try {
@@ -134,8 +129,6 @@ async function getReviewComments(dateRange = null, credentials = null) {
       mrsToCheck.set(key, mr);
     }
   }
-  
-  console.log(`  → Checking notes on ${mrsToCheck.size} MRs...`);
   
   // Fetch notes and count comments
   const commentsByMonth = new Map();
@@ -194,10 +187,6 @@ async function getReviewComments(dateRange = null, credentials = null) {
         commentsByRepo.get(projectId).mrsReviewed++;
       }
     }));
-    
-    if ((i + batchSize) % 200 === 0) {
-      console.log(`    Processed ${Math.min(i + batchSize, mrsArray.length)}/${mrsArray.length} MRs`);
-    }
   }
   
   // Get project names for repo breakdown
@@ -223,7 +212,6 @@ async function getReviewComments(dateRange = null, credentials = null) {
   };
 
   cache.set(cacheKey, result, 300);
-  console.log(`  ✓ Done: ${mrsWithComments} MRs, ${totalComments} comments (${Date.now() - startTime}ms)`);
   
   return result;
 }

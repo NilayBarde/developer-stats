@@ -12,17 +12,14 @@ const adobeAnalyticsService = require('../services/analytics');
 // Get all stats (with mock support)
 router.get('/', async (req, res) => {
   if (req.query.mock === 'true') {
-    console.log('⚠ Using MOCK Stats data');
     return res.json(generateMockStatsData());
   }
   
-  const startTime = Date.now();
   const dateRange = parseDateRange(req.query);
   const cacheKey = `stats:${JSON.stringify(dateRange)}`;
   
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ Stats served from cache');
     setCacheHeaders(res, true);
     return res.json(cached);
   }
@@ -54,7 +51,6 @@ router.get('/', async (req, res) => {
     };
 
     cache.set(cacheKey, stats, 300);
-    console.log(`✓ Stats fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     setCacheHeaders(res, false);
     res.json(stats);
   } catch (error) {
@@ -168,7 +164,6 @@ router.get('/gitlab', createSimpleEndpoint({
 // Get Git stats (GitHub + GitLab) with mock support and smart caching
 router.get('/git', async (req, res) => {
   if (req.query.mock === 'true') {
-    console.log('⚠ Using MOCK Git stats');
     const mockStats = generateMockStatsData();
     return res.json({
       github: mockStats.github,
@@ -188,14 +183,12 @@ router.get('/git', async (req, res) => {
     const ownCacheKey = `stats-git:${rangeKey}`;
     const cached = cache.get(ownCacheKey);
     if (cached && cached.reviewStats) {
-      console.log('✓ stats/git served from own cache (with reviews)');
       setCacheHeaders(res, true);
       return res.json(cached);
     }
     
     const combinedStats = cache.get(`stats:${rangeKey}`);
     if (combinedStats && cached?.reviewStats) {
-      console.log('✓ stats/git served from combined stats cache + review cache');
       setCacheHeaders(res, true);
       return res.json({
         github: combinedStats.github,
@@ -204,8 +197,6 @@ router.get('/git', async (req, res) => {
         timestamp: combinedStats.timestamp
       });
     }
-    
-    const startTime = Date.now();
     const [githubStats, gitlabStats, githubReviews, gitlabReviews] = await Promise.allSettled([
       githubService.getStats(dateRange),
       gitlabService.getStats(dateRange),
@@ -224,7 +215,6 @@ router.get('/git', async (req, res) => {
     };
     
     cache.set(ownCacheKey, result, 300);
-    console.log(`✓ stats/git fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     setCacheHeaders(res, false);
     res.json(result);
   } catch (error) {
@@ -236,7 +226,6 @@ router.get('/git', async (req, res) => {
 // Get Jira stats (with mock support and smart caching)
 router.get('/jira', async (req, res) => {
   if (req.query.mock === 'true') {
-    console.log('⚠ Using MOCK Jira stats');
     return res.json(generateMockStatsData().jira);
   }
   
@@ -246,7 +235,6 @@ router.get('/jira', async (req, res) => {
     
     const combinedStats = cache.get(`stats:${rangeKey}`);
     if (combinedStats && combinedStats.jira) {
-      console.log('✓ stats/jira served from combined stats cache');
       setCacheHeaders(res, true);
       return res.json(combinedStats.jira);
     }
@@ -254,16 +242,13 @@ router.get('/jira', async (req, res) => {
     const ownCacheKey = `stats-jira:${rangeKey}`;
     const cached = cache.get(ownCacheKey);
     if (cached) {
-      console.log('✓ stats/jira served from own cache');
       setCacheHeaders(res, true);
       return res.json(cached);
     }
     
-    const startTime = Date.now();
     const result = await jiraService.getStats(dateRange);
     
     cache.set(ownCacheKey, result, 300);
-    console.log(`✓ stats/jira fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     setCacheHeaders(res, false);
     res.json(result);
   } catch (error) {
@@ -280,16 +265,13 @@ router.get('/ctoi', async (req, res) => {
     
     const cached = cache.get(cacheKey);
     if (cached) {
-      console.log('✓ CTOI stats served from cache');
       setCacheHeaders(res, true);
       return res.json(cached);
     }
     
-    const startTime = Date.now();
     const result = await jiraService.getCTOIStats(dateRange);
     
     cache.set(cacheKey, result, 300);
-    console.log(`✓ CTOI stats fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     setCacheHeaders(res, false);
     res.json(result);
   } catch (error) {
@@ -445,13 +427,11 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
   if (!skipCache) {
     const cached = cache.get(cacheKey);
     if (cached) {
-      console.log('✓ Leaderboard served from cache');
       return cached;
     }
   }
   
   const startTime = Date.now();
-  console.log(`📊 Fetching leaderboard stats for ${processedUsers.length} users...`);
   
   // Get cached stats for default user (already fetched for other pages)
   const defaultUserCachedStats = cache.get(`stats:${rangeKey}`);
@@ -471,13 +451,10 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
     }
     
     const batch = processedUsers.slice(i, i + BATCH_SIZE);
-    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-    const totalBatches = Math.ceil(processedUsers.length / BATCH_SIZE);
-    console.log(`  Processing batch ${batchNum}/${totalBatches} (${batch.length} users)...`);
     
     // If we're rate limited, skip remaining batches and use cached data if available
     if (rateLimited) {
-      console.warn(`  ⚠️ Rate limited detected, skipping remaining batches`);
+      console.warn('⚠️ Rate limited detected, skipping remaining batches');
       break;
     }
     
@@ -485,7 +462,6 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
     const batchPromises = batch.map((user, userIndex) => {
       // Check if this is the default user - if so, use cached stats instead
       if (isDefaultUser(user) && defaultUserCachedStats) {
-        console.log(`  ♻️ Using cached stats for default user (${user.github?.username || user.gitlab?.username || user.jira?.email})`);
         const userId = user.id || user.github?.username || user.gitlab?.username || user.jira?.email || 'unknown';
         return Promise.resolve({
           user: {
@@ -518,9 +494,7 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
           // Check if this is a rate limit error
           if (error.response?.status === 429 || error.message?.includes('429')) {
             rateLimited = true;
-            console.warn(`  ⚠️ Rate limited (429) detected for ${userId}, will skip remaining batches`);
-          } else {
-            console.warn(`  ⚠️ Stats fetch timeout/failed for ${userId}:`, error.message);
+            console.warn(`⚠️ Rate limited (429) detected for ${userId}, will skip remaining batches`);
           }
           
           return {
@@ -562,8 +536,6 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
       }
     });
     
-    console.log(`  ✓ Batch ${batchNum} complete (${((Date.now() - startTime) / 1000).toFixed(1)}s elapsed)`);
-    
     // If rate limited, break out of loop
     if (rateLimited) {
       break;
@@ -571,7 +543,6 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
   }
   
   cache.set(cacheKey, leaderboard, 300);
-  console.log(`✓ Leaderboard fetched in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
   return leaderboard;
 }
 
@@ -665,20 +636,15 @@ function calculateBenchmarks(leaderboard) {
 
   // Group users by level
   const usersByLevel = {};
-  let usersWithLevels = 0;
   leaderboard.forEach(entry => {
     const level = entry.user?.level;
     if (level) {
-      usersWithLevels++;
       if (!usersByLevel[level]) {
         usersByLevel[level] = [];
       }
       usersByLevel[level].push(entry);
     }
   });
-  
-  console.log(`📊 Users with levels: ${usersWithLevels}/${leaderboard.length}`);
-  console.log(`📊 Levels found: ${Object.keys(usersByLevel).join(', ')}`);
 
   // Calculate averages for each level
   Object.keys(usersByLevel).forEach(level => {
@@ -756,17 +722,13 @@ router.get('/benchmarks', async (req, res) => {
     // Check cache
     const cached = cache.get(cacheKey);
     if (cached) {
-      console.log('✓ Benchmarks served from cache');
       setCacheHeaders(res, true);
       return res.json(cached);
     }
     
     // Fetch leaderboard to calculate benchmarks (use cache if available to avoid duplicate fetches)
-    console.log('📊 Fetching leaderboard for benchmarks calculation...');
     const leaderboard = await fetchLeaderboard(dateRange, false); // Use cache if available
-    console.log(`📊 Leaderboard has ${leaderboard.length} users`);
     const benchmarks = calculateBenchmarks(leaderboard);
-    console.log('📊 Calculated benchmarks:', JSON.stringify(benchmarks, null, 2));
     
     // Cache for 5 minutes
     cache.set(cacheKey, benchmarks, 300);

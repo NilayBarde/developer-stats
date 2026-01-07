@@ -28,7 +28,6 @@ async function getStats(dateRange = null, credentials = null) {
   const cacheKey = `gitlab-stats:v5:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ GitLab stats served from cache');
     return cached;
   }
 

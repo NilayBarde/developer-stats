@@ -17,7 +17,6 @@ const PORT = process.env.PORT || 3001;
 
 // --- Background Cache Warmer ---
 async function warmCache() {
-  console.log('🔥 Background cache warming started...');
   const startTime = Date.now();
   
   const now = new Date();
@@ -49,7 +48,6 @@ async function warmCache() {
   try {
     for (const range of ranges) {
       const rangeKey = JSON.stringify(range);
-      console.log(`  - Warming for range: ${rangeKey}`);
       
       const [githubStats, gitlabStats, jiraStats, githubReviews, gitlabReviews] = await Promise.allSettled([
         githubService.getStats(range),
@@ -68,7 +66,7 @@ async function warmCache() {
       
       if (hasRateLimit && !detectedRateLimit) {
         detectedRateLimit = true;
-        console.warn('  ⚠️ Rate limiting detected, will skip leaderboard warming');
+        console.warn('⚠️ Rate limiting detected, will skip leaderboard warming');
       }
       
       const statsResult = {
@@ -91,7 +89,6 @@ async function warmCache() {
         timestamp: statsResult.timestamp
       }, 300);
       cache.set(`stats-jira:${rangeKey}`, statsResult.jira, 300);
-      console.log(`    ✓ Stats cached (combined + individual + reviews)`);
       
       try {
         const prs = await githubService.getAllPRsForPage(range);
@@ -101,7 +98,7 @@ async function warmCache() {
         };
         cache.set(`prs:${rangeKey}`, prsData, 300);
       } catch (e) {
-        console.error('    ❌ Error warming PRs:', e.message);
+        console.error('Error warming PRs:', e.message);
       }
 
       try {
@@ -112,7 +109,7 @@ async function warmCache() {
         };
         cache.set(`mrs:${rangeKey}`, mrsData, 300);
       } catch (e) {
-        console.error('    ❌ Error warming MRs:', e.message);
+        console.error('Error warming MRs:', e.message);
       }
 
       try {
@@ -123,18 +120,18 @@ async function warmCache() {
         };
         cache.set(`issues:${rangeKey}`, issuesData, 120);
       } catch (e) {
-        console.error('    ❌ Error warming Issues:', e.message);
+        console.error('Error warming Issues:', e.message);
       }
       
       try {
         const projectsRes = await fetchProjectsWithAnalytics(range);
         cache.set(`projects-v3:${rangeKey}`, projectsRes, 300);
       } catch (e) {
-        console.error('    ❌ Error warming Projects:', e.message);
+        console.error('Error warming Projects:', e.message);
         // Check if projects warming hit rate limits
         if (e.message?.includes('429') || e.response?.status === 429) {
           detectedRateLimit = true;
-          console.warn('  ⚠️ Rate limiting detected from Projects warming');
+          console.warn('⚠️ Rate limiting detected from Projects warming');
         }
       }
       
@@ -142,35 +139,28 @@ async function warmCache() {
       // Leaderboard makes many API calls (30 users × 3 services = 90+ calls) and can easily hit rate limits
       if (!detectedRateLimit) {
         try {
-          const leaderboard = await fetchLeaderboard(range, true); // Skip cache check, always fetch fresh
-          // Cache is already set inside fetchLeaderboard, but we verify it worked
-          console.log(`    ✓ Leaderboard cached (${leaderboard.length} users)`);
+          await fetchLeaderboard(range, true); // Skip cache check, always fetch fresh
         } catch (e) {
           // Don't fail the entire cache warming if leaderboard fails
           // Leaderboard is expensive and can hit rate limits
           if (e.message?.includes('429') || e.response?.status === 429) {
             detectedRateLimit = true;
-            console.warn('    ⚠️ Leaderboard warming skipped due to rate limiting');
+            console.warn('⚠️ Leaderboard warming skipped due to rate limiting');
           } else {
-            console.error('    ❌ Error warming Leaderboard:', e.message);
+            console.error('Error warming Leaderboard:', e.message);
           }
         }
-      } else {
-        console.log('    ⏭️ Leaderboard warming skipped (rate limit detected earlier)');
       }
     }
     
-    console.log('  - Warming Project Analytics (NFL Gamecast)...');
     try {
       const nflKey = 'SEWEB-51747';
       const nflResult = await fetchProjectSpecificAnalytics(nflKey);
       cache.set(`project-analytics:${nflKey}`, nflResult, 600);
-      console.log('    ✓ NFL Gamecast analytics cached');
     } catch (err) {
-      console.error('    ❌ Failed to warm NFL analytics:', err.message);
+      console.error('Failed to warm NFL analytics:', err.message);
     }
     
-    console.log('  - Warming Project Analytics (DraftKings)...');
     const launchDate = '2025-12-01';
     const today = new Date().toISOString().split('T')[0];
     const analyticsPresets = [
@@ -183,18 +173,14 @@ async function warmCache() {
       const cacheKey = `all-project-analytics-v3:${launchDate}:${dateRangeKey}`;
       
       try {
-        console.log(`    → Warming ${preset.start} to ${preset.end}...`);
         const result = await fetchProjectAnalytics(launchDate, preset.start, preset.end);
         cache.set(cacheKey, result, 600);
-        console.log(`    ✓ DK analytics cached for ${preset.start}`);
       } catch (err) {
-        console.error(`    ❌ Failed to warm DK analytics for ${preset.start}:`, err.message);
+        console.error(`Failed to warm DK analytics for ${preset.start}:`, err.message);
       }
     }
-    
-    console.log(`✅ Cache warming completed in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
   } catch (error) {
-    console.error('❌ Cache warming failed:', error.message);
+    console.error('Cache warming failed:', error.message);
   }
 }
 
@@ -227,17 +213,13 @@ function killProcessOnPort(port) {
         return;
       }
       
-      console.log(`Found existing process(es) on port ${port}: ${pids.join(', ')}`);
-      
       const killCommand = process.platform === 'win32'
         ? `taskkill /PID ${pids[0]} /F`
         : `kill -9 ${pids.join(' ')}`;
       
       exec(killCommand, (killError) => {
         if (killError) {
-          console.log(`Could not kill process: ${killError.message}`);
-        } else {
-          console.log(`Killed process(es) on port ${port}`);
+          console.error(`Could not kill process on port ${port}:`, killError.message);
         }
         setTimeout(resolve, 100);
       });
@@ -256,13 +238,11 @@ app.get('/api/health', (req, res) => {
 // Clear all caches
 app.post('/api/clear-cache', (req, res) => {
   cache.clear();
-  console.log('🗑️ Cache cleared');
   res.json({ status: 'ok', message: 'Cache cleared' });
 });
 
 app.get('/api/clear-cache', (req, res) => {
   cache.clear();
-  console.log('🗑️ Cache cleared (via GET)');
   res.json({ status: 'ok', message: 'Cache cleared. Refresh the page to fetch fresh data.' });
 });
 

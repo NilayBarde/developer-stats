@@ -87,7 +87,6 @@ router.get('/project-analytics', async (req, res) => {
   const cacheKey = `all-project-analytics-v3:${launchDate}:${dateRangeKey}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ Project analytics served from cache');
     setCacheHeaders(res, true);
     return res.json(cached);
   }

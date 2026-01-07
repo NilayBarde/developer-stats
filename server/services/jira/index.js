@@ -155,12 +155,8 @@ async function getStats(dateRange = null, credentials = null) {
   const cacheKey = `jira-stats:${userEmail}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ Jira stats served from cache');
     return cached;
   }
-
-  console.log(`📋 Fetching JIRA stats for ${userEmail}...`);
-  const startTime = Date.now();
 
   // Try to reuse enriched issues from getAllIssuesForPage cache if available
   // This only works when no credentials are provided (both use default user)
@@ -169,7 +165,6 @@ async function getStats(dateRange = null, credentials = null) {
     const issuesPageCacheKey = `issues-page:${JSON.stringify(dateRange)}`;
     const cachedEnrichedIssues = cache.get(issuesPageCacheKey);
     if (cachedEnrichedIssues) {
-      console.log('✓ Reusing enriched issues from Issues page cache');
       issues = cachedEnrichedIssues;
     }
   }
@@ -195,7 +190,6 @@ async function getStats(dateRange = null, credentials = null) {
   }
 
   cache.set(cacheKey, stats, 120); // 2 minutes
-  console.log(`  ✓ JIRA stats calculated (${Date.now() - startTime}ms)`);
 
   return stats;
 }
@@ -214,7 +208,6 @@ async function getAllIssuesForPage(dateRange = null) {
   const cacheKey = `issues-page:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ Issues page served from cache');
     return cached;
   }
 
@@ -395,7 +388,6 @@ async function getProjectsByEpic(dateRange = null) {
   const cacheKey = `projects-by-epic-v3:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ Projects by epic served from cache');
     return cached;
   }
 

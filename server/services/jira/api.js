@@ -63,7 +63,6 @@ async function getAllIssues(dateRange = null, options = {}) {
   const cacheKey = `jira-raw-issues:${userEmail || 'default'}:${includeAllStatuses ? 'all' : 'resolved'}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log(`✓ Raw issues served from cache (${includeAllStatuses ? 'all statuses' : 'resolved only'})`);
     return cached;
   }
   

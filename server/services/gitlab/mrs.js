@@ -21,12 +21,8 @@ async function getAllMergeRequests(credentials = null, dateRange = null) {
   const cacheKey = `gitlab-mrs:v5:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ GitLab MRs served from cache');
     return cached;
   }
-
-  const startTime = Date.now();
-  console.log(`🔷 Fetching GitLab MRs for ${username}...`);
 
   const customRestClient = createRestClient(username, token, baseURL);
   const allMRs = [];
@@ -107,7 +103,6 @@ async function getAllMergeRequests(credentials = null, dateRange = null) {
     }
   }
 
-  console.log(`  ✓ Found ${allMRs.length} MRs (${Date.now() - startTime}ms)`);
   cache.set(cacheKey, allMRs, 300);
   return allMRs;
 }
@@ -137,7 +132,6 @@ async function getProjectNames(projectIds, credentials = null) {
   }
   
   if (idsToFetch.length > 0) {
-    console.log(`🔷 Fetching ${idsToFetch.length} project names...`);
     
     // Batch fetch in parallel
     const results = await Promise.all(

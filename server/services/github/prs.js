@@ -16,12 +16,8 @@ async function getAllPRs(credentials = null) {
   const cacheKey = `github-prs:v3:${username}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ GitHub PRs served from cache');
     return cached;
   }
-
-  const startTime = Date.now();
-  console.log(`📦 Fetching GitHub PRs via GraphQL for ${username}...`);
 
   const allPRs = [];
   let hasNextPage = true;
@@ -52,13 +48,8 @@ async function getAllPRs(credentials = null) {
 
     hasNextPage = connection.pageInfo.hasNextPage;
     cursor = connection.pageInfo.endCursor;
-    
-    if (allPRs.length % 200 === 0) {
-      console.log(`    Fetched ${allPRs.length} PRs...`);
-    }
   }
 
-  console.log(`  ✓ Found ${allPRs.length} PRs (${Date.now() - startTime}ms)`);
   cache.set(cacheKey, allPRs, 300);
   return allPRs;
 }

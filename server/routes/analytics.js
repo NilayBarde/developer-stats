@@ -264,7 +264,6 @@ router.get('/project/:projectKey', async (req, res) => {
   const { projectKey } = req.params;
   
   if (req.query.mock === 'true') {
-    console.log(`⚠ Using MOCK data for project ${projectKey}`);
     if (projectKey === 'SEWEB-51747') {
       return res.json(generateMockNFLGamecastAnalytics());
     }
@@ -293,7 +292,6 @@ router.get('/project/:projectKey', async (req, res) => {
   const cacheKey = `project-analytics:${projectKey}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log(`✓ project-analytics:${projectKey} served from cache`);
     setCacheHeaders(res, true);
     return res.json(cached);
   }

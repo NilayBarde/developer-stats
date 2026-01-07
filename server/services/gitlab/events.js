@@ -87,12 +87,8 @@ async function getActionStats(dateRange = null, credentials = null) {
   const cacheKey = `gitlab-actions:v2:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ GitLab action stats served from cache');
     return cached;
   }
-
-  console.log(`🔷 Fetching GitLab action stats for ${username}...`);
-  const startTime = Date.now();
 
   // Get MRs to calculate stats from (with date range filtering at API level)
   const mrs = await getAllMergeRequests(credentials, dateRange);
@@ -168,7 +164,6 @@ async function getActionStats(dateRange = null, credentials = null) {
   };
 
   cache.set(cacheKey, result, 300);
-  console.log(`  ✓ Actions: commented=${result.commented}, created=${result.created}, merged=${result.merged}, approved=${result.approved} (${Date.now() - startTime}ms)`);
 
   return result;
 }
