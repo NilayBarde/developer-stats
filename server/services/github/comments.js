@@ -5,28 +5,65 @@
  */
 
 const cache = require('../../utils/cache');
-const { githubApi, GITHUB_USERNAME, GITHUB_TOKEN } = require('./api');
+const { githubApi, GITHUB_USERNAME, GITHUB_TOKEN, createRestClient } = require('./api');
+
+/**
+ * Calculate total months in date range
+ */
+function calculateMonthsInRange(dateRange) {
+  if (!dateRange) return 1;
+  
+  const { getDateRange } = require('../../utils/dateHelpers');
+  const range = getDateRange(dateRange);
+  
+  if (range.start === null && range.end === null) {
+    return 12; // Default to 12 months for "all time"
+  }
+  
+  const start = range.start;
+  const end = range.end || new Date();
+  
+  const startYear = start.getUTCFullYear();
+  const startMonth = start.getUTCMonth();
+  const endYear = end.getUTCFullYear();
+  const endMonth = end.getUTCMonth();
+  
+  // Calculate difference in months
+  const monthsDiff = (endYear - startYear) * 12 + (endMonth - startMonth) + 1; // +1 to include both start and end months
+  
+  return Math.max(1, monthsDiff);
+}
 
 /**
  * Fetch review comments made by user on others' PRs
  * Uses GitHub Search API to find PRs where user commented
+ * @param {Object|null} dateRange - Optional date range
+ * @param {Object|null} credentials - Optional credentials { username, token, baseURL }
  */
-async function getReviewComments(dateRange = null) {
-  if (!GITHUB_USERNAME || !GITHUB_TOKEN) {
+async function getReviewComments(dateRange = null, credentials = null) {
+  const username = credentials?.username || GITHUB_USERNAME;
+  const token = credentials?.token || GITHUB_TOKEN;
+  const baseURL = credentials?.baseURL || process.env.GITHUB_BASE_URL || 'https://github.com';
+  
+  if (!username || !token) {
     return { totalComments: 0, prsReviewed: 0, avgCommentsPerPR: 0, avgReviewsPerMonth: 0, byRepo: [], monthlyComments: {} };
   }
 
-  const cacheKey = `github-comments:v3:${JSON.stringify(dateRange)}`;
+  // Include username in cache key to avoid cache collisions
+  const cacheKey = `github-comments:v4:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    console.log('✓ GitHub comments served from cache');
+    console.log(`✓ GitHub comments served from cache for ${username}`);
     return cached;
   }
 
-  console.log('📦 Fetching GitHub review comments...');
+  console.log(`📦 Fetching GitHub review comments for ${username}...`);
+  
+  // Use custom API client if credentials provided, otherwise use default
+  const apiClient = credentials ? createRestClient(username, token, baseURL) : githubApi;
   
   // Build search query
-  let query = `commenter:${GITHUB_USERNAME} type:pr -author:${GITHUB_USERNAME}`;
+  let query = `commenter:${username} type:pr -author:${username}`;
   if (dateRange?.start) query += ` created:>=${dateRange.start}`;
   if (dateRange?.end) query += ` created:<=${dateRange.end}`;
 
@@ -35,7 +72,7 @@ async function getReviewComments(dateRange = null) {
 
   while (page <= 10) {
     try {
-      const response = await githubApi.get('/search/issues', {
+      const response = await apiClient.get('/search/issues', {
         params: { q: query, per_page: 100, page, sort: 'updated', order: 'desc' }
       });
 
@@ -85,12 +122,12 @@ async function getReviewComments(dateRange = null) {
         if (!repo) return 1;
 
         const [reviewRes, issueRes] = await Promise.all([
-          githubApi.get(`/repos/${repo}/pulls/${pr.number}/comments`, { params: { per_page: 100 } }).catch(() => ({ data: [] })),
-          githubApi.get(`/repos/${repo}/issues/${pr.number}/comments`, { params: { per_page: 100 } }).catch(() => ({ data: [] }))
+          apiClient.get(`/repos/${repo}/pulls/${pr.number}/comments`, { params: { per_page: 100 } }).catch(() => ({ data: [] })),
+          apiClient.get(`/repos/${repo}/issues/${pr.number}/comments`, { params: { per_page: 100 } }).catch(() => ({ data: [] }))
         ]);
 
-        const reviewComments = (reviewRes.data || []).filter(c => c.user?.login === GITHUB_USERNAME).length;
-        const issueComments = (issueRes.data || []).filter(c => c.user?.login === GITHUB_USERNAME).length;
+        const reviewComments = (reviewRes.data || []).filter(c => c.user?.login === username).length;
+        const issueComments = (issueRes.data || []).filter(c => c.user?.login === username).length;
         return reviewComments + issueComments;
       } catch {
         return 1;
@@ -109,11 +146,14 @@ async function getReviewComments(dateRange = null) {
     comments: Math.round(r.prsReviewed * avgCommentsPerPR)
   })).sort((a, b) => b.comments - a.comments);
 
+  const totalMonthsInRange = calculateMonthsInRange(dateRange);
+  
   const result = {
     totalComments,
     prsReviewed,
     avgCommentsPerPR,
-    avgReviewsPerMonth: Math.round((prsReviewed / Math.max(1, commentsByMonth.size)) * 10) / 10,
+    avgReviewsPerMonth: Math.round((prsReviewed / totalMonthsInRange) * 10) / 10, // PRs reviewed per month
+    avgCommentsPerMonth: Math.round((totalComments / totalMonthsInRange) * 10) / 10, // Comments per month
     byRepo,
     monthlyComments: Object.fromEntries(
       Array.from(commentsByMonth.entries()).map(([month, prs]) => [month, Math.round(prs * avgCommentsPerPR)])

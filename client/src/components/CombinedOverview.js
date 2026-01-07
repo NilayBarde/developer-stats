@@ -4,7 +4,7 @@ import Skeleton from './ui/Skeleton';
 import { calculateCombinedStats, getPRComparison } from '../utils/combinedStats';
 import { formatVelocitySubtitle } from '../utils/velocityHelpers';
 
-function CombinedOverview({ githubStats, gitlabStats, jiraStats, gitLoading = false, jiraLoading = false, dateRange = null, benchmarks = null, benchmarksLoading = false }) {
+function CombinedOverview({ githubStats, gitlabStats, jiraStats, gitLoading = false, jiraLoading = false, dateRange = null, benchmarks = null, benchmarksLoading = false, reviewStats = null }) {
 
   // Don't show if all sources have errors
   if (githubStats?.error && gitlabStats?.error && jiraStats?.error) {
@@ -13,6 +13,20 @@ function CombinedOverview({ githubStats, gitlabStats, jiraStats, gitLoading = fa
 
   const combined = calculateCombinedStats(githubStats, gitlabStats);
   const combinedVelocity = jiraStats?.velocity?.combinedAverageVelocity || jiraStats?.velocity?.averageVelocity || 0;
+  
+  // Calculate combined reviews and comments
+  const githubReviews = reviewStats?.github?.prsReviewed || githubStats?.reviews || 0;
+  const gitlabReviews = reviewStats?.gitlab?.mrsReviewed || 0;
+  const totalReviews = githubReviews + gitlabReviews;
+  
+  const githubComments = reviewStats?.github?.totalComments || 0;
+  const gitlabComments = reviewStats?.gitlab?.totalComments || 0;
+  const totalComments = githubComments + gitlabComments;
+  
+  // Calculate comments per month
+  const githubCommentsPerMonth = reviewStats?.github?.avgCommentsPerMonth || 0;
+  const gitlabCommentsPerMonth = reviewStats?.gitlab?.avgCommentsPerMonth || 0;
+  const combinedCommentsPerMonth = githubCommentsPerMonth + gitlabCommentsPerMonth;
 
   // Helper to render total PRs subtitle with benchmarks
   const renderTotalPRsSubtitle = () => {
@@ -80,6 +94,38 @@ function CombinedOverview({ githubStats, gitlabStats, jiraStats, gitLoading = fa
             subtitle={renderPRSubtitle(getPRComparison(combined.avgPRsPerMonth, benchmarks))}
           />
         )}
+        {gitLoading ? (
+          <Skeleton variant="stat-card" />
+        ) : totalReviews > 0 ? (
+          <StatsCard
+            title="Reviews"
+            value={totalReviews}
+            subtitle={`${githubReviews} GitHub, ${gitlabReviews} GitLab`}
+          />
+        ) : null}
+        {gitLoading ? (
+          <Skeleton variant="stat-card" />
+        ) : totalComments > 0 ? (
+          <StatsCard
+            title="Comments"
+            value={totalComments}
+            subtitle={`${githubComments} GitHub, ${gitlabComments} GitLab`}
+          />
+        ) : null}
+        {gitLoading ? (
+          <Skeleton variant="stat-card" />
+        ) : combinedCommentsPerMonth > 0 ? (
+          <StatsCard
+            title="Comments per Month"
+            value={combinedCommentsPerMonth.toFixed(1)}
+            subtitle={(() => {
+              const parts = [];
+              if (githubCommentsPerMonth > 0) parts.push(`${githubCommentsPerMonth.toFixed(1)} GitHub`);
+              if (gitlabCommentsPerMonth > 0) parts.push(`${gitlabCommentsPerMonth.toFixed(1)} GitLab`);
+              return parts.join(', ') || 'Average comments per month';
+            })()}
+          />
+        ) : null}
         {jiraLoading ? (
           <Skeleton variant="stat-card" />
         ) : combinedVelocity > 0 ? (

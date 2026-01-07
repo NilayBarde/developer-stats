@@ -32,17 +32,24 @@ function GitSection({ githubStats, gitlabStats, reviewStats, dateRange, compact 
 
   // GitHub stats (engineering-metrics format: created, reviews)
   const githubCreated = githubStats?.created || githubStats?.total || 0;
-  const githubReviews = githubStats?.reviews || githubStats?.contributions?.totalPRReviews || 0;
+  const githubReviews = reviewStats?.github?.prsReviewed || githubStats?.reviews || githubStats?.contributions?.totalPRReviews || 0;
+  const githubComments = reviewStats?.github?.totalComments || 0;
   
   // GitLab stats (engineering-metrics format: commented, created, merged, approved)
-  const gitlabCommented = gitlabStats?.commented || 0;
   const gitlabCreated = gitlabStats?.created || gitlabStats?.total || 0;
   const gitlabMerged = gitlabStats?.merged || 0;
-  const gitlabApproved = gitlabStats?.approved || 0;
+  const gitlabReviews = reviewStats?.gitlab?.mrsReviewed || 0;
+  const gitlabComments = reviewStats?.gitlab?.totalComments || 0;
 
   // Combined totals
   const totalCreated = githubCreated + gitlabCreated;
-  const totalReviews = githubReviews + gitlabCommented + gitlabApproved;
+  const totalReviews = githubReviews + gitlabReviews;
+  const totalComments = githubComments + gitlabComments;
+  
+  // Calculate comments per month
+  const githubCommentsPerMonth = reviewStats?.github?.avgCommentsPerMonth || 0;
+  const gitlabCommentsPerMonth = reviewStats?.gitlab?.avgCommentsPerMonth || 0;
+  const combinedCommentsPerMonth = githubCommentsPerMonth + gitlabCommentsPerMonth;
 
   // Determine title
   const title = showGitHubOnly ? 'GitHub' : showGitLabOnly ? 'GitLab' : 'Git (GitHub + GitLab)';
@@ -66,10 +73,27 @@ function GitSection({ githubStats, gitlabStats, reviewStats, dateRange, compact 
               subtitle="Total contributions"
             />
             <StatsCard
-              title="Reviews/Comments"
+              title="Reviews"
               value={totalReviews}
-              subtitle="PR reviews + MR comments/approvals"
+              subtitle="PRs/MRs reviewed (not authored by you)"
             />
+            <StatsCard
+              title="Comments"
+              value={totalComments}
+              subtitle="Total comments made on PRs/MRs"
+            />
+            {combinedCommentsPerMonth > 0 && (
+              <StatsCard
+                title="Comments per Month"
+                value={combinedCommentsPerMonth.toFixed(1)}
+                subtitle={(() => {
+                  const parts = [];
+                  if (githubCommentsPerMonth > 0) parts.push(`${githubCommentsPerMonth.toFixed(1)} GitHub`);
+                  if (gitlabCommentsPerMonth > 0) parts.push(`${gitlabCommentsPerMonth.toFixed(1)} GitLab`);
+                  return parts.join(', ') || 'Average comments per month';
+                })()}
+              />
+            )}
           </div>
         </>
       )}
@@ -87,10 +111,22 @@ function GitSection({ githubStats, gitlabStats, reviewStats, dateRange, compact 
               subtitle="totalPullRequestContributions"
             />
             <StatsCard
-              title="PR Reviews"
+              title="PRs Reviewed"
               value={githubReviews}
-              subtitle="totalPullRequestReviewContributions"
+              subtitle="PRs reviewed (not authored by you)"
             />
+            <StatsCard
+              title="Comments"
+              value={githubComments}
+              subtitle="Total comments made on PRs"
+            />
+            {githubCommentsPerMonth > 0 && (
+              <StatsCard
+                title="Comments per Month"
+                value={githubCommentsPerMonth.toFixed(1)}
+                subtitle="Average comments per month"
+              />
+            )}
             {githubStats.totalCommits > 0 && (
               <StatsCard
                 title="Commits"
@@ -133,9 +169,14 @@ function GitSection({ githubStats, gitlabStats, reviewStats, dateRange, compact 
           </h3>
           <div className="cards-grid">
             <StatsCard
-              title="Commented"
-              value={gitlabCommented}
-              subtitle="MR comment events"
+              title="MRs Reviewed"
+              value={gitlabReviews}
+              subtitle="MRs reviewed (not authored by you)"
+            />
+            <StatsCard
+              title="Comments"
+              value={gitlabComments}
+              subtitle="Total comments made on MRs"
             />
             <StatsCard
               title="Created"
@@ -147,11 +188,13 @@ function GitSection({ githubStats, gitlabStats, reviewStats, dateRange, compact 
               value={gitlabMerged}
               subtitle="MR merge events"
             />
-            <StatsCard
-              title="Approved"
-              value={gitlabApproved}
-              subtitle="MR approval events"
-            />
+            {gitlabCommentsPerMonth > 0 && (
+              <StatsCard
+                title="Comments per Month"
+                value={gitlabCommentsPerMonth.toFixed(1)}
+                subtitle="Average comments per month"
+              />
+            )}
           </div>
         </>
       )}

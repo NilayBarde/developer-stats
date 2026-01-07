@@ -27,19 +27,21 @@ function LeaderboardPage() {
   });
 
   const fetchLeaderboard = useCallback(async () => {
-    // Check cache first for instant display
+    setLoading(true);
+    setError(null);
+    
+    // Build API URL and cache key
     const cacheKey = buildApiUrl('/api/stats/leaderboard', dateRange);
+    
+    // Check cache first for instant display - only use if it matches current date range
     const cached = clientCache.get(cacheKey, dateRange);
     if (cached) {
       setLeaderboard(cached);
-      setLoading(false);
-      setError(null);
+      // Don't set loading to false here - we still want to fetch fresh data
     }
     
     try {
-      if (!cached) setLoading(true);
-      setError(null);
-      
+      // Always fetch fresh data to ensure we have the correct date range
       // Increase timeout for leaderboard (30+ users × 3 services = many API calls)
       const response = await axios.get(cacheKey + mockParam, {
         timeout: 120000 // 2 minutes timeout
@@ -47,6 +49,7 @@ function LeaderboardPage() {
       
       const data = response.data || [];
       setLeaderboard(data);
+      // Update cache with fresh data for this specific date range
       clientCache.set(cacheKey, dateRange, data);
     } catch (err) {
       if (err.code === 'ECONNABORTED') {
@@ -57,14 +60,21 @@ function LeaderboardPage() {
       console.error('Error fetching leaderboard:', err);
       
       // If we have cached data, keep showing it even on error
-      // Use functional update to avoid needing leaderboard in dependencies
+      // Otherwise clear the leaderboard
       if (!cached) {
-        setLeaderboard(prev => prev.length === 0 ? [] : prev);
+        setLeaderboard([]);
       }
     } finally {
       setLoading(false);
     }
   }, [dateRange, mockParam]);
+
+  // Clear leaderboard and show loading when date range changes
+  useEffect(() => {
+    setLeaderboard([]);
+    setLoading(true);
+    setError(null);
+  }, [dateRange.start, dateRange.end]);
 
   useEffect(() => {
     fetchLeaderboard();
@@ -77,6 +87,20 @@ function LeaderboardPage() {
     }
     setSortConfig({ column, direction });
   };
+
+  // Helper function to calculate months in date range
+  const calculateMonthsInRange = useCallback((dr) => {
+    if (!dr) return 1;
+    const start = dr.start ? new Date(dr.start) : null;
+    const end = dr.end ? new Date(dr.end) : new Date();
+    if (!start) return 1;
+    const startYear = start.getUTCFullYear();
+    const startMonth = start.getUTCMonth();
+    const endYear = end.getUTCFullYear();
+    const endMonth = end.getUTCMonth();
+    const monthsDiff = (endYear - startYear) * 12 + (endMonth - startMonth) + 1;
+    return Math.max(1, monthsDiff);
+  }, []);
 
   const sortedLeaderboard = useMemo(() => {
     if (!sortConfig.column) return leaderboard;
@@ -94,8 +118,30 @@ function LeaderboardPage() {
           bValue = (b.github?.created || 0) + (b.gitlab?.created || 0);
           break;
         case 'git-reviews':
-          aValue = (a.github?.reviews || 0) + (a.gitlab?.commented || 0) + (a.gitlab?.approved || 0);
-          bValue = (b.github?.reviews || 0) + (b.gitlab?.commented || 0) + (b.gitlab?.approved || 0);
+          // Reviews = PRs/MRs reviewed (not comments)
+          const aGithubReviews = a.reviewStats?.github?.prsReviewed || a.github?.reviews || 0;
+          const aGitlabReviews = a.reviewStats?.gitlab?.mrsReviewed || 0;
+          const bGithubReviews = b.reviewStats?.github?.prsReviewed || b.github?.reviews || 0;
+          const bGitlabReviews = b.reviewStats?.gitlab?.mrsReviewed || 0;
+          aValue = aGithubReviews + aGitlabReviews;
+          bValue = bGithubReviews + bGitlabReviews;
+          break;
+        case 'git-comments':
+          // Comments = Total comments made
+          const aGithubComments = a.reviewStats?.github?.totalComments || 0;
+          const aGitlabComments = a.reviewStats?.gitlab?.totalComments || 0;
+          const bGithubComments = b.reviewStats?.github?.totalComments || 0;
+          const bGitlabComments = b.reviewStats?.gitlab?.totalComments || 0;
+          aValue = aGithubComments + aGitlabComments;
+          bValue = bGithubComments + bGitlabComments;
+          break;
+        case 'git-comments-per-month':
+          // Comments per month = Total comments / months in range
+          const aTotalComments = (a.reviewStats?.github?.totalComments || 0) + (a.reviewStats?.gitlab?.totalComments || 0);
+          const bTotalComments = (b.reviewStats?.github?.totalComments || 0) + (b.reviewStats?.gitlab?.totalComments || 0);
+          const totalMonths = calculateMonthsInRange(dateRange);
+          aValue = totalMonths > 0 ? aTotalComments / totalMonths : 0;
+          bValue = totalMonths > 0 ? bTotalComments / totalMonths : 0;
           break;
         case 'jira-velocity':
           aValue = a.jira?.velocity?.averageVelocity || 0;
@@ -133,7 +179,7 @@ function LeaderboardPage() {
       
       return sortConfig.direction === 'asc' ? aValue - bValue : bValue - aValue;
     });
-  }, [leaderboard, sortConfig]);
+  }, [leaderboard, sortConfig, dateRange, calculateMonthsInRange]);
 
   const formatValue = (value) => {
     if (value === null || value === undefined) return '-';
@@ -167,17 +213,19 @@ function LeaderboardPage() {
       <div className="leaderboard-table-container">
         <table className="leaderboard-table">
           <thead>
-            <tr>
-              <th>Name</th>
-              <th>Created</th>
-              <th>Reviews</th>
-              <th>Velocity</th>
-              <th>Story Points</th>
-              <th>Resolved</th>
-              <th>Avg Res Time</th>
-              <th>CTOI Fixed</th>
-              <th>CTOI Part.</th>
-            </tr>
+              <tr>
+                <th>Name</th>
+                <th>Created</th>
+                <th>Reviews</th>
+                <th>Comments</th>
+                <th>Comments/Month</th>
+                <th>Velocity</th>
+                <th>Story Points</th>
+                <th>Resolved</th>
+                <th>Avg Res Time</th>
+                <th>CTOI Fixed</th>
+                <th>CTOI Part.</th>
+              </tr>
           </thead>
           <tbody>
             {skeletonRows.map((_, index) => (
@@ -185,6 +233,8 @@ function LeaderboardPage() {
                 <td className="name-cell">
                   <Skeleton variant="text" width="80%" height="16px" />
                 </td>
+                <td><Skeleton variant="text" width="60%" height="16px" /></td>
+                <td><Skeleton variant="text" width="60%" height="16px" /></td>
                 <td><Skeleton variant="text" width="60%" height="16px" /></td>
                 <td><Skeleton variant="text" width="60%" height="16px" /></td>
                 <td><Skeleton variant="text" width="60%" height="16px" /></td>
@@ -238,7 +288,10 @@ function LeaderboardPage() {
       <div className="leaderboard-info">
         <p className="info-text">
           <strong>Git (GitHub + GitLab)</strong> combines metrics from both code hosting platforms. 
-          <strong>Created</strong> = PRs/MRs created (GitHub + GitLab), <strong>Reviews</strong> = Reviews/comments given (GitHub reviews + GitLab commented/approved).
+          <strong>Created</strong> = PRs/MRs created (GitHub + GitLab). 
+          <strong>Reviews</strong> = PRs/MRs reviewed (not authored by you). 
+          <strong>Comments</strong> = Total comments made on PRs/MRs. 
+          <strong>Comments/Month</strong> = Average comments per month in the date range.
         </p>
       </div>
       
@@ -257,8 +310,14 @@ function LeaderboardPage() {
                 <th onClick={() => handleSort('git-created')} className="sortable" title="PRs/MRs created (GitHub + GitLab)">
                   Created {getSortIcon('git-created')}
                 </th>
-                <th onClick={() => handleSort('git-reviews')} className="sortable" title="Reviews/comments given (GitHub reviews + GitLab commented/approved)">
+                <th onClick={() => handleSort('git-reviews')} className="sortable" title="PRs/MRs reviewed (GitHub + GitLab)">
                   Reviews {getSortIcon('git-reviews')}
+                </th>
+                <th onClick={() => handleSort('git-comments')} className="sortable" title="Total comments made on PRs/MRs (GitHub + GitLab)">
+                  Comments {getSortIcon('git-comments')}
+                </th>
+                <th onClick={() => handleSort('git-comments-per-month')} className="sortable" title="Average comments per month">
+                  Comments/Month {getSortIcon('git-comments-per-month')}
                 </th>
                 <th onClick={() => handleSort('jira-velocity')} className="sortable" title="Average story points per sprint">
                   Velocity {getSortIcon('jira-velocity')}
@@ -284,7 +343,21 @@ function LeaderboardPage() {
               {sortedLeaderboard.map((entry, index) => {
                 const displayName = entry.user?.id || entry.user?.githubUsername || entry.user?.gitlabUsername || entry.user?.jiraEmail || '-';
                 const gitCreated = (entry.github?.created || 0) + (entry.gitlab?.created || 0);
-                const gitReviews = (entry.github?.reviews || 0) + (entry.gitlab?.commented || 0) + (entry.gitlab?.approved || 0);
+                
+                // Reviews = PRs/MRs reviewed (not comments)
+                const githubReviews = entry.reviewStats?.github?.prsReviewed || entry.github?.reviews || 0;
+                const gitlabReviews = entry.reviewStats?.gitlab?.mrsReviewed || 0;
+                const gitReviews = githubReviews + gitlabReviews;
+                
+                // Comments = Total comments made
+                const githubComments = entry.reviewStats?.github?.totalComments || 0;
+                const gitlabComments = entry.reviewStats?.gitlab?.totalComments || 0;
+                const gitComments = githubComments + gitlabComments;
+                
+                // Comments per month
+                const totalMonthsInRange = calculateMonthsInRange(dateRange);
+                const gitCommentsPerMonth = totalMonthsInRange > 0 ? (gitComments / totalMonthsInRange) : 0;
+                
                 const isCurrentUserRow = isCurrentUser(entry);
                 
                 return (
@@ -292,6 +365,8 @@ function LeaderboardPage() {
                     <td className={`name-cell ${isCurrentUserRow ? 'current-user-name' : ''}`}>{displayName}</td>
                     <td>{formatValue(gitCreated)}</td>
                     <td>{formatValue(gitReviews)}</td>
+                    <td>{formatValue(gitComments)}</td>
+                    <td>{gitCommentsPerMonth > 0 ? gitCommentsPerMonth.toFixed(1) : '-'}</td>
                     <td>{formatValue(entry.jira?.velocity?.averageVelocity)}</td>
                     <td>{formatValue(entry.jira?.totalStoryPoints)}</td>
                     <td>{formatValue(entry.jira?.resolved)}</td>

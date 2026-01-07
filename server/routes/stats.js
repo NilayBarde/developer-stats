@@ -323,8 +323,8 @@ async function fetchUserStats(user, dateRange) {
     errors: {}
   };
   
-  // Fetch all services in parallel
-  const [githubStats, gitlabStats, jiraStats] = await Promise.allSettled([
+  // Fetch all services in parallel (including review stats)
+  const [githubStats, gitlabStats, jiraStats, githubReviews, gitlabReviews] = await Promise.allSettled([
     user.github?.username ? githubService.getStats(dateRange, {
       username: user.github.username,
       token: user.github.token || process.env.GITHUB_TOKEN,
@@ -339,6 +339,16 @@ async function fetchUserStats(user, dateRange) {
       email: user.jira.email,
       pat: user.jira.pat || process.env.JIRA_PAT,
       baseURL: user.jira.baseURL || process.env.JIRA_BASE_URL
+    }) : Promise.resolve(null),
+    user.github?.username ? githubService.getReviewComments(dateRange, {
+      username: user.github.username,
+      token: user.github.token || process.env.GITHUB_TOKEN,
+      baseURL: user.github.baseURL || process.env.GITHUB_BASE_URL || 'https://github.com'
+    }) : Promise.resolve(null),
+    user.gitlab?.username ? gitlabService.getReviewComments(dateRange, {
+      username: user.gitlab.username,
+      token: user.gitlab.token || process.env.GITLAB_TOKEN,
+      baseURL: user.gitlab.baseURL || process.env.GITLAB_BASE_URL || 'https://gitlab.com'
     }) : Promise.resolve(null)
   ]);
   
@@ -362,6 +372,18 @@ async function fetchUserStats(user, dateRange) {
   } else if (jiraStats.status === 'rejected') {
     console.error(`  ❌ Jira stats failed for ${userId}:`, jiraStats.reason?.message);
     userResult.errors.jira = jiraStats.reason?.message;
+  }
+  
+  // Process review stats
+  const reviewStats = {};
+  if (githubReviews.status === 'fulfilled' && githubReviews.value) {
+    reviewStats.github = githubReviews.value;
+  }
+  if (gitlabReviews.status === 'fulfilled' && gitlabReviews.value) {
+    reviewStats.gitlab = gitlabReviews.value;
+  }
+  if (Object.keys(reviewStats).length > 0) {
+    userResult.reviewStats = reviewStats;
   }
   
   return userResult;
@@ -476,6 +498,7 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
           github: defaultUserCachedStats.github,
           gitlab: defaultUserCachedStats.gitlab,
           jira: defaultUserCachedStats.jira || defaultUserCachedJiraStats,
+          reviewStats: defaultUserCachedGitStats?.reviewStats || null,
           errors: {}
         });
       }

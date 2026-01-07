@@ -196,6 +196,7 @@ function App() {
                 dateRange={dateRange}
                 benchmarks={benchmarks}
                 benchmarksLoading={benchmarksLoading}
+                reviewStats={gitStats?.reviewStats}
               />
 
               {/* Jira Section - loads independently */}
