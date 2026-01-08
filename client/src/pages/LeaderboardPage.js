@@ -10,6 +10,76 @@ import './LeaderboardPage.css';
 // Current user identifier - update this to match your user ID
 const CURRENT_USER_ID = 'NILAY-BARDE';
 
+// Metric definitions for the comparison table
+const COMPARISON_METRICS = [
+  { key: 'created', label: 'Created', description: 'PRs/MRs created' },
+  { key: 'commentsPerMonth', label: 'Comments/Month', description: 'Average comments per month' },
+  { key: 'velocity', label: 'Velocity', description: 'Avg story points per sprint' },
+  { key: 'resolved', label: 'Resolved', description: 'Issues resolved' }
+];
+
+// Comparison Table Component
+function ComparisonTable({ currentUserStats, benchmarks, loading }) {
+  const formatValue = (value, suffix = '') => {
+    if (value === null || value === undefined) return '-';
+    if (typeof value === 'number') {
+      return value.toLocaleString(undefined, { maximumFractionDigits: 1 }) + suffix;
+    }
+    return value;
+  };
+
+  const renderLoadingRows = () => {
+    return COMPARISON_METRICS.map((metric) => (
+      <tr key={metric.key}>
+        <td className="metric-label">{metric.label}</td>
+        <td className="you-column"><Skeleton variant="text" width="50px" height="16px" /></td>
+        <td><Skeleton variant="text" width="50px" height="16px" /></td>
+        <td><Skeleton variant="text" width="50px" height="16px" /></td>
+        <td><Skeleton variant="text" width="50px" height="16px" /></td>
+        <td><Skeleton variant="text" width="50px" height="16px" /></td>
+        <td><Skeleton variant="text" width="50px" height="16px" /></td>
+      </tr>
+    ));
+  };
+
+  return (
+    <div className="comparison-table-container">
+      <h2 className="comparison-title">Your Stats vs Team Averages</h2>
+      <table className="comparison-table">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th className="you-column">You</th>
+            <th>Avg P1</th>
+            <th>Avg P2</th>
+            <th>Avg P3</th>
+            <th>Avg P4</th>
+            <th>Avg FTE</th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading ? renderLoadingRows() : COMPARISON_METRICS.map((metric) => {
+            const userValue = currentUserStats?.[metric.key];
+            const suffix = metric.suffix || '';
+            
+            return (
+              <tr key={metric.key}>
+                <td className="metric-label" title={metric.description}>{metric.label}</td>
+                <td className="you-column">{formatValue(userValue, suffix)}</td>
+                <td>{formatValue(benchmarks?.p1?.[metric.key], suffix)}</td>
+                <td>{formatValue(benchmarks?.p2?.[metric.key], suffix)}</td>
+                <td>{formatValue(benchmarks?.p3?.[metric.key], suffix)}</td>
+                <td>{formatValue(benchmarks?.p4?.[metric.key], suffix)}</td>
+                <td>{formatValue(benchmarks?.fte?.[metric.key], suffix)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function LeaderboardPage() {
   const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -206,6 +276,133 @@ function LeaderboardPage() {
            jiraEmail?.toLowerCase() === 'nilay.barde@disney.com';
   }, []);
 
+  // Extract current user's stats for comparison table
+  const currentUserStats = useMemo(() => {
+    const currentUserEntry = leaderboard.find(entry => isCurrentUser(entry));
+    if (!currentUserEntry) return null;
+    
+    const github = currentUserEntry.github || {};
+    const gitlab = currentUserEntry.gitlab || {};
+    const jira = currentUserEntry.jira || {};
+    const reviewStats = currentUserEntry.reviewStats || {};
+    
+    // Git Created
+    const githubCreated = github.created > 0 ? github.created : (github.total ?? 0);
+    const gitlabCreated = gitlab.created ?? gitlab.total ?? 0;
+    const created = githubCreated + gitlabCreated;
+    
+    // Git Reviews
+    const githubReviews = reviewStats.github?.prsReviewed || github.reviews || 0;
+    const gitlabReviews = reviewStats.gitlab?.mrsReviewed || 0;
+    const reviews = githubReviews + gitlabReviews;
+    
+    // Git Comments
+    const githubComments = reviewStats.github?.totalComments || 0;
+    const gitlabComments = reviewStats.gitlab?.totalComments || 0;
+    const comments = githubComments + gitlabComments;
+    
+    // Comments per month
+    const totalMonthsInRange = calculateMonthsInRange(dateRange);
+    const commentsPerMonth = totalMonthsInRange > 0 ? parseFloat((comments / totalMonthsInRange).toFixed(1)) : 0;
+    
+    // Jira metrics
+    const velocity = jira.velocity?.averageVelocity || 0;
+    const storyPoints = jira.totalStoryPoints || 0;
+    const resolved = jira.resolved || 0;
+    const avgResolutionTime = jira.avgResolutionTime || 0;
+    const ctoiFixed = jira.ctoi?.fixed || 0;
+    const ctoiParticipated = jira.ctoi?.participated || 0;
+    
+    return {
+      created,
+      reviews,
+      comments,
+      commentsPerMonth,
+      velocity,
+      storyPoints,
+      resolved,
+      avgResolutionTime,
+      ctoiFixed,
+      ctoiParticipated
+    };
+  }, [leaderboard, isCurrentUser, dateRange, calculateMonthsInRange]);
+
+  // Calculate benchmarks from leaderboard data (no extra API call needed)
+  const benchmarks = useMemo(() => {
+    const CONTRACTOR_LEVEL = 'contractor';
+    
+    if (!leaderboard || leaderboard.length === 0) return null;
+    
+    const extractMetrics = (entry) => {
+      const github = entry.github || {};
+      const gitlab = entry.gitlab || {};
+      const jira = entry.jira || {};
+      const reviewStats = entry.reviewStats || {};
+      
+      const githubCreated = github.created > 0 ? github.created : (github.total ?? 0);
+      const gitlabCreated = gitlab.created ?? gitlab.total ?? 0;
+      const created = githubCreated + gitlabCreated;
+      
+      const githubReviews = reviewStats.github?.prsReviewed || github.reviews || 0;
+      const gitlabReviews = reviewStats.gitlab?.mrsReviewed || 0;
+      const reviews = githubReviews + gitlabReviews;
+      
+      const githubComments = reviewStats.github?.totalComments || 0;
+      const gitlabComments = reviewStats.gitlab?.totalComments || 0;
+      const comments = githubComments + gitlabComments;
+      
+      const monthsInRange = calculateMonthsInRange(dateRange);
+      const commentsPerMonth = monthsInRange > 0 ? comments / monthsInRange : 0;
+      
+      const velocity = jira.velocity?.averageVelocity || 0;
+      const storyPoints = jira.totalStoryPoints || 0;
+      const resolved = jira.resolved || 0;
+      const avgResolutionTime = jira.avgResolutionTime || 0;
+      const ctoiFixed = jira.ctoi?.fixed || 0;
+      const ctoiParticipated = jira.ctoi?.participated || 0;
+      
+      return { created, reviews, comments, commentsPerMonth, velocity, storyPoints, resolved, avgResolutionTime, ctoiFixed, ctoiParticipated };
+    };
+    
+    const calculateAverages = (entries) => {
+      if (entries.length === 0) return null;
+      
+      const metrics = ['created', 'reviews', 'comments', 'commentsPerMonth', 'velocity', 'storyPoints', 'resolved', 'avgResolutionTime', 'ctoiFixed', 'ctoiParticipated'];
+      const sums = {};
+      const counts = {};
+      metrics.forEach(m => { sums[m] = 0; counts[m] = 0; });
+      
+      entries.forEach(entry => {
+        const m = extractMetrics(entry);
+        metrics.forEach(key => {
+          if (m[key] > 0) { sums[key] += m[key]; counts[key]++; }
+        });
+      });
+      
+      const result = {};
+      metrics.forEach(key => {
+        result[key] = counts[key] > 0 ? parseFloat((sums[key] / counts[key]).toFixed(1)) : null;
+      });
+      return result;
+    };
+    
+    const usersByLevel = { p1: [], p2: [], p3: [], p4: [] };
+    leaderboard.forEach(entry => {
+      const level = entry.user?.level?.toLowerCase();
+      if (level && level !== CONTRACTOR_LEVEL && usersByLevel[level]) {
+        usersByLevel[level].push(entry);
+      }
+    });
+    
+    return {
+      fte: calculateAverages(leaderboard),
+      p1: calculateAverages(usersByLevel.p1),
+      p2: calculateAverages(usersByLevel.p2),
+      p3: calculateAverages(usersByLevel.p3),
+      p4: calculateAverages(usersByLevel.p4)
+    };
+  }, [leaderboard, dateRange, calculateMonthsInRange]);
+
   const renderLoadingTable = () => {
     const skeletonRows = Array.from({ length: 10 }, (_, i) => i);
     
@@ -261,6 +458,11 @@ function LeaderboardPage() {
         <div className="loading-message">
           <p>Loading leaderboard for all users... This may take a minute.</p>
         </div>
+        <ComparisonTable 
+          currentUserStats={null} 
+          benchmarks={null} 
+          loading={true} 
+        />
         {renderLoadingTable()}
       </div>
     );
@@ -294,6 +496,12 @@ function LeaderboardPage() {
           <strong>Comments/Month</strong> = Average comments per month in the date range.
         </p>
       </div>
+      
+      <ComparisonTable 
+        currentUserStats={currentUserStats} 
+        benchmarks={benchmarks} 
+        loading={loading && !benchmarks} 
+      />
       
       {leaderboard.length === 0 ? (
         <div className="empty-state">

@@ -549,143 +549,168 @@ async function fetchLeaderboard(dateRange, skipCache = false) {
 /**
  * Calculate benchmarks from leaderboard data
  * FTE = average across all users (all levels)
- * P2, P3, etc. = average for users at that specific level
+ * P1, P2, P3, P4 = average for users at that specific level (excludes contractors)
  */
 function calculateBenchmarks(leaderboard) {
+  const CONTRACTOR_LEVEL = 'contractor';
+  
+  const emptyMetrics = {
+    created: null,
+    reviews: null,
+    comments: null,
+    commentsPerMonth: null,
+    velocity: null,
+    storyPoints: null,
+    resolved: null,
+    avgResolutionTime: null,
+    ctoiFixed: null,
+    ctoiParticipated: null
+  };
+  
   if (!leaderboard || leaderboard.length === 0) {
     return {
-      fte: { avgPRsPerMonth: null, avgVelocity: null, totalPRs: null },
-      p2: { avgPRsPerMonth: null, avgVelocity: null, totalPRs: null }
+      fte: { ...emptyMetrics },
+      p1: { ...emptyMetrics },
+      p2: { ...emptyMetrics },
+      p3: { ...emptyMetrics },
+      p4: { ...emptyMetrics }
     };
   }
 
-  // Helper to calculate average PRs per month from GitHub + GitLab stats
-  const calculateAvgPRsPerMonth = (githubStats, gitlabStats) => {
-    const githubPRs = githubStats?.monthlyPRs || [];
-    const gitlabMRs = gitlabStats?.monthlyMRs || [];
+  // Helper to extract metrics from an entry
+  const extractMetrics = (entry) => {
+    const github = entry.github || {};
+    const gitlab = entry.gitlab || {};
+    const jira = entry.jira || {};
+    const reviewStats = entry.reviewStats || {};
     
-    // Combine monthly data
-    const monthlyData = {};
-    [...githubPRs, ...gitlabMRs].forEach(item => {
-      if (item.month && item.count) {
-        monthlyData[item.month] = (monthlyData[item.month] || 0) + item.count;
-      }
+    // Git Created (PRs/MRs)
+    const githubCreated = github.created > 0 ? github.created : (github.total ?? 0);
+    const gitlabCreated = gitlab.created ?? gitlab.total ?? 0;
+    const created = githubCreated + gitlabCreated;
+    
+    // Git Reviews
+    const githubReviews = reviewStats.github?.prsReviewed || github.reviews || 0;
+    const gitlabReviews = reviewStats.gitlab?.mrsReviewed || 0;
+    const reviews = githubReviews + gitlabReviews;
+    
+    // Git Comments
+    const githubComments = reviewStats.github?.totalComments || 0;
+    const gitlabComments = reviewStats.gitlab?.totalComments || 0;
+    const comments = githubComments + gitlabComments;
+    
+    // Comments per month - calculate based on monthly data if available
+    const githubPRs = github.monthlyPRs || [];
+    const gitlabMRs = gitlab.monthlyMRs || [];
+    const monthsWithData = new Set([...githubPRs, ...gitlabMRs].map(item => item.month)).size;
+    const commentsPerMonth = monthsWithData > 0 ? comments / monthsWithData : 0;
+    
+    // Jira metrics
+    const velocity = jira.velocity?.combinedAverageVelocity || jira.velocity?.averageVelocity || 0;
+    const storyPoints = jira.totalStoryPoints || 0;
+    const resolved = jira.resolved || 0;
+    const avgResolutionTime = jira.avgResolutionTime || 0;
+    const ctoiFixed = jira.ctoi?.fixed || 0;
+    const ctoiParticipated = jira.ctoi?.participated || 0;
+    
+    return {
+      created,
+      reviews,
+      comments,
+      commentsPerMonth,
+      velocity,
+      storyPoints,
+      resolved,
+      avgResolutionTime,
+      ctoiFixed,
+      ctoiParticipated
+    };
+  };
+
+  // Helper to calculate averages from an array of metric objects
+  const calculateAverages = (entries) => {
+    if (entries.length === 0) return { ...emptyMetrics };
+    
+    const sums = {
+      created: 0,
+      reviews: 0,
+      comments: 0,
+      commentsPerMonth: 0,
+      velocity: 0,
+      storyPoints: 0,
+      resolved: 0,
+      avgResolutionTime: 0,
+      ctoiFixed: 0,
+      ctoiParticipated: 0
+    };
+    
+    const counts = {
+      created: 0,
+      reviews: 0,
+      comments: 0,
+      commentsPerMonth: 0,
+      velocity: 0,
+      storyPoints: 0,
+      resolved: 0,
+      avgResolutionTime: 0,
+      ctoiFixed: 0,
+      ctoiParticipated: 0
+    };
+    
+    entries.forEach(entry => {
+      const metrics = extractMetrics(entry);
+      
+      // Only count non-zero values for averages
+      if (metrics.created > 0) { sums.created += metrics.created; counts.created++; }
+      if (metrics.reviews > 0) { sums.reviews += metrics.reviews; counts.reviews++; }
+      if (metrics.comments > 0) { sums.comments += metrics.comments; counts.comments++; }
+      if (metrics.commentsPerMonth > 0) { sums.commentsPerMonth += metrics.commentsPerMonth; counts.commentsPerMonth++; }
+      if (metrics.velocity > 0) { sums.velocity += metrics.velocity; counts.velocity++; }
+      if (metrics.storyPoints > 0) { sums.storyPoints += metrics.storyPoints; counts.storyPoints++; }
+      if (metrics.resolved > 0) { sums.resolved += metrics.resolved; counts.resolved++; }
+      if (metrics.avgResolutionTime > 0) { sums.avgResolutionTime += metrics.avgResolutionTime; counts.avgResolutionTime++; }
+      if (metrics.ctoiFixed > 0) { sums.ctoiFixed += metrics.ctoiFixed; counts.ctoiFixed++; }
+      if (metrics.ctoiParticipated > 0) { sums.ctoiParticipated += metrics.ctoiParticipated; counts.ctoiParticipated++; }
     });
     
-    const monthsWithData = Object.values(monthlyData).filter(count => count > 0);
-    if (monthsWithData.length === 0) return null;
+    const avg = (sum, count) => count > 0 ? parseFloat((sum / count).toFixed(1)) : null;
     
-    return parseFloat((monthsWithData.reduce((a, b) => a + b, 0) / monthsWithData.length).toFixed(1));
+    return {
+      created: avg(sums.created, counts.created),
+      reviews: avg(sums.reviews, counts.reviews),
+      comments: avg(sums.comments, counts.comments),
+      commentsPerMonth: avg(sums.commentsPerMonth, counts.commentsPerMonth),
+      velocity: avg(sums.velocity, counts.velocity),
+      storyPoints: avg(sums.storyPoints, counts.storyPoints),
+      resolved: avg(sums.resolved, counts.resolved),
+      avgResolutionTime: avg(sums.avgResolutionTime, counts.avgResolutionTime),
+      ctoiFixed: avg(sums.ctoiFixed, counts.ctoiFixed),
+      ctoiParticipated: avg(sums.ctoiParticipated, counts.ctoiParticipated)
+    };
   };
 
-  // Helper to calculate total PRs from GitHub + GitLab stats
-  const calculateTotalPRs = (githubStats, gitlabStats) => {
-    const githubCreated = githubStats?.created > 0 ? githubStats.created : (githubStats?.total ?? 0);
-    const gitlabCreated = gitlabStats?.created ?? gitlabStats?.total ?? 0;
-    const total = githubCreated + gitlabCreated;
-    return total > 0 ? total : null;
-  };
+  // Calculate FTE averages (all users including contractors)
+  const fteAverages = calculateAverages(leaderboard);
 
-  // Helper to get velocity from Jira stats
-  const getVelocity = (jiraStats) => {
-    return jiraStats?.velocity?.combinedAverageVelocity || 
-           jiraStats?.velocity?.averageVelocity || 
-           null;
-  };
-
-  // Calculate FTE averages (all users)
-  const ftePRs = [];
-  const fteTotalPRs = [];
-  const fteVelocities = [];
+  // Group users by level (excluding contractors for level-specific averages)
+  const usersByLevel = { p1: [], p2: [], p3: [], p4: [] };
   
   leaderboard.forEach(entry => {
-    const avgPRs = calculateAvgPRsPerMonth(entry.github, entry.gitlab);
-    if (avgPRs !== null) {
-      ftePRs.push(avgPRs);
-    }
-    
-    const totalPRs = calculateTotalPRs(entry.github, entry.gitlab);
-    if (totalPRs !== null) {
-      fteTotalPRs.push(totalPRs);
-    }
-    
-    const velocity = getVelocity(entry.jira);
-    if (velocity !== null) {
-      fteVelocities.push(velocity);
-    }
-  });
-
-  const fteAvgPRs = ftePRs.length > 0 
-    ? parseFloat((ftePRs.reduce((a, b) => a + b, 0) / ftePRs.length).toFixed(1))
-    : null;
-  const fteAvgTotalPRs = fteTotalPRs.length > 0
-    ? parseFloat((fteTotalPRs.reduce((a, b) => a + b, 0) / fteTotalPRs.length).toFixed(1))
-    : null;
-  const fteAvgVelocity = fteVelocities.length > 0
-    ? parseFloat((fteVelocities.reduce((a, b) => a + b, 0) / fteVelocities.length).toFixed(1))
-    : null;
-
-  // Calculate averages by level
-  const benchmarks = {
-    fte: {
-      avgPRsPerMonth: fteAvgPRs,
-      avgVelocity: fteAvgVelocity,
-      totalPRs: fteAvgTotalPRs
-    }
-  };
-
-  // Group users by level
-  const usersByLevel = {};
-  leaderboard.forEach(entry => {
-    const level = entry.user?.level;
-    if (level) {
-      if (!usersByLevel[level]) {
-        usersByLevel[level] = [];
-      }
+    const level = entry.user?.level?.toLowerCase();
+    // Skip contractors for level-specific averages
+    if (level && level !== CONTRACTOR_LEVEL && usersByLevel[level]) {
       usersByLevel[level].push(entry);
     }
   });
 
   // Calculate averages for each level
-  Object.keys(usersByLevel).forEach(level => {
-    const levelUsers = usersByLevel[level];
-    const levelPRs = [];
-    const levelTotalPRs = [];
-    const levelVelocities = [];
-
-    levelUsers.forEach(entry => {
-      const avgPRs = calculateAvgPRsPerMonth(entry.github, entry.gitlab);
-      if (avgPRs !== null) {
-        levelPRs.push(avgPRs);
-      }
-      
-      const totalPRs = calculateTotalPRs(entry.github, entry.gitlab);
-      if (totalPRs !== null) {
-        levelTotalPRs.push(totalPRs);
-      }
-      
-      const velocity = getVelocity(entry.jira);
-      if (velocity !== null) {
-        levelVelocities.push(velocity);
-      }
-    });
-
-    const levelAvgPRs = levelPRs.length > 0
-      ? parseFloat((levelPRs.reduce((a, b) => a + b, 0) / levelPRs.length).toFixed(1))
-      : null;
-    const levelAvgTotalPRs = levelTotalPRs.length > 0
-      ? parseFloat((levelTotalPRs.reduce((a, b) => a + b, 0) / levelTotalPRs.length).toFixed(1))
-      : null;
-    const levelAvgVelocity = levelVelocities.length > 0
-      ? parseFloat((levelVelocities.reduce((a, b) => a + b, 0) / levelVelocities.length).toFixed(1))
-      : null;
-
-    benchmarks[level.toLowerCase()] = {
-      avgPRsPerMonth: levelAvgPRs,
-      avgVelocity: levelAvgVelocity,
-      totalPRs: levelAvgTotalPRs
-    };
-  });
+  const benchmarks = {
+    fte: fteAverages,
+    p1: calculateAverages(usersByLevel.p1),
+    p2: calculateAverages(usersByLevel.p2),
+    p3: calculateAverages(usersByLevel.p3),
+    p4: calculateAverages(usersByLevel.p4)
+  };
 
   return benchmarks;
 }
