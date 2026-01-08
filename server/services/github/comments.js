@@ -6,7 +6,54 @@
  */
 
 const cache = require('../../utils/cache');
-const { graphqlQuery, CONTRIBUTIONS_QUERY, GITHUB_USERNAME, GITHUB_TOKEN, createGraphQLClient } = require('./api');
+const { graphqlQuery, PR_REVIEWS_QUERY, GITHUB_USERNAME, GITHUB_TOKEN, createGraphQLClient } = require('./api');
+
+/**
+ * Fetch all PR review contributions with pagination to get unique PRs
+ */
+async function fetchAllPRReviews(username, from, to, customClient) {
+  const uniquePRs = new Set();
+  const prsByRepo = new Map();
+  let cursor = null;
+  let hasNextPage = true;
+  
+  while (hasNextPage) {
+    try {
+      const data = await graphqlQuery(PR_REVIEWS_QUERY, { 
+        login: username, 
+        from: from.toISOString(),
+        to: to.toISOString(),
+        cursor
+      }, customClient);
+      
+      const contributions = data.user?.contributionsCollection?.pullRequestReviewContributions;
+      if (!contributions?.nodes) break;
+      
+      for (const node of contributions.nodes) {
+        const pr = node.pullRequest;
+        if (pr?.id) {
+          uniquePRs.add(pr.id);
+          
+          const repoName = pr.repository?.nameWithOwner;
+          if (repoName) {
+            if (!prsByRepo.has(repoName)) {
+              prsByRepo.set(repoName, new Set());
+            }
+            prsByRepo.get(repoName).add(pr.id);
+          }
+        }
+      }
+      
+      hasNextPage = contributions.pageInfo?.hasNextPage || false;
+      cursor = contributions.pageInfo?.endCursor;
+    } catch (error) {
+      console.warn('⚠️ Error fetching PR reviews:', error.message);
+      break;
+    }
+  }
+  
+  return { uniquePRs, prsByRepo };
+}
 
 /**
  * Calculate total months in date range
@@ -51,7 +98,7 @@ async function getReviewComments(dateRange = null, credentials = null) {
   }
 
   // Include username in cache key to avoid cache collisions
-  const cacheKey = `github-comments:v5:${username}:${JSON.stringify(dateRange)}`;
+  const cacheKey = `github-comments:v6:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) {
     return cached;
@@ -61,30 +108,20 @@ async function getReviewComments(dateRange = null, credentials = null) {
   const from = dateRange?.start ? new Date(dateRange.start) : new Date(to.getTime() - 365 * 24 * 60 * 60 * 1000);
 
   try {
-    // Fetch PR review contributions from contributionsCollection
     const customClient = credentials ? createGraphQLClient(username, token, baseURL) : null;
-    const data = await graphqlQuery(CONTRIBUTIONS_QUERY, { 
-      login: username, 
-      from: from.toISOString(),
-      to: to.toISOString()
-    }, customClient);
     
-    const c = data.user?.contributionsCollection;
-    if (!c) {
-      console.warn('⚠️ contributionsCollection not available for review comments');
-      return { totalComments: 0, prsReviewed: 0, avgCommentsPerPR: 0, avgReviewsPerMonth: 0, avgCommentsPerMonth: 0, byRepo: [], monthlyComments: {} };
-    }
-
-    // Get PR reviews count from contributionsCollection
-    const prsReviewed = c.totalPullRequestReviewContributions || 0;
+    // Fetch unique PRs reviewed by paginating through all PR review contributions
+    const { uniquePRs, prsByRepo } = await fetchAllPRReviews(username, from, to, customClient);
+    const prsReviewed = uniquePRs.size;
     
-    // Get breakdown by repository
-    const reviewsByRepo = c.pullRequestReviewContributionsByRepository || [];
-    const byRepo = reviewsByRepo.map(r => ({
-      repo: r.repository.nameWithOwner,
-      prsReviewed: r.contributions.totalCount,
-      comments: 0 // contributionsCollection doesn't provide comment counts
-    })).sort((a, b) => b.prsReviewed - a.prsReviewed);
+    // Build breakdown by repository with unique PR counts
+    const byRepo = Array.from(prsByRepo.entries())
+      .map(([repo, prIds]) => ({
+        repo,
+        prsReviewed: prIds.size,
+        comments: 0 // contributionsCollection doesn't provide comment counts
+      }))
+      .sort((a, b) => b.prsReviewed - a.prsReviewed);
 
     // Estimate comments: contributionsCollection doesn't provide exact comment counts
     // Use a reasonable default average (2 comments per PR review is typical)

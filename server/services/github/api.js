@@ -140,6 +140,32 @@ const CONTRIBUTIONS_QUERY = `
   }
 `;
 
+// Query to fetch actual PR review contributions with PR IDs for deduplication
+const PR_REVIEWS_QUERY = `
+  query getPRReviews($login: String!, $from: DateTime!, $to: DateTime!, $cursor: String) {
+    user(login: $login) {
+      contributionsCollection(from: $from, to: $to) {
+        pullRequestReviewContributions(first: 100, after: $cursor) {
+          totalCount
+          nodes {
+            pullRequest {
+              id
+              number
+              repository {
+                nameWithOwner
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    }
+  }
+`;
+
 module.exports = {
   GITHUB_USERNAME,
   GITHUB_TOKEN,
@@ -150,5 +176,6 @@ module.exports = {
   createGraphQLClient,
   createRestClient,
   AUTHORED_PRS_QUERY,
-  CONTRIBUTIONS_QUERY
+  CONTRIBUTIONS_QUERY,
+  PR_REVIEWS_QUERY
 };

@@ -69,9 +69,9 @@ function calculateMonthsInRange(dateRange) {
 }
 
 /**
- * Fetch events for a single month
+ * Fetch events for a single month with a specific action
  */
-async function fetchMonthEvents(apiClient, userId, month) {
+async function fetchMonthEventsForAction(apiClient, userId, month, action) {
   const events = [];
   let page = 1;
   
@@ -79,7 +79,7 @@ async function fetchMonthEvents(apiClient, userId, month) {
     try {
       const response = await apiClient.get(`/users/${userId}/events`, {
         params: {
-          action: 'commented',
+          action,
           per_page: 100,
           page,
           after: month.start,
@@ -100,6 +100,19 @@ async function fetchMonthEvents(apiClient, userId, month) {
 }
 
 /**
+ * Fetch events for a single month (comments + approvals for complete review tracking)
+ */
+async function fetchMonthEvents(apiClient, userId, month) {
+  // Fetch both commented and approved events to get complete review picture
+  const [commentedEvents, approvedEvents] = await Promise.all([
+    fetchMonthEventsForAction(apiClient, userId, month, 'commented'),
+    fetchMonthEventsForAction(apiClient, userId, month, 'approved')
+  ]);
+  
+  return { commentedEvents, approvedEvents };
+}
+
+/**
  * Fetch comment stats for a user (matches engineering-metrics script)
  * @param {Object|null} dateRange - Date range to query
  * @param {Object|null} credentials - { username, token, baseURL }
@@ -116,7 +129,7 @@ async function getReviewComments(dateRange = null, credentials = null) {
   
   if (!username || !token) return emptyResult;
 
-  const cacheKey = `gitlab-comments:v12:${username}:${JSON.stringify(dateRange)}`;
+  const cacheKey = `gitlab-comments:v13:${username}:${JSON.stringify(dateRange)}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
   
@@ -133,19 +146,20 @@ async function getReviewComments(dateRange = null, credentials = null) {
   const monthRanges = getMonthRanges(dateRange);
   const commentsByMonth = new Map();
   const commentsByRepo = new Map();
-  const mrsWithComments = new Set();
+  const mrsReviewed = new Set(); // Unique MRs reviewed (includes approvals without comments)
   let totalComments = 0;
   
   for (const month of monthRanges) {
-    const events = await fetchMonthEvents(apiClient, userId, month);
+    const { commentedEvents, approvedEvents } = await fetchMonthEvents(apiClient, userId, month);
     
-    for (const event of events) {
+    // Process commented events
+    for (const event of commentedEvents) {
       totalComments++;
       
-      // Track MR-specific data
+      // Track MR-specific data for comments
       if (event.target_type === 'MergeRequest' && event.project_id && event.target_iid) {
         const mrKey = `${event.project_id}-${event.target_iid}`;
-        mrsWithComments.add(mrKey);
+        mrsReviewed.add(mrKey);
         
         const projectId = String(event.project_id);
         if (!commentsByRepo.has(projectId)) {
@@ -155,10 +169,24 @@ async function getReviewComments(dateRange = null, credentials = null) {
         commentsByRepo.get(projectId).mrsReviewed.add(mrKey);
       }
       
-      // Track monthly totals
+      // Track monthly comment totals
       if (event.created_at) {
         const eventMonth = event.created_at.substring(0, 7);
         commentsByMonth.set(eventMonth, (commentsByMonth.get(eventMonth) || 0) + 1);
+      }
+    }
+    
+    // Process approved events (MRs approved without necessarily leaving comments)
+    for (const event of approvedEvents) {
+      if (event.target_type === 'MergeRequest' && event.project_id && event.target_iid) {
+        const mrKey = `${event.project_id}-${event.target_iid}`;
+        mrsReviewed.add(mrKey); // Count as reviewed even if no comments
+        
+        const projectId = String(event.project_id);
+        if (!commentsByRepo.has(projectId)) {
+          commentsByRepo.set(projectId, { comments: 0, mrsReviewed: new Set() });
+        }
+        commentsByRepo.get(projectId).mrsReviewed.add(mrKey);
       }
     }
   }
@@ -176,7 +204,7 @@ async function getReviewComments(dateRange = null, credentials = null) {
     .sort((a, b) => b.comments - a.comments);
 
   const totalMonths = calculateMonthsInRange(dateRange);
-  const mrsReviewedCount = mrsWithComments.size;
+  const mrsReviewedCount = mrsReviewed.size; // All MRs reviewed (comments + approvals)
 
   const result = {
     totalComments,
