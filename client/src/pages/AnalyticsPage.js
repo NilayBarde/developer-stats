@@ -604,20 +604,20 @@ function AnalyticsPage() {
             </div>
           )}
 
-          {/* Click Breakdown Card */}
-          {filteredData.totalClicks > 0 && (
+          {/* Click Breakdown Card - always shows full date range totals, not affected by page type/league filters */}
+          {analyticsData.totalClicks > 0 && (
             <div className="confirmation-card">
-              <h3>Click Breakdown{hasActiveFilters ? ' (Filtered)' : ''}</h3>
+              <h3>Click Breakdown</h3>
               <div className="click-breakdown">
                 <div className="breakdown-item">
                   <div className="breakdown-bar-container">
                     <div 
                       className="breakdown-bar engagement"
-                      style={{ width: `${((filteredData.engagementClicks || 0) / filteredData.totalClicks) * 100}%` }}
+                      style={{ width: `${((analyticsData.engagementClicks || 0) / analyticsData.totalClicks) * 100}%` }}
                     />
                     <div 
                       className="breakdown-bar interstitial"
-                      style={{ width: `${((filteredData.interstitialClicks || 0) / filteredData.totalClicks) * 100}%` }}
+                      style={{ width: `${((analyticsData.interstitialClicks || 0) / analyticsData.totalClicks) * 100}%` }}
                     />
                   </div>
                 </div>
@@ -625,12 +625,12 @@ function AnalyticsPage() {
                   <div className="legend-row">
                     <span className="legend-color engagement"></span>
                     <span className="legend-text">Content Pages</span>
-                    <span className="legend-value">{formatNumber(filteredData.engagementClicks || 0)}</span>
+                    <span className="legend-value">{formatNumber(analyticsData.engagementClicks || 0)}</span>
                   </div>
                   <div className="legend-row">
                     <span className="legend-color interstitial"></span>
                     <span className="legend-text">Interstitial Modal</span>
-                    <span className="legend-value">{formatNumber(filteredData.interstitialClicks || 0)}</span>
+                    <span className="legend-value">{formatNumber(analyticsData.interstitialClicks || 0)}</span>
                   </div>
                 </div>
               </div>

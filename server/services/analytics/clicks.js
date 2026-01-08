@@ -1205,9 +1205,11 @@ async function _doDiscoveryWithSegment(launchDate, startDate, endDate, cacheKey)
   console.log(`  → Found ${pages.length} pages with ${totalClicks} total bet clicks`);
   console.log(`  → Engagement clicks (excl. interstitial): ${engagementClicks}`);
   
-  // Sort by clicks descending, then take top 50 (excluding interstitials)
+  // Sort by clicks descending, then take top 50 content pages + all interstitial pages
   const sortedPages = pages.sort((a, b) => b.clicks - a.clicks);
-  const topPages = sortedPages.filter(p => !p.isInterstitial).slice(0, 50);
+  const interstitialPages = sortedPages.filter(p => p.isInterstitial);
+  const contentPages = sortedPages.filter(p => !p.isInterstitial).slice(0, 50);
+  const topPages = [...contentPages, ...interstitialPages];
     
   const dateLabels = days.map(d => d.isoDate);
   
