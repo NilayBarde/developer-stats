@@ -17,6 +17,7 @@ import AnalyticsLandingPage from './pages/AnalyticsLandingPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import NFLGamecastPage from './pages/NFLGamecastPage';
 import LeaderboardPage from './pages/LeaderboardPage';
+import LogbookPage from './pages/LogbookPage';
 
 function App() {
   const location = useLocation();
@@ -152,6 +153,9 @@ function App() {
         <Link to={`/leaderboard${queryString}`} className={location.pathname === '/leaderboard' ? 'active' : ''}>
           Leaderboard
         </Link>
+        <Link to={`/logbook${queryString}`} className={location.pathname === '/logbook' ? 'active' : ''}>
+          Logbook
+        </Link>
         {isMockMode && <span className="mock-indicator">🧪 MOCK MODE</span>}
       </nav>
       
@@ -163,6 +167,7 @@ function App() {
         <Route path="/analytics/draftkings" element={<AnalyticsPage />} />
         <Route path="/analytics/nfl-gamecast" element={<NFLGamecastPage />} />
         <Route path="/leaderboard" element={<LeaderboardPage />} />
+        <Route path="/logbook" element={<LogbookPage />} />
         <Route path="/" element={
           <>
             <header className="app-header">

@@ -103,6 +103,190 @@ router.get('/project-analytics', async (req, res) => {
   }
 });
 
+// Get Logbook data (aggregated timeline by month)
+router.get('/logbook', async (req, res) => {
+  const { startDate, endDate } = req.query;
+  const useMock = req.query.mock === 'true';
+  
+  const dateRange = {
+    start: startDate || null,
+    end: endDate || null
+  };
+  
+  const cacheKey = `logbook:${JSON.stringify(dateRange)}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    setCacheHeaders(res, true);
+    return res.json(cached);
+  }
+
+  try {
+    // Fetch data from all services in parallel (reuses cached data)
+    const [jiraIssues, githubPRs, gitlabMRs] = await Promise.all([
+      jiraService.getAllIssuesForPage(dateRange).catch(err => {
+        console.warn('Jira fetch failed:', err.message);
+        return [];
+      }),
+      githubService.getAllPRsForPage(dateRange).catch(err => {
+        console.warn('GitHub fetch failed:', err.message);
+        return [];
+      }),
+      gitlabService.getAllMRsForPage(dateRange).catch(err => {
+        console.warn('GitLab fetch failed:', err.message);
+        return [];
+      })
+    ]);
+
+    // Helper to get month key from date string
+    const getMonthKey = (dateStr) => {
+      if (!dateStr) return null;
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return null;
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    };
+
+    // Helper to format month label
+    const formatMonthLabel = (monthKey) => {
+      const [year, month] = monthKey.split('-');
+      const date = new Date(year, parseInt(month) - 1, 1);
+      return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    };
+
+    // Group items by month
+    const monthsMap = new Map();
+
+    // Process Jira issues (group by created date)
+    const { getStoryPoints } = require('../services/jira/scope');
+    for (const issue of jiraIssues) {
+      // Use _inProgressDate if available, otherwise created date
+      const dateToUse = issue._inProgressDate || issue.fields?.created;
+      const monthKey = getMonthKey(dateToUse);
+      if (!monthKey) continue;
+
+      if (!monthsMap.has(monthKey)) {
+        monthsMap.set(monthKey, {
+          month: monthKey,
+          label: formatMonthLabel(monthKey),
+          metrics: { totalItems: 0, jiraIssues: 0, githubPRs: 0, gitlabMRs: 0, storyPoints: 0 },
+          items: { jira: [], github: [], gitlab: [] }
+        });
+      }
+
+      const monthData = monthsMap.get(monthKey);
+      const storyPoints = getStoryPoints(issue);
+      
+      monthData.items.jira.push({
+        key: issue.key,
+        summary: issue.fields?.summary || '',
+        description: issue.fields?.description || '',
+        type: issue.fields?.issuetype?.name || 'Unknown',
+        status: issue.fields?.status?.name || 'Unknown',
+        storyPoints,
+        project: issue.fields?.project?.key || '',
+        created: issue.fields?.created,
+        resolved: issue.fields?.resolutiondate
+      });
+      
+      monthData.metrics.jiraIssues++;
+      monthData.metrics.totalItems++;
+      monthData.metrics.storyPoints += storyPoints;
+    }
+
+    // Process GitHub PRs (group by created date)
+    for (const pr of githubPRs) {
+      const monthKey = getMonthKey(pr.created_at);
+      if (!monthKey) continue;
+
+      if (!monthsMap.has(monthKey)) {
+        monthsMap.set(monthKey, {
+          month: monthKey,
+          label: formatMonthLabel(monthKey),
+          metrics: { totalItems: 0, jiraIssues: 0, githubPRs: 0, gitlabMRs: 0, storyPoints: 0 },
+          items: { jira: [], github: [], gitlab: [] }
+        });
+      }
+
+      const monthData = monthsMap.get(monthKey);
+      
+      monthData.items.github.push({
+        id: pr.id,
+        number: pr.number,
+        title: pr.title || '',
+        repo: pr._repoName || '',
+        url: pr.html_url || '',
+        state: pr.state || '',
+        created: pr.created_at,
+        merged: pr.merged_at || pr.pull_request?.merged_at
+      });
+      
+      monthData.metrics.githubPRs++;
+      monthData.metrics.totalItems++;
+    }
+
+    // Process GitLab MRs (group by created date)
+    for (const mr of gitlabMRs) {
+      const monthKey = getMonthKey(mr.created_at);
+      if (!monthKey) continue;
+
+      if (!monthsMap.has(monthKey)) {
+        monthsMap.set(monthKey, {
+          month: monthKey,
+          label: formatMonthLabel(monthKey),
+          metrics: { totalItems: 0, jiraIssues: 0, githubPRs: 0, gitlabMRs: 0, storyPoints: 0 },
+          items: { jira: [], github: [], gitlab: [] }
+        });
+      }
+
+      const monthData = monthsMap.get(monthKey);
+      
+      monthData.items.gitlab.push({
+        id: mr.id,
+        iid: mr.iid,
+        title: mr.title || '',
+        project: mr._projectPath || mr._projectName || '',
+        url: mr.web_url || '',
+        state: mr.state || '',
+        created: mr.created_at,
+        merged: mr.merged_at
+      });
+      
+      monthData.metrics.gitlabMRs++;
+      monthData.metrics.totalItems++;
+    }
+
+    // Convert to array and sort by month (most recent first)
+    const months = Array.from(monthsMap.values())
+      .sort((a, b) => b.month.localeCompare(a.month));
+
+    // Calculate totals
+    const totals = {
+      totalItems: months.reduce((sum, m) => sum + m.metrics.totalItems, 0),
+      jiraIssues: months.reduce((sum, m) => sum + m.metrics.jiraIssues, 0),
+      githubPRs: months.reduce((sum, m) => sum + m.metrics.githubPRs, 0),
+      gitlabMRs: months.reduce((sum, m) => sum + m.metrics.gitlabMRs, 0),
+      storyPoints: months.reduce((sum, m) => sum + m.metrics.storyPoints, 0),
+      monthsActive: months.length
+    };
+
+    const result = {
+      months,
+      totals,
+      baseUrls: {
+        jira: process.env.JIRA_BASE_URL?.replace(/\/$/, '') || '',
+        github: process.env.GITHUB_BASE_URL?.replace(/\/$/, '') || 'https://github.com',
+        gitlab: process.env.GITLAB_BASE_URL?.replace(/\/$/, '') || 'https://gitlab.com'
+      }
+    };
+
+    cache.set(cacheKey, result, 300); // 5 minute cache
+    setCacheHeaders(res, false);
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching logbook data:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Clear cache endpoint
 router.post('/cache/clear', (req, res) => {
   const { prefix } = req.body;

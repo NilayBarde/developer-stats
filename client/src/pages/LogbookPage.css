@@ -1,0 +1,543 @@
+.logbook-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px;
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.logbook-page .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.logbook-page .page-header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1a202c;
+  margin: 0 0 4px 0;
+  letter-spacing: -0.02em;
+}
+
+.logbook-page .date-label {
+  color: #64748b;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.logbook-page .header-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* Summary Stats */
+.logbook-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.summary-stat {
+  flex: 1;
+  min-width: 100px;
+  text-align: center;
+  padding: 12px 16px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.summary-stat .stat-value {
+  display: block;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1.2;
+}
+
+.summary-stat .stat-label {
+  display: block;
+  font-size: 0.75rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 4px;
+}
+
+.summary-stat.jira .stat-value { color: #2563eb; }
+.summary-stat.github .stat-value { color: #059669; }
+.summary-stat.gitlab .stat-value { color: #d97706; }
+.summary-stat.points .stat-value { color: #7c3aed; }
+
+/* Controls */
+.logbook-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.control-btn {
+  padding: 8px 16px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #475569;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.control-btn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #1e293b;
+}
+
+.control-btn.print-btn {
+  margin-left: auto;
+  background: #1e293b;
+  color: white;
+  border-color: #1e293b;
+}
+
+.control-btn.print-btn:hover {
+  background: #334155;
+}
+
+/* Timeline */
+.logbook-timeline {
+  position: relative;
+}
+
+/* Month Card */
+.month-card {
+  position: relative;
+  margin-bottom: 16px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+  width: 100%;
+}
+
+.month-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.month-card.expanded {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.month-header {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 16px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  gap: 16px;
+}
+
+.month-header:hover {
+  background: #f8fafc;
+}
+
+.month-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.month-marker {
+  width: 10px;
+  height: 10px;
+  background: #3b82f6;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.month-card.expanded .month-marker {
+  background: #1d4ed8;
+}
+
+.month-header h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+}
+
+.month-metrics {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.metric-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 10px;
+  background: #f1f5f9;
+  border-radius: 6px;
+  min-width: 48px;
+}
+
+.metric-badge .metric-value {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.metric-badge .metric-label {
+  font-size: 0.625rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.metric-badge.jira { background: #eff6ff; }
+.metric-badge.jira .metric-value { color: #2563eb; }
+
+.metric-badge.github { background: #ecfdf5; }
+.metric-badge.github .metric-value { color: #059669; }
+
+.metric-badge.gitlab { background: #fffbeb; }
+.metric-badge.gitlab .metric-value { color: #d97706; }
+
+.metric-badge.points { background: #f5f3ff; }
+.metric-badge.points .metric-value { color: #7c3aed; }
+
+.expand-icon {
+  font-size: 1.25rem;
+  font-weight: 300;
+  color: #94a3b8;
+  width: 24px;
+  text-align: center;
+}
+
+/* Month Content */
+.month-content {
+  padding: 0 20px 20px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.source-section {
+  margin-top: 20px;
+}
+
+.source-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #64748b;
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.source-icon {
+  font-size: 1rem;
+}
+
+.items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Individual Items */
+.logbook-item {
+  padding: 14px 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border-left: 3px solid #e2e8f0;
+  transition: background 0.15s ease;
+}
+
+.logbook-item:hover {
+  background: #f1f5f9;
+}
+
+.jira-item { border-left-color: #3b82f6; }
+.github-item { border-left-color: #10b981; }
+.gitlab-item { border-left-color: #f59e0b; }
+
+.item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.item-type {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.item-type.type-bug { background: #fee2e2; color: #dc2626; }
+.item-type.type-task { background: #dbeafe; color: #2563eb; }
+.item-type.type-story { background: #dcfce7; color: #16a34a; }
+.item-type.type-sub-task { background: #fef3c7; color: #d97706; }
+.item-type.type-epic { background: #f3e8ff; color: #9333ea; }
+
+.item-points {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  background: #f5f3ff;
+  color: #7c3aed;
+  border-radius: 4px;
+}
+
+.item-project,
+.item-repo {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.item-state {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: capitalize;
+}
+
+.item-state.state-merged { background: #dcfce7; color: #16a34a; }
+.item-state.state-open { background: #dbeafe; color: #2563eb; }
+.item-state.state-opened { background: #dbeafe; color: #2563eb; }
+.item-state.state-closed { background: #f1f5f9; color: #64748b; }
+
+.item-key {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #3b82f6;
+  text-decoration: none;
+}
+
+.item-key:hover {
+  text-decoration: underline;
+}
+
+.item-title {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #1e293b;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.item-description-wrapper {
+  margin-bottom: 8px;
+}
+
+.item-description {
+  font-size: 0.85rem;
+  color: #64748b;
+  line-height: 1.5;
+  margin: 0;
+  overflow: hidden;
+}
+
+.item-description.expanded {
+  white-space: pre-wrap;
+}
+
+.description-toggle {
+  font-size: 0.75rem;
+  color: #3b82f6;
+  background: none;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.description-toggle:hover {
+  text-decoration: underline;
+}
+
+.item-dates {
+  display: flex;
+  gap: 16px;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+/* Loading State */
+.loading-container {
+  padding: 40px 0;
+}
+
+.skeleton-months {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.skeleton-month {
+  width: 100%;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #64748b;
+}
+
+.empty-state p {
+  font-size: 1rem;
+  margin: 0;
+}
+
+/* Error Banner */
+.error-banner {
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #dc2626;
+  margin-bottom: 24px;
+}
+
+/* Print Styles */
+@media print {
+  .logbook-page {
+    max-width: none;
+    padding: 0;
+    font-size: 11pt;
+  }
+
+  .logbook-page .page-header {
+    border-bottom: 1px solid #000;
+    margin-bottom: 20pt;
+    padding-bottom: 10pt;
+  }
+
+  .logbook-page .page-header h1 {
+    font-size: 18pt;
+  }
+
+  .header-controls,
+  .logbook-controls {
+    display: none !important;
+  }
+
+  .logbook-summary {
+    background: none;
+    border: 1px solid #ccc;
+    padding: 10pt;
+    page-break-inside: avoid;
+  }
+
+  .summary-stat {
+    box-shadow: none;
+    border: 1px solid #eee;
+  }
+
+  .month-card {
+    border: 1px solid #ccc;
+    box-shadow: none;
+    page-break-inside: avoid;
+    margin-bottom: 15pt;
+  }
+
+  .month-card .month-header {
+    background: #f5f5f5;
+  }
+
+  .month-marker {
+    display: none;
+  }
+
+  .expand-icon {
+    display: none;
+  }
+
+  .month-content {
+    display: block !important;
+  }
+
+  .logbook-item {
+    background: #fafafa;
+    page-break-inside: avoid;
+  }
+
+  .item-key {
+    color: #000;
+  }
+
+  .item-key::after {
+    content: ' (' attr(href) ')';
+    font-size: 8pt;
+    color: #666;
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .logbook-page {
+    padding: 16px;
+  }
+
+  .logbook-page .page-header {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .logbook-summary {
+    gap: 8px;
+  }
+
+  .summary-stat {
+    min-width: calc(50% - 8px);
+    flex: none;
+  }
+
+  .month-metrics {
+    display: none;
+  }
+
+  .logbook-controls {
+    flex-wrap: wrap;
+  }
+
+  .control-btn.print-btn {
+    margin-left: 0;
+    flex: 1 1 100%;
+  }
+}
+
