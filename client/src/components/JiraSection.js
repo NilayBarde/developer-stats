@@ -41,7 +41,7 @@ function UntrackedTickets({ velocity }) {
       {isExpanded && (
         <div className="untracked-list">
           <p className="untracked-hint">
-            These tickets won't appear in your manager's report. Click to fix:
+            These tickets won't appear in the engineering-metrics report. Click to fix:
           </p>
           {allUntracked.map(ticket => (
             <a 
