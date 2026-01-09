@@ -376,6 +376,9 @@ function extractPageTypeFromPageName(pageName) {
   if (!pageName) return 'other';
   const lower = pageName.toLowerCase();
   
+  // Check interstitial FIRST - these are confirmation/redirect pages, not content
+  if (lower.includes('interstitial')) return 'interstitial';
+  
   if (lower.includes('watchespn')) return 'watchespn';
   if (lower.includes(':fightcenter')) return 'fightcenter';
   
@@ -388,7 +391,6 @@ function extractPageTypeFromPageName(pageName) {
   if (lower.includes('fantasy') || lower.includes(':games:')) return 'fantasy';
   if (lower.includes(':story')) return 'story';
   if (lower.includes(':index') || lower.includes(':frontpage')) return 'index';
-  if (lower.includes('interstitial')) return 'interstitial';
   
   return 'other';
 }

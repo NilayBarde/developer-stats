@@ -433,6 +433,273 @@
   margin-bottom: 24px;
 }
 
+/* Impact Metrics Section */
+.impact-metrics-section {
+  margin-bottom: 32px;
+  padding: 24px;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  border-radius: 16px;
+  color: white;
+}
+
+.impact-metrics-section h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 20px 0;
+  color: #f1f5f9;
+}
+
+.impact-loading {
+  padding: 20px 0;
+}
+
+.impact-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.impact-feature-card {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.impact-feature-card:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.impact-feature-card.feature-0 {
+  border-color: #3b82f6;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
+}
+
+.impact-feature-card.feature-1 {
+  border-color: #10b981;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.05) 100%);
+}
+
+.impact-feature-card.feature-2 {
+  border-color: #f59e0b;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.05) 100%);
+}
+
+.feature-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.feature-header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+  color: white;
+}
+
+.feature-percentage {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #60a5fa;
+}
+
+.feature-0 .feature-percentage { color: #60a5fa; }
+.feature-1 .feature-percentage { color: #34d399; }
+.feature-2 .feature-percentage { color: #fbbf24; }
+
+.feature-clicks {
+  font-size: 2rem;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 12px;
+  line-height: 1;
+}
+
+.feature-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.page-tag {
+  font-size: 0.7rem;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.feature-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.feature-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+.feature-0 .feature-bar-fill { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+.feature-1 .feature-bar-fill { background: linear-gradient(90deg, #10b981, #34d399); }
+.feature-2 .feature-bar-fill { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+
+.impact-totals {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.total-label {
+  font-size: 0.875rem;
+  color: #94a3b8;
+}
+
+.total-value {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: white;
+}
+
+.total-range {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.resume-bullets {
+  margin-bottom: 20px;
+}
+
+.resume-bullets h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #94a3b8;
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.resume-bullets ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.resume-bullet {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bullet-text {
+  flex: 1;
+  font-size: 0.9rem;
+  color: #e2e8f0;
+  line-height: 1.5;
+}
+
+.copy-btn {
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.copy-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.copy-btn.copied {
+  background: #10b981;
+  color: white;
+}
+
+.impact-by-league {
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.impact-by-league h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #94a3b8;
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.league-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.league-tag {
+  font-size: 0.8rem;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #cbd5e1;
+}
+
+.impact-empty {
+  color: #64748b;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.impact-error {
+  padding: 16px 20px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+}
+
+.impact-error p {
+  margin: 0 0 8px 0;
+  color: #fca5a5;
+  font-size: 0.9rem;
+}
+
+.impact-error p:last-child {
+  margin-bottom: 0;
+}
+
+.impact-hint {
+  color: #94a3b8 !important;
+  font-size: 0.8rem !important;
+}
+
+.impact-hint code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
 /* Print Styles */
 @media print {
   .logbook-page {
@@ -505,6 +772,39 @@
     font-size: 8pt;
     color: #666;
   }
+
+  .impact-metrics-section {
+    background: #f5f5f5;
+    color: #1e293b;
+    border: 1px solid #ccc;
+  }
+
+  .impact-metrics-section h2 {
+    color: #1e293b;
+  }
+
+  .impact-feature-card {
+    background: white;
+    border: 1px solid #ccc;
+  }
+
+  .feature-header h3,
+  .feature-clicks {
+    color: #1e293b;
+  }
+
+  .resume-bullet {
+    background: white;
+    border: 1px solid #ccc;
+  }
+
+  .bullet-text {
+    color: #1e293b;
+  }
+
+  .copy-btn {
+    display: none;
+  }
 }
 
 /* Responsive */
@@ -538,6 +838,33 @@
   .control-btn.print-btn {
     margin-left: 0;
     flex: 1 1 100%;
+  }
+
+  .impact-metrics-section {
+    padding: 16px;
+  }
+
+  .impact-features {
+    grid-template-columns: 1fr;
+  }
+
+  .feature-clicks {
+    font-size: 1.5rem;
+  }
+
+  .impact-totals {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .resume-bullet {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .copy-btn {
+    align-self: flex-end;
   }
 }
 

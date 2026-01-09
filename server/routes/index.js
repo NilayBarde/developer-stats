@@ -7,6 +7,7 @@ const { generateMockPRsData, generateMockMRsData, generateMockIssuesData, genera
 const githubService = require('../services/github');
 const gitlabService = require('../services/gitlab');
 const jiraService = require('../services/jira');
+const analyticsService = require('../services/analytics');
 
 // Import route modules
 const statsRoutes = require('./stats');
@@ -284,6 +285,163 @@ router.get('/logbook', async (req, res) => {
   } catch (error) {
     console.error('Error fetching logbook data:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Feature to page type mapping for impact attribution
+const FEATURE_PAGE_MAPPING = {
+  'Bet Six Pack': ['gamecast', 'odds'],
+  'Odds Strip': ['scoreboard'],
+  'Odds Column': ['schedule']
+};
+
+// Get Impact Metrics (bet clicks attributed to user's features)
+router.get('/impact-metrics', async (req, res) => {
+  const useMock = req.query.mock === 'true';
+  const launchDate = req.query.launchDate || '2024-09-01'; // ESPN Bet launch
+  
+  // Default to fetching ALL data since betting started (Jan 2024)
+  // Can be overridden with ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+  const startDate = req.query.startDate || '2024-01-01';
+  const endDate = req.query.endDate || new Date().toISOString().split('T')[0];
+  
+  const cacheKey = `impact-metrics:${launchDate}:${startDate}:${endDate}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    setCacheHeaders(res, true);
+    return res.json(cached);
+  }
+
+  // Mock data for testing without Adobe Analytics credentials
+  if (useMock) {
+    // Mock: 8.5M total engagement, user's features = 7.6M (89%)
+    const mockResult = {
+      features: [
+        { name: 'Bet Six Pack', clicks: 5200000, pages: ['gamecast', 'odds'], percentage: 61.2 }, // 5.2M / 8.5M
+        { name: 'Odds Strip', clicks: 1800000, pages: ['scoreboard'], percentage: 21.2 },        // 1.8M / 8.5M
+        { name: 'Odds Column', clicks: 600000, pages: ['schedule'], percentage: 7.1 }           // 0.6M / 8.5M
+      ],
+      totals: {
+        totalClicks: 12000000,
+        engagementClicks: 8500000,
+        attributedClicks: 7600000,
+        attributedPercentage: 89.4, // User's features = 89% of engagement
+        dateRange: { start: '2024-01-01', end: endDate }
+      },
+      resumeBullets: [
+        "Built Bet Six Pack, ESPN's core betting UI, driving 5.2M+ bet clicks (61% of engagement)",
+        "Created Odds Strip on Scoreboard pages, generating 1.8M+ bet interactions (21% of engagement)",
+        "Developed Odds Column for Schedule pages with 600K+ clicks (7% of engagement)"
+      ],
+      byLeague: [
+        { league: 'NFL', totalClicks: 3500000 },
+        { league: 'NBA', totalClicks: 2100000 },
+        { league: 'NCAAF', totalClicks: 1200000 },
+        { league: 'NHL', totalClicks: 800000 }
+      ]
+    };
+    return res.json(mockResult);
+  }
+
+  try {
+    // Use existing discoverAllBetClicks from analytics service with custom date range
+    const customDateRange = { startDate, endDate };
+    const betClicksData = await analyticsService.discoverAllBetClicks(launchDate, customDateRange);
+    
+    if (!betClicksData || betClicksData.error) {
+      return res.status(500).json({ 
+        error: betClicksData?.error || 'Failed to fetch bet clicks data',
+        hint: 'Make sure Adobe Analytics credentials are configured'
+      });
+    }
+
+    const { byPageType, totalClicks, engagementClicks, byLeague, dateRange } = betClicksData;
+
+    // Map page types to features
+    const features = [];
+    let attributedClicks = 0;
+
+    for (const [featureName, pageTypes] of Object.entries(FEATURE_PAGE_MAPPING)) {
+      let featureClicks = 0;
+      
+      // Sum clicks from all page types that belong to this feature
+      for (const pageTypeData of (byPageType || [])) {
+        if (pageTypes.includes(pageTypeData.pageType)) {
+          featureClicks += pageTypeData.totalClicks || 0;
+        }
+      }
+      
+      if (featureClicks > 0) {
+        features.push({
+          name: featureName,
+          clicks: featureClicks,
+          pages: pageTypes,
+          percentage: 0 // Will calculate after we have total
+        });
+        attributedClicks += featureClicks;
+      }
+    }
+
+    // Calculate percentages based on TOTAL engagement clicks (not just attributed)
+    // This gives accurate "% of all betting engagement" numbers
+    const baseForPercentage = engagementClicks > 0 ? engagementClicks : 1;
+    features.forEach(f => {
+      f.percentage = Math.round((f.clicks / baseForPercentage) * 1000) / 10;
+    });
+    
+    // Also calculate what % of engagement the user's features account for
+    const attributedPercentage = Math.round((attributedClicks / baseForPercentage) * 1000) / 10;
+
+    // Sort by clicks descending
+    features.sort((a, b) => b.clicks - a.clicks);
+
+    // Generate resume bullets
+    const formatNumber = (num) => {
+      if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+      if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
+      return num.toString();
+    };
+
+    const resumeBullets = features.map(f => {
+      const clicksFormatted = formatNumber(f.clicks);
+      const pctFormatted = Math.round(f.percentage);
+      
+      if (f.name === 'Bet Six Pack') {
+        return `Built Bet Six Pack, ESPN's core betting UI, driving ${clicksFormatted}+ bet clicks (${pctFormatted}% of betting engagement)`;
+      } else if (f.name === 'Odds Strip') {
+        return `Created Odds Strip on Scoreboard pages, generating ${clicksFormatted}+ bet interactions (${pctFormatted}% of engagement)`;
+      } else if (f.name === 'Odds Column') {
+        return `Developed Odds Column for Schedule pages with ${clicksFormatted}+ clicks (${pctFormatted}% of engagement)`;
+      }
+      return `${f.name}: ${clicksFormatted} clicks (${pctFormatted}%)`;
+    });
+    
+    // Add a summary bullet about total attribution
+    const attrPctFormatted = Math.round(attributedPercentage);
+    resumeBullets.push(`Features I built account for ${attrPctFormatted}% of ESPN's betting engagement`);
+
+    const result = {
+      features,
+      totals: {
+        totalClicks: totalClicks || 0,
+        engagementClicks: engagementClicks || 0,
+        attributedClicks,
+        attributedPercentage, // % of engagement from user's features
+        dateRange: dateRange || {}
+      },
+      resumeBullets,
+      byLeague: (byLeague || []).slice(0, 10) // Top 10 leagues
+    };
+
+    cache.set(cacheKey, result, 600); // 10 minute cache
+    setCacheHeaders(res, false);
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching impact metrics:', error);
+    res.status(500).json({ 
+      error: error.message,
+      hint: 'Check Adobe Analytics configuration'
+    });
   }
 });
 

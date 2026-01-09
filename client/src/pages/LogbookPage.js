@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { format } from 'date-fns';
-import DateFilter from '../components/DateFilter';
-import { getCurrentWorkYearStart, formatWorkYearLabel } from '../utils/dateHelpers';
-import { buildApiUrl } from '../utils/apiHelpers';
 import clientCache from '../utils/clientCache';
 import Skeleton from '../components/ui/Skeleton';
 import './LogbookPage.css';
@@ -14,25 +11,22 @@ const SOURCE_GITLAB = 'gitlab';
 
 function LogbookPage() {
   const [logbookData, setLogbookData] = useState(null);
+  const [impactMetrics, setImpactMetrics] = useState(null);
+  const [impactError, setImpactError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [impactLoading, setImpactLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expandedMonths, setExpandedMonths] = useState(new Set());
   const [expandedDescriptions, setExpandedDescriptions] = useState(new Set());
+  const [copiedBullet, setCopiedBullet] = useState(null);
   
   const mockParam = useMemo(() => {
-    return new URLSearchParams(window.location.search).get('mock') === 'true' ? '&mock=true' : '';
+    return new URLSearchParams(window.location.search).get('mock') === 'true' ? '?mock=true' : '';
   }, []);
-  
-  const workYearStart = getCurrentWorkYearStart();
-  const [dateRange, setDateRange] = useState({
-    label: formatWorkYearLabel(workYearStart),
-    start: workYearStart,
-    end: null,
-    type: 'custom'
-  });
 
   const fetchLogbookData = useCallback(async () => {
-    const cached = clientCache.get('/api/logbook', dateRange);
+    const cacheKey = 'all';
+    const cached = clientCache.get('/api/logbook', cacheKey);
     if (cached) {
       setLogbookData(cached);
       setLoading(false);
@@ -47,9 +41,9 @@ function LogbookPage() {
     try {
       setLoading(true);
       setError(null);
-      const response = await axios.get(buildApiUrl('/api/logbook', dateRange) + mockParam);
+      const response = await axios.get('/api/logbook' + mockParam);
       setLogbookData(response.data);
-      clientCache.set('/api/logbook', dateRange, response.data);
+      clientCache.set('/api/logbook', cacheKey, response.data);
       // Expand the most recent month by default
       if (response.data.months?.length > 0) {
         setExpandedMonths(new Set([response.data.months[0].month]));
@@ -60,11 +54,41 @@ function LogbookPage() {
     } finally {
       setLoading(false);
     }
-  }, [dateRange, mockParam]);
+  }, [mockParam]);
+
+  const fetchImpactMetrics = useCallback(async () => {
+    const cached = clientCache.get('/api/impact-metrics', {});
+    if (cached) {
+      setImpactMetrics(cached);
+      setImpactLoading(false);
+      return;
+    }
+
+    try {
+      setImpactLoading(true);
+      setImpactError(null);
+      const response = await axios.get('/api/impact-metrics' + (mockParam ? '?mock=true' : ''));
+      if (response.data?.error) {
+        setImpactError(response.data.hint || response.data.error);
+        setImpactMetrics(null);
+      } else {
+        setImpactMetrics(response.data);
+        clientCache.set('/api/impact-metrics', {}, response.data);
+      }
+    } catch (err) {
+      console.error('Error fetching impact metrics:', err);
+      const errorMsg = err.response?.data?.hint || err.response?.data?.error || 'Adobe Analytics not configured';
+      setImpactError(errorMsg);
+      setImpactMetrics(null);
+    } finally {
+      setImpactLoading(false);
+    }
+  }, [mockParam]);
 
   useEffect(() => {
     fetchLogbookData();
-  }, [fetchLogbookData]);
+    fetchImpactMetrics();
+  }, [fetchLogbookData, fetchImpactMetrics]);
 
   const toggleMonth = useCallback((monthKey) => {
     setExpandedMonths(prev => {
@@ -99,6 +123,22 @@ function LogbookPage() {
   const collapseAll = useCallback(() => {
     setExpandedMonths(new Set());
   }, []);
+
+  const copyToClipboard = useCallback(async (text, index) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedBullet(index);
+      setTimeout(() => setCopiedBullet(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  }, []);
+
+  const formatNumber = (num) => {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return Math.round(num / 1000) + 'K';
+    return num.toString();
+  };
 
   const getJiraUrl = useCallback((key) => {
     const baseUrl = logbookData?.baseUrls?.jira;
@@ -312,14 +352,100 @@ function LogbookPage() {
       <header className="page-header">
         <div>
           <h1>Engineering Logbook</h1>
-          <p className="date-label">{dateRange.label}</p>
-        </div>
-        <div className="header-controls">
-          <DateFilter value={dateRange} onChange={setDateRange} />
+          <p className="date-label">Complete History</p>
         </div>
       </header>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {/* Impact Metrics Section */}
+      {(impactLoading || impactMetrics) && (
+        <div className="impact-metrics-section">
+          <h2>Feature Impact</h2>
+          {impactLoading ? (
+            <div className="impact-loading">
+              <Skeleton variant="text" width="100%" height="120px" />
+            </div>
+          ) : impactMetrics?.features?.length > 0 ? (
+            <>
+              <div className="impact-features">
+                {impactMetrics.features.map((feature, idx) => (
+                  <div key={feature.name} className={`impact-feature-card feature-${idx}`}>
+                    <div className="feature-header">
+                      <h3>{feature.name}</h3>
+                      <span className="feature-percentage">{feature.percentage}%</span>
+                    </div>
+                    <div className="feature-clicks">{formatNumber(feature.clicks)} clicks</div>
+                    <div className="feature-pages">
+                      {feature.pages.map(p => (
+                        <span key={p} className="page-tag">{p}</span>
+                      ))}
+                    </div>
+                    <div className="feature-bar">
+                      <div 
+                        className="feature-bar-fill" 
+                        style={{ width: `${feature.percentage}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              {impactMetrics.totals && (
+                <div className="impact-totals">
+                  <span className="total-label">Total Attributed:</span>
+                  <span className="total-value">{formatNumber(impactMetrics.totals.attributedClicks || impactMetrics.totals.totalClicks)} clicks</span>
+                  {impactMetrics.totals.dateRange && (
+                    <span className="total-range">
+                      ({impactMetrics.totals.dateRange.start} to {impactMetrics.totals.dateRange.end})
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {impactMetrics.resumeBullets?.length > 0 && (
+                <div className="resume-bullets">
+                  <h4>Resume-Ready Bullets</h4>
+                  <ul>
+                    {impactMetrics.resumeBullets.map((bullet, idx) => (
+                      <li key={idx} className="resume-bullet">
+                        <span className="bullet-text">{bullet}</span>
+                        <button 
+                          className={`copy-btn ${copiedBullet === idx ? 'copied' : ''}`}
+                          onClick={() => copyToClipboard(bullet, idx)}
+                          title="Copy to clipboard"
+                        >
+                          {copiedBullet === idx ? '✓' : '📋'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {impactMetrics.byLeague?.length > 0 && (
+                <div className="impact-by-league">
+                  <h4>By League</h4>
+                  <div className="league-tags">
+                    {impactMetrics.byLeague.slice(0, 6).map(league => (
+                      <span key={league.league} className="league-tag">
+                        {league.league}: {formatNumber(league.totalClicks)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : impactError ? (
+            <div className="impact-error">
+              <p>{impactError}</p>
+              <p className="impact-hint">Add <code>?mock=true</code> to URL to see sample data</p>
+            </div>
+          ) : (
+            <p className="impact-empty">No feature impact data available.</p>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="loading-container">
@@ -381,7 +507,7 @@ function LogbookPage() {
               logbookData.months.map(renderMonthCard)
             ) : (
               <div className="empty-state">
-                <p>No work items found for the selected date range.</p>
+                <p>No work items found.</p>
               </div>
             )}
           </div>
