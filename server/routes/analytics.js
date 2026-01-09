@@ -308,5 +308,183 @@ router.get('/project/:projectKey', async (req, res) => {
   }
 });
 
+// Historical bracket page analysis
+router.get('/bracket-impact', async (req, res) => {
+  try {
+    const { apiRequest, ADOBE_REPORT_SUITE_ID } = require('../services/analytics/api');
+    
+    /**
+     * Query bracket page metrics for a specific date range
+     */
+    async function getBracketMetrics(startDate, endDate) {
+      const globalFilters = [{
+        type: 'dateRange',
+        dateRange: `${startDate}T00:00:00.000/${endDate}T23:59:59.999`
+      }];
+
+      const data = await apiRequest('/reports', {
+        method: 'POST',
+        data: {
+          rsid: ADOBE_REPORT_SUITE_ID,
+          globalFilters,
+          metricContainer: {
+            metrics: [
+              { id: 'metrics/pageviews', columnId: '0' },
+              { id: 'metrics/visitors', columnId: '1' },
+              { id: 'metrics/visits', columnId: '2' }
+            ]
+          },
+          dimension: 'variables/page',
+          search: { clause: `CONTAINS 'bracket'` },
+          settings: { countRepeatInstances: true, limit: 500 }
+        }
+      });
+
+      const pages = (data?.rows || [])
+        .filter(row => {
+          const pageName = (row.value || '').toLowerCase();
+          // Only include ESPN bracket pages, not fantasy bracket games
+          return pageName.includes('bracket') && 
+                 !pageName.includes('fantasy') &&
+                 (pageName.startsWith('espn:') || pageName.startsWith('espnau:') || 
+                  pageName.startsWith('espnuk:') || pageName.startsWith('espnmx:') ||
+                  pageName.startsWith('espnbr:') || pageName.startsWith('espnph:') ||
+                  pageName.startsWith('espnin:') || pageName.startsWith('espnza:') ||
+                  pageName.startsWith('espnww:'));
+        })
+        .map(row => ({
+          page: row.value,
+          pageViews: row.data?.[0] || 0,
+          visitors: row.data?.[1] || 0,
+          visits: row.data?.[2] || 0
+        }))
+        .sort((a, b) => b.pageViews - a.pageViews);
+
+      const totals = pages.reduce((acc, p) => ({
+        pageViews: acc.pageViews + p.pageViews,
+        visitors: acc.visitors + p.visitors,
+        visits: acc.visits + p.visits
+      }), { pageViews: 0, visitors: 0, visits: 0 });
+
+      return { dateRange: { start: startDate, end: endDate }, pages, totals, pageCount: pages.length };
+    }
+
+    // Define time periods to analyze
+    const periods = [
+      // March Madness comparison (most relevant since redesign was Feb 2023)
+      { name: 'March Madness 2022 (Pre-redesign)', start: '2022-03-14', end: '2022-04-05' },
+      { name: 'March Madness 2023 (Post-redesign)', start: '2023-03-14', end: '2023-04-04' },
+      { name: 'March Madness 2024', start: '2024-03-17', end: '2024-04-08' },
+      { name: 'March Madness 2025', start: '2025-03-16', end: '2025-04-07' },
+      
+      // NBA Playoffs
+      { name: 'NBA Playoffs 2023', start: '2023-04-15', end: '2023-06-15' },
+      { name: 'NBA Playoffs 2024', start: '2024-04-16', end: '2024-06-15' },
+      { name: 'NBA Playoffs 2025', start: '2025-04-19', end: '2025-06-15' },
+      
+      // NFL Playoffs
+      { name: 'NFL Playoffs Jan 2023', start: '2023-01-14', end: '2023-02-12' },
+      { name: 'NFL Playoffs Jan 2024', start: '2024-01-13', end: '2024-02-11' },
+      { name: 'NFL Playoffs Jan 2025', start: '2025-01-11', end: '2025-02-09' },
+      
+      // College Football Playoffs
+      { name: 'CFP 2022-23', start: '2022-12-31', end: '2023-01-10' },
+      { name: 'CFP 2023-24', start: '2023-12-30', end: '2024-01-09' },
+      { name: 'CFP 2024-25', start: '2024-12-20', end: '2025-01-20' },
+      
+      // MLB Playoffs
+      { name: 'MLB Playoffs 2023', start: '2023-10-01', end: '2023-11-05' },
+      { name: 'MLB Playoffs 2024', start: '2024-10-01', end: '2024-11-03' },
+      
+      // NHL Playoffs
+      { name: 'NHL Playoffs 2023', start: '2023-04-17', end: '2023-06-15' },
+      { name: 'NHL Playoffs 2024', start: '2024-04-20', end: '2024-06-25' },
+    ];
+
+    const results = [];
+    
+    for (const period of periods) {
+      try {
+        const metrics = await getBracketMetrics(period.start, period.end);
+        results.push({ period: period.name, ...metrics });
+      } catch (err) {
+        results.push({ period: period.name, error: err.message, dateRange: { start: period.start, end: period.end } });
+      }
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    // Calculate totals across all measured periods
+    const totalPageViews = results.reduce((sum, r) => sum + (r.totals?.pageViews || 0), 0);
+    const totalVisitors = results.reduce((sum, r) => sum + (r.totals?.visitors || 0), 0);
+    
+    // Find biggest events
+    const sortedByViews = results
+      .filter(r => !r.error && r.totals?.pageViews > 0)
+      .sort((a, b) => b.totals.pageViews - a.totals.pageViews);
+
+    // Calculate YoY growth for March Madness
+    const mm2022 = results.find(r => r.period.includes('2022') && r.period.includes('March'));
+    const mm2023 = results.find(r => r.period.includes('2023') && r.period.includes('March'));
+    const mm2024 = results.find(r => r.period.includes('2024') && r.period.includes('March'));
+    
+    let marchMadnessGrowth = null;
+    if (mm2022?.totals?.pageViews > 0 && mm2023?.totals?.pageViews > 0) {
+      marchMadnessGrowth = {
+        preRedesign: mm2022.totals.pageViews,
+        postRedesign: mm2023.totals.pageViews,
+        growthPercent: Math.round(((mm2023.totals.pageViews - mm2022.totals.pageViews) / mm2022.totals.pageViews) * 100)
+      };
+    }
+
+    // Generate resume bullets
+    const formatNumber = (num) => {
+      if (!num) return '0';
+      if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+      if (num >= 1000) return Math.round(num / 1000) + 'K';
+      return num.toString();
+    };
+
+    const resumeBullets = [];
+    
+    if (totalPageViews > 0) {
+      resumeBullets.push(`Redesigned ESPN's bracket visualization pages for March Madness, NFL/NBA/MLB/NHL Playoffs, and College Football Playoffs, generating ${formatNumber(totalPageViews)}+ pageviews across major sporting events`);
+    }
+    
+    if (sortedByViews[0]) {
+      resumeBullets.push(`Built bracket pages that drove ${formatNumber(sortedByViews[0].totals.pageViews)} pageviews during ${sortedByViews[0].period.replace(/\s*\(.*\)/, '')}`);
+    }
+    
+    if (marchMadnessGrowth && marchMadnessGrowth.growthPercent > 0) {
+      resumeBullets.push(`Improved March Madness bracket engagement by ${marchMadnessGrowth.growthPercent}% year-over-year following February 2023 redesign`);
+    }
+    
+    if (totalVisitors > 1000000) {
+      resumeBullets.push(`Bracket pages served ${formatNumber(totalVisitors)} unique visitors across all measured tournament periods`);
+    }
+
+    res.json({
+      summary: {
+        totalPageViews,
+        totalVisitors,
+        periodsAnalyzed: results.length,
+        successfulQueries: results.filter(r => !r.error).length
+      },
+      marchMadnessGrowth,
+      topEvents: sortedByViews.slice(0, 5).map(e => ({
+        period: e.period,
+        pageViews: e.totals.pageViews,
+        visitors: e.totals.visitors,
+        topPages: e.pages.slice(0, 3)
+      })),
+      resumeBullets,
+      allPeriods: results
+    });
+  } catch (error) {
+    console.error('Bracket impact analysis error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
 
