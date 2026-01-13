@@ -7,7 +7,6 @@ const { generateMockStatsData } = require('../utils/mockData');
 const githubService = require('../services/github');
 const gitlabService = require('../services/gitlab');
 const jiraService = require('../services/jira');
-const adobeAnalyticsService = require('../services/analytics');
 
 // Get all stats (with mock support)
 router.get('/', async (req, res) => {
@@ -279,11 +278,6 @@ router.get('/ctoi', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-// Get Adobe Analytics stats
-router.get('/adobe', createSimpleEndpoint({
-  fetchFn: (dateRange) => adobeAnalyticsService.getStats(dateRange)
-}));
 
 /**
  * Fetch all stats for a single user (GitHub, GitLab, Jira)

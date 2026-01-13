@@ -8,8 +8,7 @@ const cache = require('./utils/cache');
 const githubService = require('./services/github');
 const gitlabService = require('./services/gitlab');
 const jiraService = require('./services/jira');
-const adobeAnalyticsService = require('./services/analytics');
-const { fetchProjectsWithAnalytics, fetchProjectSpecificAnalytics, fetchProjectAnalytics } = require('./routes/projects');
+const { fetchProjectsWithAnalytics } = require('./routes/projects');
 const { fetchLeaderboard } = require('./routes/stats');
 
 const app = express();
@@ -153,40 +152,6 @@ async function warmCache() {
       }
     }
     
-    try {
-      const nflKey = 'SEWEB-51747';
-      const nflResult = await fetchProjectSpecificAnalytics(nflKey);
-      cache.set(`project-analytics:${nflKey}`, nflResult, 600);
-    } catch (err) {
-      console.error('Failed to warm NFL analytics:', err.message);
-    }
-    
-    try {
-      const dkKey = 'SEWEB-59645';
-      const dkResult = await fetchProjectSpecificAnalytics(dkKey);
-      cache.set(`project-analytics:${dkKey}`, dkResult, 600);
-    } catch (err) {
-      console.error('Failed to warm DraftKings analytics:', err.message);
-    }
-    
-    const launchDate = '2025-12-01';
-    const today = new Date().toISOString().split('T')[0];
-    const analyticsPresets = [
-      { start: '2025-03-01', end: today },
-      { start: '2025-12-01', end: today },
-    ];
-    
-    for (const preset of analyticsPresets) {
-      const dateRangeKey = `from_${preset.start}`;
-      const cacheKey = `all-project-analytics-v3:${launchDate}:${dateRangeKey}`;
-      
-      try {
-        const result = await fetchProjectAnalytics(launchDate, preset.start, preset.end);
-        cache.set(cacheKey, result, 600);
-      } catch (err) {
-        console.error(`Failed to warm DK analytics list for ${preset.start}:`, err.message);
-      }
-    }
   } catch (error) {
     console.error('Cache warming failed:', error.message);
   }
