@@ -13,9 +13,6 @@ import Skeleton from './components/ui/Skeleton';
 import IssuesPage from './pages/IssuesPage';
 import PRsPage from './pages/PRsPage';
 import ProjectsPage from './pages/ProjectsPage';
-import AnalyticsLandingPage from './pages/AnalyticsLandingPage';
-import AnalyticsPage from './pages/AnalyticsPage';
-import NFLGamecastPage from './pages/NFLGamecastPage';
 import LeaderboardPage from './pages/LeaderboardPage';
 import LogbookPage from './pages/LogbookPage';
 
@@ -147,9 +144,6 @@ function App() {
         <Link to={`/projects${queryString}`} className={location.pathname === '/projects' ? 'active' : ''}>
           Projects
         </Link>
-        <Link to={`/analytics${queryString}`} className={location.pathname.startsWith('/analytics') ? 'active' : ''}>
-          Analytics
-        </Link>
         <Link to={`/leaderboard${queryString}`} className={location.pathname === '/leaderboard' ? 'active' : ''}>
           Leaderboard
         </Link>
@@ -163,9 +157,6 @@ function App() {
         <Route path="/issues" element={<IssuesPage />} />
         <Route path="/prs" element={<PRsPage />} />
         <Route path="/projects" element={<ProjectsPage />} />
-        <Route path="/analytics" element={<AnalyticsLandingPage />} />
-        <Route path="/analytics/draftkings" element={<AnalyticsPage />} />
-        <Route path="/analytics/nfl-gamecast" element={<NFLGamecastPage />} />
         <Route path="/leaderboard" element={<LeaderboardPage />} />
         <Route path="/logbook" element={<LogbookPage />} />
         <Route path="/" element={

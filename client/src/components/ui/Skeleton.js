@@ -169,20 +169,5 @@ export function ProjectsPageSkeleton() {
   );
 }
 
-export function AnalyticsPageSkeleton() {
-  return (
-    <div className="skeleton-analytics-page">
-      <div className="skeleton-header">
-        <div className="skeleton skeleton-text" style={{ width: '200px', height: '32px' }} />
-        <div className="skeleton skeleton-text" style={{ width: '180px', height: '20px', marginTop: '8px' }} />
-      </div>
-      <Skeleton variant="chart" />
-      <div className="skeleton-stats-row">
-        <Skeleton variant="stat-card" count={4} />
-      </div>
-    </div>
-  );
-}
-
 export default Skeleton;
 
